@@ -37,6 +37,9 @@ yarn-error.log*
 # generated export
 Internships.xlsx
 
+# raw ATS responses from discovery
+/cache/
+
 # vercel
 .vercel
 

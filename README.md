@@ -24,6 +24,12 @@ npm run seed:projects
 npm run seed:companies
 ```
 
+## Discovery
+
+`npm run discover` reads Greenhouse, Lever and Workable JSON boards for companies
+that have a `board_token`. Workday stays manual. Raw responses sit in `cache/discover/`
+for three hours so a rerun is free. `npm run discover:loop` repeats that every four hours.
+
 ## Export
 
 `npm run export` writes `Internships.xlsx` from the database. The database is the source of
