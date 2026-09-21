@@ -22,6 +22,7 @@ Rerunning a seed never overwrites text that is already in the database.
 npm run seed:answers
 npm run seed:projects
 npm run seed:companies
+npm run seed:contacts
 ```
 
 ## Discovery
@@ -74,6 +75,29 @@ Claude Desktop config example (adjust the path):
 ```
 
 `npm run mcp:check` lists the nine tools and checks that every `jobs_ranked` row exists in Postgres.
+
+## Inbox and follow-ups
+
+Apply the V6 schema once:
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v6.sql
+npm run seed:contacts
+```
+
+Gmail scopes are **readonly + compose only** — `gmail.send` is never requested.
+
+```
+# set GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET in .env.local
+npm run gmail:auth
+npm run sync:inbox          # or sync:inbox:loop every 30 minutes
+npm run followups:dry       # then followups to create drafts
+```
+
+Moving an application to `submitted` inserts follow-ups at day 7 and day 14.
+An inbound reply cancels pending follow-ups. Drafts only go to addresses already
+in `contacts` with a real `source_url`. You press send in Gmail yourself.
+`npm run followups:check` verifies the day-5 inbound → day-7 cancel path offline.
 
 ## Export
 

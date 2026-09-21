@@ -43,6 +43,9 @@ Internships.xlsx
 # raw ATS responses from discovery
 /cache/
 
+# Gmail OAuth token lives under cache/ too
+# (cache/gmail-token.json)
+
 # vercel
 .vercel
 

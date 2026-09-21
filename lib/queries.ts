@@ -1,4 +1,5 @@
 import { pool } from "./db";
+import { logStatusEvent, scheduleFollowups } from "./followups";
 import type {
   Answer,
   ApplicationDetail,
@@ -212,17 +213,41 @@ export async function listApplications(): Promise<ApplicationDetail[]> {
 }
 
 // 'submitted' is the one status that carries a date, so stamp it the first time we get there.
-export async function setApplicationStatus(id: string, status: ApplicationStatus) {
-  await pool.query(
+export async function setApplicationStatus(
+  id: string,
+  status: ApplicationStatus,
+  reason = "manual status change",
+) {
+  const { rows: before } = await pool.query<{ status: ApplicationStatus; submitted_at: Date | null }>(
+    `SELECT status, submitted_at FROM applications WHERE id = $1`,
+    [id],
+  );
+  if (!before[0]) throw new Error(`application not found: ${id}`);
+  const fromStatus = before[0].status;
+  if (fromStatus === status) return;
+
+  const { rows } = await pool.query<{ status: ApplicationStatus; submitted_at: Date | null }>(
     `UPDATE applications
         SET status = $2,
             submitted_at = CASE
               WHEN $2 = 'submitted' AND submitted_at IS NULL THEN now()
               ELSE submitted_at
             END
-      WHERE id = $1`,
+      WHERE id = $1
+      RETURNING status, submitted_at`,
     [id, status],
   );
+
+  await logStatusEvent({
+    applicationId: id,
+    fromStatus,
+    toStatus: status,
+    reason,
+  });
+
+  if (status === "submitted" && rows[0]?.submitted_at) {
+    await scheduleFollowups(id, rows[0].submitted_at);
+  }
 }
 
 export async function updateApplicationFields(

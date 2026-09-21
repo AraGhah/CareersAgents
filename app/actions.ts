@@ -80,6 +80,7 @@ export async function changeStatus(form: FormData) {
   await setApplicationStatus(id, status as ApplicationStatus);
   revalidatePath(`/applications/${id}`);
   revalidatePath("/board");
+  revalidatePath("/followups");
   revalidatePath("/");
 }
 

@@ -82,6 +82,7 @@ CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   application_id UUID REFERENCES applications(id),
   gmail_thread_id TEXT,
+  gmail_message_id TEXT UNIQUE,
   direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
   subject TEXT,
   snippet TEXT,
@@ -95,8 +96,21 @@ CREATE TABLE followups (
   due_on DATE NOT NULL,
   state TEXT NOT NULL DEFAULT 'pending'
     CHECK (state IN ('pending','drafted','sent','cancelled')),
-  gmail_draft_id TEXT
+  gmail_draft_id TEXT,
+  UNIQUE (application_id, due_on)
+);
+
+CREATE TABLE status_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id UUID NOT NULL REFERENCES applications(id),
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  reason TEXT,
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX ON jobs (company_id, last_seen_at);
 CREATE INDEX ON applications (status);
+CREATE INDEX ON status_events (application_id, occurred_at DESC);
+CREATE INDEX ON messages (application_id, occurred_at DESC);
+CREATE INDEX ON followups (due_on, state);
