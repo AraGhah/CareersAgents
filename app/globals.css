@@ -1,0 +1,277 @@
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --ink: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #e3e3df;
+  --accent: #2f5d50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a {
+  color: var(--accent);
+}
+
+header.top {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+header.top .brand {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+header.top nav {
+  display: flex;
+  gap: 1.1rem;
+}
+
+header.top nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+header.top nav a:hover {
+  color: var(--ink);
+}
+
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.75rem 1.5rem 4rem;
+}
+
+h1 {
+  font-size: 1.3rem;
+  margin: 0 0 0.35rem;
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 1.75rem 0 0.6rem;
+}
+
+p.lede {
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+td.tight {
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.filters {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+input[type="text"],
+input[type="url"],
+input[type="date"],
+select,
+textarea {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: inherit;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: inherit;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.badge.green {
+  background: #e7f2ec;
+  border-color: #bcd9c9;
+}
+
+.badge.yellow {
+  background: #fdf3dd;
+  border-color: #e6d3a3;
+}
+
+.badge.red {
+  background: #fbe9e7;
+  border-color: #e7bdb7;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1.25rem;
+}
+
+.field {
+  margin-bottom: 0.9rem;
+}
+
+.field label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.field input[type="text"],
+.field input[type="url"],
+.field select {
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.row > * {
+  flex: 1;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 0.9rem;
+}
+
+.board section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem;
+}
+
+.board h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.board ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.board li {
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.board li:first-child {
+  border-top: none;
+}
+
+.board .co {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+dl.facts {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+dl.facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+dl.facts dd {
+  margin: 0;
+}
+
+pre.description {
+  white-space: pre-wrap;
+  font: inherit;
+  margin: 0;
+  color: var(--ink);
+}
