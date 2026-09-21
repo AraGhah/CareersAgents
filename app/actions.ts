@@ -5,10 +5,12 @@ import { redirect } from "next/navigation";
 import {
   createCompany,
   createManualJob,
+  getApplication,
   setApplicationStatus,
   startApplication,
   updateApplicationFields,
 } from "../lib/queries";
+import { buildApplicationPackage } from "../lib/package";
 import {
   APPLICATION_STATUSES,
   WORKPLACE_TYPES,
@@ -89,4 +91,31 @@ export async function saveApplication(form: FormData) {
     coverLetterPath: text(form, "coverLetterPath"),
   });
   revalidatePath(`/applications/${id}`);
+}
+
+export async function buildPackage(form: FormData) {
+  const id = required(form, "applicationId");
+  const companyFact = required(form, "companyFact");
+  const companyFactSource = required(form, "companyFactSource");
+  const langRaw = text(form, "lang");
+  const lang = langRaw === "fr" || langRaw === "en" ? langRaw : undefined;
+
+  const app = await getApplication(id);
+  if (!app) throw new Error("application not found");
+
+  const result = await buildApplicationPackage({
+    app,
+    companyFact,
+    companyFactSource,
+    lang,
+  });
+
+  await updateApplicationFields(id, {
+    notes: app.notes,
+    resumePath: app.resume_path,
+    coverLetterPath: result.pdfPath,
+  });
+
+  revalidatePath(`/applications/${id}`);
+  redirect(`/applications/${id}?built=1`);
 }

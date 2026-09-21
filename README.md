@@ -38,6 +38,17 @@ If location or timing is 0 the posting is skipped regardless of the total.
 `npm run score:check` confirms identical text scores identically, and that a
 weight change reorders two synthetic postings.
 
+## Application package
+
+On an application page, write a company fact with its source URL and click
+**Build letter and checklist**. The letter is filled from the answer bank and
+the projects whose `highlight_for` overlaps the posting. Green answers paste as
+is; yellow ones you reword; red ones you type yourself. PDFs land in
+`applications/{company}-{role}/`. The checklist is mechanical: company name,
+role title, noun check, resume path on disk, link HTTP status, one application
+row per job. `npm run package:check` builds one package and verifies a
+corrupted company name fails the checklist.
+
 ## Export
 
 `npm run export` writes `Internships.xlsx` from the database. The database is the source of

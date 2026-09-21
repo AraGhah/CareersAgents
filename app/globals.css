@@ -301,3 +301,8 @@ pre.description {
   margin: 0;
   color: var(--ink);
 }
+
+code {
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-size: 0.9em;
+}

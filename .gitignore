@@ -37,6 +37,9 @@ yarn-error.log*
 # generated export
 Internships.xlsx
 
+# generated application packages (letters, PDFs, checklists)
+/applications/
+
 # raw ATS responses from discovery
 /cache/
 
