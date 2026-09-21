@@ -49,6 +49,32 @@ role title, noun check, resume path on disk, link HTTP status, one application
 row per job. `npm run package:check` builds one package and verifies a
 corrupted company name fails the checklist.
 
+## Desk server (stdio)
+
+One process, not eight. `npm run mcp` starts `mcp/server.ts` over stdio.
+
+Read tools: `jobs_ranked`, `application_status`, `applications_by_state`,
+`company_profile`, `answer_lookup`, `followups_due`, `search_jobs`.
+
+Write tools (reversible only): `set_application_status`, `add_note`.
+Nothing that submits a form or sends mail is exposed.
+
+Claude Desktop config example (adjust the path):
+
+```json
+{
+  "mcpServers": {
+    "internship-desk": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "cwd": "C:/path/to/CareersAgents"
+    }
+  }
+}
+```
+
+`npm run mcp:check` lists the nine tools and checks that every `jobs_ranked` row exists in Postgres.
+
 ## Export
 
 `npm run export` writes `Internships.xlsx` from the database. The database is the source of

@@ -237,6 +237,22 @@ export async function updateApplicationFields(
   );
 }
 
+export async function appendApplicationNote(id: string, note: string) {
+  const stamped = `[${new Date().toISOString().slice(0, 10)}] ${note.trim()}`;
+  const { rows } = await pool.query<{ notes: string | null }>(
+    `UPDATE applications
+        SET notes = CASE
+              WHEN notes IS NULL OR btrim(notes) = '' THEN $2
+              ELSE notes || E'\n\n' || $2
+            END
+      WHERE id = $1
+      RETURNING notes`,
+    [id, stamped],
+  );
+  if (!rows[0]) throw new Error(`application not found: ${id}`);
+  return rows[0].notes;
+}
+
 export async function listAnswers(): Promise<Answer[]> {
   const { rows } = await pool.query<Answer>(
     `SELECT id, key, category, answer_en, answer_fr, updated_at
