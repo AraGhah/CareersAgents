@@ -1,17 +1,32 @@
 import Link from "next/link";
 import { trackJob } from "./actions";
-import { day, place } from "../lib/format";
+import { day, percent, place } from "../lib/format";
 import { listJobs } from "../lib/queries";
+import { bandOf } from "../lib/score";
 
-type Search = { q?: string; closed?: string; untracked?: string };
+type Search = {
+  q?: string;
+  closed?: string;
+  untracked?: string;
+  low?: string;
+  skipped?: string;
+};
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
   const search = sp.q?.trim() || undefined;
   const includeClosed = sp.closed === "1";
   const untrackedOnly = sp.untracked === "1";
+  const includeLow = sp.low === "1";
+  const includeSkipped = sp.skipped === "1";
 
-  const jobs = await listJobs({ search, includeClosed, untrackedOnly });
+  const jobs = await listJobs({
+    search,
+    includeClosed,
+    untrackedOnly,
+    includeLow,
+    includeSkipped,
+  });
 
   return (
     <>
@@ -19,7 +34,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       <p className="lede">
         {jobs.length} {jobs.length === 1 ? "posting" : "postings"}
         {includeClosed ? ", closed ones included" : ", open only"}
-        {untrackedOnly ? ", not tracked yet" : ""}.
+        {untrackedOnly ? ", not tracked yet" : ""}
+        {includeLow ? ", below 60 included" : ", below 60 hidden"}
+        {includeSkipped ? ", skipped included" : ""}.
       </p>
 
       <form className="filters" method="get">
@@ -31,6 +48,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <label>
           <input type="checkbox" name="closed" value="1" defaultChecked={includeClosed} /> Include
           closed
+        </label>
+        <label>
+          <input type="checkbox" name="low" value="1" defaultChecked={includeLow} /> Below 60
+        </label>
+        <label>
+          <input type="checkbox" name="skipped" value="1" defaultChecked={includeSkipped} /> Skipped
+          (location/timing)
         </label>
         <button type="submit">Filter</button>
       </form>
@@ -46,36 +70,46 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
               <th>Role</th>
               <th>Company</th>
               <th>Where</th>
+              <th>Score</th>
               <th>First seen</th>
               <th>Application</th>
             </tr>
           </thead>
           <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id}>
-                <td>
-                  <a href={job.url} target="_blank" rel="noreferrer">
-                    {job.title}
-                  </a>
-                  {job.closed_at ? <span className="badge"> closed</span> : null}
-                </td>
-                <td>{job.company_name}</td>
-                <td>{place(job.location, job.workplace_type)}</td>
-                <td className="tight">{day(job.first_seen_at)}</td>
-                <td>
-                  {job.application_id ? (
-                    <Link href={`/applications/${job.application_id}`}>
-                      <span className="badge">{job.status}</span>
-                    </Link>
-                  ) : (
-                    <form action={trackJob}>
-                      <input type="hidden" name="jobId" value={job.id} />
-                      <button type="submit">Track</button>
-                    </form>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {jobs.map((job) => {
+              const pct = job.score == null ? null : Math.round(Number(job.score) * 100);
+              const band = pct == null ? null : bandOf(pct, Boolean(job.gated));
+              return (
+                <tr key={job.id}>
+                  <td>
+                    <Link href={`/jobs/${job.id}`}>{job.title}</Link>
+                    {job.closed_at ? <span className="badge"> closed</span> : null}
+                  </td>
+                  <td>{job.company_name}</td>
+                  <td>{place(job.location, job.workplace_type)}</td>
+                  <td>
+                    {pct == null ? (
+                      <span className="empty">{"\u2014"}</span>
+                    ) : (
+                      <span className={`badge ${band}`}>{job.gated ? "skip" : percent(job.score)}</span>
+                    )}
+                  </td>
+                  <td className="tight">{day(job.first_seen_at)}</td>
+                  <td>
+                    {job.application_id ? (
+                      <Link href={`/applications/${job.application_id}`}>
+                        <span className="badge">{job.status}</span>
+                      </Link>
+                    ) : (
+                      <form action={trackJob}>
+                        <input type="hidden" name="jobId" value={job.id} />
+                        <button type="submit">Track</button>
+                      </form>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

@@ -30,6 +30,14 @@ npm run seed:companies
 that have a `board_token`. Workday stays manual. Raw responses sit in `cache/discover/`
 for three hours so a rerun is free. `npm run discover:loop` repeats that every four hours.
 
+## Scoring
+
+`npm run score` writes five 0–1 components into `job_scores` from the posting text.
+Weights live in `weights.json` and are untuned priors, not fitted to anything.
+If location or timing is 0 the posting is skipped regardless of the total.
+`npm run score:check` confirms identical text scores identically, and that a
+weight change reorders two synthetic postings.
+
 ## Export
 
 `npm run export` writes `Internships.xlsx` from the database. The database is the source of

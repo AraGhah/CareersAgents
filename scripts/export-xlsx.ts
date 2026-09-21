@@ -58,6 +58,8 @@ async function main() {
     { header: "Role", key: "title" },
     { header: "Location", key: "location" },
     { header: "Workplace", key: "workplace_type" },
+    { header: "Score", key: "score" },
+    { header: "Skipped", key: "skipped" },
     { header: "Posted", key: "posted_at" },
     { header: "First seen", key: "first_seen_at" },
     { header: "Closed", key: "closed_at" },
@@ -66,7 +68,23 @@ async function main() {
   ];
 
   const jobRows = await pool.query(
-    `SELECT c.name AS company, j.title, j.location, j.workplace_type,
+    `WITH latest AS (
+       SELECT job_id, MAX(scored_at) AS scored_at
+         FROM job_scores
+        GROUP BY job_id
+     ),
+     totals AS (
+       SELECT s.job_id,
+              ROUND(SUM(s.raw_value * s.weight) * 100) AS score,
+              BOOL_OR(s.component = 'location' AND s.raw_value = 0)
+                OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+         FROM job_scores s
+         JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
+        GROUP BY s.job_id
+     )
+     SELECT c.name AS company, j.title, j.location, j.workplace_type,
+            t.score,
+            CASE WHEN t.gated THEN 'yes' WHEN t.job_id IS NULL THEN '' ELSE 'no' END AS skipped,
             to_char(j.posted_at, 'YYYY-MM-DD') AS posted_at,
             to_char(j.first_seen_at, 'YYYY-MM-DD') AS first_seen_at,
             to_char(j.closed_at, 'YYYY-MM-DD') AS closed_at,
@@ -75,7 +93,8 @@ async function main() {
        FROM jobs j
        JOIN companies c ON c.id = j.company_id
        LEFT JOIN applications a ON a.job_id = j.id
-      ORDER BY j.first_seen_at DESC, c.name`,
+       LEFT JOIN totals t ON t.job_id = j.id
+      ORDER BY t.score DESC NULLS LAST, j.first_seen_at DESC, c.name`,
   );
   openings.addRows(jobRows.rows);
   header(openings);

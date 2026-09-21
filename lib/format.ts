@@ -8,3 +8,8 @@ export function place(location: string | null, workplaceType: string | null): st
   const parts = [location, workplaceType].filter(Boolean);
   return parts.length ? parts.join(" \u00b7 ") : "\u2014";
 }
+
+export function percent(value: string | number | null): string {
+  if (value == null) return "\u2014";
+  return String(Math.round(Number(value) * 100));
+}

@@ -14,7 +14,9 @@
     "export": "tsx scripts/export-xlsx.ts",
     "discover": "tsx scripts/discover.ts",
     "discover:fresh": "tsx scripts/discover.ts --fresh",
-    "discover:loop": "tsx scripts/discover.ts --loop"
+    "discover:loop": "tsx scripts/discover.ts --loop",
+    "score": "tsx scripts/score.ts",
+    "score:check": "tsx scripts/score.ts --check"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

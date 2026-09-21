@@ -42,12 +42,22 @@ export type JobRow = {
   company_name: string;
   application_id: string | null;
   status: ApplicationStatus | null;
+  score: string | null;
+  gated: boolean | null;
+};
+
+export type ScoreComponent = {
+  component: string;
+  raw_value: string;
+  weight: string;
 };
 
 export type JobDetail = JobRow & {
   description: string | null;
   last_seen_at: Date;
   external_id: string;
+  company_city: string | null;
+  components: ScoreComponent[];
 };
 
 export type ApplicationDetail = {

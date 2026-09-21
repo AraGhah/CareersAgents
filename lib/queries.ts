@@ -7,23 +7,46 @@ import type {
   JobDetail,
   JobRow,
   Project,
+  ScoreComponent,
   WorkplaceType,
 } from "./types";
 
+const SCORE_CTE = `
+  WITH latest AS (
+    SELECT job_id, MAX(scored_at) AS scored_at
+      FROM job_scores
+     GROUP BY job_id
+  ),
+  totals AS (
+    SELECT s.job_id,
+           SUM(s.raw_value * s.weight) AS score,
+           BOOL_OR(s.component = 'location' AND s.raw_value = 0)
+             OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+      FROM job_scores s
+      JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
+     GROUP BY s.job_id
+  )
+`;
+
 const JOB_LIST_SELECT = `
+  ${SCORE_CTE}
   SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.posted_at,
          j.first_seen_at, j.closed_at, j.company_id,
          c.name AS company_name,
-         a.id AS application_id, a.status
+         a.id AS application_id, a.status,
+         t.score, t.gated
     FROM jobs j
     JOIN companies c ON c.id = j.company_id
     LEFT JOIN applications a ON a.job_id = j.id
+    LEFT JOIN totals t ON t.job_id = j.id
 `;
 
 export async function listJobs(opts: {
   search?: string;
   includeClosed?: boolean;
   untrackedOnly?: boolean;
+  includeLow?: boolean;
+  includeSkipped?: boolean;
 }): Promise<JobRow[]> {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -34,6 +57,12 @@ export async function listJobs(opts: {
   if (opts.untrackedOnly) {
     where.push("a.id IS NULL");
   }
+  if (!opts.includeSkipped) {
+    where.push("(t.job_id IS NULL OR t.gated IS NOT TRUE)");
+  }
+  if (!opts.includeLow) {
+    where.push("(t.job_id IS NULL OR t.gated OR t.score >= 0.60)");
+  }
   if (opts.search) {
     params.push(`%${opts.search}%`);
     where.push(`(j.title ILIKE $${params.length} OR c.name ILIKE $${params.length})`);
@@ -41,26 +70,55 @@ export async function listJobs(opts: {
 
   const sql = `${JOB_LIST_SELECT}
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    ORDER BY j.first_seen_at DESC, c.name`;
+    ORDER BY CASE
+               WHEN t.gated THEN 2
+               WHEN t.job_id IS NULL THEN 1
+               ELSE 0
+             END,
+             t.score DESC NULLS LAST,
+             j.first_seen_at DESC, c.name`;
 
   const { rows } = await pool.query<JobRow>(sql, params);
   return rows;
 }
 
 export async function getJob(id: string): Promise<JobDetail | null> {
-  const { rows } = await pool.query<JobDetail>(
-    `SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.description,
+  const { rows } = await pool.query<Omit<JobDetail, "components">>(
+    `${SCORE_CTE}
+     SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.description,
             j.posted_at, j.first_seen_at, j.last_seen_at, j.closed_at,
             j.external_id, j.company_id,
-            c.name AS company_name,
-            a.id AS application_id, a.status
+            c.name AS company_name, c.city AS company_city,
+            a.id AS application_id, a.status,
+            t.score, t.gated
        FROM jobs j
        JOIN companies c ON c.id = j.company_id
        LEFT JOIN applications a ON a.job_id = j.id
+       LEFT JOIN totals t ON t.job_id = j.id
       WHERE j.id = $1`,
     [id],
   );
-  return rows[0] ?? null;
+  const job = rows[0];
+  if (!job) return null;
+
+  const components = await listJobComponents(id);
+  return { ...job, components };
+}
+
+export async function listJobComponents(jobId: string): Promise<ScoreComponent[]> {
+  const { rows } = await pool.query<ScoreComponent>(
+    `SELECT s.component, s.raw_value::text, s.weight::text
+       FROM job_scores s
+       JOIN (
+         SELECT MAX(scored_at) AS scored_at
+           FROM job_scores
+          WHERE job_id = $1
+       ) latest ON latest.scored_at = s.scored_at
+      WHERE s.job_id = $1
+      ORDER BY s.component`,
+    [jobId],
+  );
+  return rows;
 }
 
 export async function listCompanies(): Promise<Company[]> {
