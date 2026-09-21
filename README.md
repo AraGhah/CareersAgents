@@ -99,6 +99,20 @@ An inbound reply cancels pending follow-ups. Drafts only go to addresses already
 in `contacts` with a real `source_url`. You press send in Gmail yourself.
 `npm run followups:check` verifies the day-5 inbound → day-7 cancel path offline.
 
+## Browser assist
+
+Deliberately incomplete. Playwright opens the posting in a **headed** window, fills
+green answers, pre-fills yellow ones (highlighted), leaves red fields empty, and
+**never clicks Submit**.
+
+```
+npm run assist:check
+npx tsx scripts/assist-apply.ts --application <uuid>
+```
+
+Target companies (`is_target`) are refused unless you pass `--i-know`. Prefer filling
+those by hand. After you submit in the browser, set the status to `submitted` in the app.
+
 ## Export
 
 `npm run export` writes `Internships.xlsx` from the database. The database is the source of

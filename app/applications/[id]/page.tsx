@@ -88,6 +88,14 @@ export default async function ApplicationPage({
         </dl>
       </div>
 
+      <div className="panel">
+        <p className="lede" style={{ marginBottom: "0.5rem" }}>
+          Browser assist fills green fields, pre-fills yellow ones, leaves red empty, and never
+          clicks Submit. Mark submitted here after you send the form yourself.
+        </p>
+        <pre className="description">{`npx tsx scripts/assist-apply.ts --application ${app.id}`}</pre>
+      </div>
+
       <form action={saveApplication} className="panel">
         <input type="hidden" name="applicationId" value={app.id} />
         <div className="row">
