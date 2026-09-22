@@ -87,17 +87,33 @@ export function followupTemplate(opts: {
   roleTitle: string;
   fullName: string;
   daysSinceSubmit: number;
+  lang?: "en" | "fr";
 }): { subject: string; body: string } {
+  if (opts.lang === "fr") {
+    return {
+      subject: `Relance - ${opts.roleTitle}`,
+      body: [
+        "Bonjour,",
+        "",
+        `J'ai postulé au poste ${opts.roleTitle} chez ${opts.companyName} il y a environ ${opts.daysSinceSubmit} jours et je voulais savoir si vous aviez besoin d'autres documents.`,
+        "",
+        "Je peux détailler mes projets ou ma disponibilité si utile.",
+        "",
+        "Cordialement,",
+        opts.fullName,
+      ].join("\n"),
+    };
+  }
   return {
-    subject: `Following up — ${opts.roleTitle}`,
+    subject: `Following up - ${opts.roleTitle}`,
     body: [
-      `Hello,`,
-      ``,
+      "Hello,",
+      "",
       `I applied for the ${opts.roleTitle} role at ${opts.companyName} about ${opts.daysSinceSubmit} days ago and wanted to check whether you need anything else from me.`,
-      ``,
-      `Happy to share more detail on my projects or availability.`,
-      ``,
-      `Best regards,`,
+      "",
+      "Happy to share more detail on my projects or availability.",
+      "",
+      "Best regards,",
       opts.fullName,
     ].join("\n"),
   };

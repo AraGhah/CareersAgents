@@ -226,6 +226,38 @@ export function explain(components: Components, percent: number, gated: boolean)
   return `${first} Total ${percent}, under 60, so it stays hidden by default and is not deleted.`;
 }
 
+export function explainFr(components: Components, percent: number, gated: boolean): string {
+  const labels: Record<ComponentName, string> = {
+    skills: "compétences",
+    location: "lieu",
+    timing: "période",
+    language: "langue",
+    level: "niveau",
+  };
+  const parts = COMPONENT_NAMES.map((name) => `${labels[name]} ${fmt(components[name])}`);
+  const first = `Les cinq composantes : ${parts.join(", ")}.`;
+
+  if (components.location === 0 && components.timing === 0) {
+    return `${first} Lieu et période à 0 : offre rejetée, peu importe le total.`;
+  }
+  if (components.location === 0) {
+    return `${first} Lieu à 0 : offre rejetée, peu importe le total.`;
+  }
+  if (components.timing === 0) {
+    return `${first} Période à 0 : offre rejetée, peu importe le total.`;
+  }
+  if (percent >= 85) {
+    return `${first} Total ${percent} : priorité.`;
+  }
+  if (percent >= 70) {
+    return `${first} Total ${percent} : postuler.`;
+  }
+  if (percent >= 60) {
+    return `${first} Total ${percent} : à revoir.`;
+  }
+  return `${first} Total ${percent} : sous 60, masqué par défaut (non supprimé).`;
+}
+
 export function scoreJob(input: ScoreInput, weights: Weights = defaultWeights): ScoreResult {
   const text = haystack(input);
   const found = findSkills(text);

@@ -59,6 +59,70 @@ function projectBlurb(project: Project, lang: LetterLang): string {
   return `${project.name} (${tech}): ${project.summary}`;
 }
 
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function trimToWordLimit(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text.trim();
+  return `${words.slice(0, maxWords).join(" ")}…`;
+}
+
+/** Short outreach email (Agent 5), capped at 120 words in the body. */
+export function fillOutreachEmail(input: LetterInput): { subject: string; body: string; wordCount: number } {
+  const leadProject = input.projects[0];
+  const primaryLink = input.links[0] ?? "";
+
+  if (input.lang === "fr") {
+    const hook = `${input.companyFact}`.replace(/\s+/g, " ").trim();
+    const projectLine = leadProject
+      ? `Récemment, j'ai travaillé sur ${leadProject.name} (${leadProject.tech.slice(0, 3).join(", ")}).`
+      : "";
+    const bodyParts = [
+      "Bonjour,",
+      "",
+      `Je vous écris au sujet du poste ${input.roleTitle} chez ${input.companyName}. ${hook}`,
+      projectLine,
+      `Je suis disponible à partir de ${input.availability}.`,
+      primaryLink ? `Portfolio et liens : ${primaryLink}` : "",
+      "",
+      "Merci de votre temps,",
+      input.fullName,
+    ].filter(Boolean);
+    let body = bodyParts.join("\n");
+    body = trimToWordLimit(body, 120);
+    return {
+      subject: `Candidature - ${input.roleTitle}`,
+      body,
+      wordCount: countWords(body),
+    };
+  }
+
+  const hook = `${input.companyFact}`.replace(/\s+/g, " ").trim();
+  const projectLine = leadProject
+    ? `Recently I shipped ${leadProject.name} (${leadProject.tech.slice(0, 3).join(", ")}).`
+    : "";
+  const bodyParts = [
+    "Hello,",
+    "",
+    `I am reaching out about the ${input.roleTitle} role at ${input.companyName}. ${hook}`,
+    projectLine,
+    `I am available from ${input.availability}.`,
+    primaryLink ? `Links: ${primaryLink}` : "",
+    "",
+    "Thank you,",
+    input.fullName,
+  ].filter(Boolean);
+  let body = bodyParts.join("\n");
+  body = trimToWordLimit(body, 120);
+  return {
+    subject: `Application — ${input.roleTitle}`,
+    body,
+    wordCount: countWords(body),
+  };
+}
+
 export function fillLetter(input: LetterInput): string {
   const projects = input.projects.map((p) => projectBlurb(p, input.lang)).join("\n\n");
   const links = input.links.join("\n");

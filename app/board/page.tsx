@@ -2,6 +2,7 @@ import Link from "next/link";
 import { day } from "../../lib/format";
 import { listApplications } from "../../lib/queries";
 import { APPLICATION_STATUSES } from "../../lib/types";
+import { APPLICATION_STATUS_FR } from "../../lib/status-labels";
 
 export default async function BoardPage() {
   const applications = await listApplications();
@@ -24,7 +25,7 @@ export default async function BoardPage() {
           return (
             <section key={status}>
               <h3>
-                {status} ({column.length})
+                {APPLICATION_STATUS_FR[status]} ({column.length})
               </h3>
               {column.length === 0 ? (
                 <p className="empty">&mdash;</p>

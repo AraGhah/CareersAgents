@@ -166,12 +166,27 @@ export default async function ApplicationPage({
           </select>
         </div>
         <button type="submit" className="primary">
-          Build letter and checklist
+          Build letter, email and checklist
         </button>
       </form>
 
       {stored?.letter ? (
         <>
+          {stored.emailBody ? (
+            <>
+              <h2>Outreach email ({stored.lang})</h2>
+              <p className="lede">
+                Brouillon court (Agent 5). {stored.emailWordCount ?? "?"} mots. Tu envoies toi-même.
+              </p>
+              <div className="panel">
+                <p>
+                  <strong>Objet :</strong> {stored.emailSubject}
+                </p>
+                <pre className="description">{stored.emailBody}</pre>
+              </div>
+            </>
+          ) : null}
+
           <h2>Draft letter ({stored.lang})</h2>
           <p className="lede">
             Projects used: {(stored.projects ?? []).join(", ") || "none"}. Files under{" "}

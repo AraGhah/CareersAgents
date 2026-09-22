@@ -287,6 +287,48 @@ export async function listAnswers(): Promise<Answer[]> {
   return rows;
 }
 
+export type DeskSummary = {
+  openJobs: number;
+  tracked: number;
+  submitted: number;
+  priorityOpen: number;
+  followupsDue: number;
+};
+
+export async function deskSummary(): Promise<DeskSummary> {
+  const { rows } = await pool.query<{
+    open_jobs: string;
+    tracked: string;
+    submitted: string;
+    priority_open: string;
+    followups_due: string;
+  }>(
+    `${SCORE_CTE}
+     SELECT
+       (SELECT count(*)::text FROM jobs WHERE closed_at IS NULL) AS open_jobs,
+       (SELECT count(*)::text FROM applications) AS tracked,
+       (SELECT count(*)::text FROM applications WHERE status = 'submitted') AS submitted,
+       (SELECT count(*)::text
+          FROM jobs j
+          JOIN totals t ON t.job_id = j.id
+         WHERE j.closed_at IS NULL
+           AND t.gated IS NOT TRUE
+           AND t.score >= 0.85) AS priority_open,
+       (SELECT count(*)::text
+          FROM followups f
+         WHERE f.state IN ('pending', 'drafted')
+           AND f.due_on <= CURRENT_DATE) AS followups_due`,
+  );
+  const row = rows[0];
+  return {
+    openJobs: Number(row?.open_jobs ?? 0),
+    tracked: Number(row?.tracked ?? 0),
+    submitted: Number(row?.submitted ?? 0),
+    priorityOpen: Number(row?.priority_open ?? 0),
+    followupsDue: Number(row?.followups_due ?? 0),
+  };
+}
+
 export async function listProjects(): Promise<Project[]> {
   const { rows } = await pool.query<Project>(
     `SELECT id, name, summary, tech, url, highlight_for

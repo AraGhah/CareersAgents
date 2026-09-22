@@ -1,10 +1,12 @@
 :root {
-  --bg: #fbfbfa;
+  --bg: #f4f6f5;
   --panel: #ffffff;
-  --ink: #1d1d1b;
-  --muted: #6b6b66;
-  --line: #e3e3df;
-  --accent: #2f5d50;
+  --ink: #1a2420;
+  --muted: #5c6661;
+  --line: #d8deda;
+  --accent: #1f5c4a;
+  --accent-soft: #e6f0ec;
+  --warn-soft: #faf3e3;
 }
 
 * {
@@ -18,9 +20,12 @@ body {
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #dfece6 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #e8eef5 0%, transparent 50%),
+    var(--bg);
   color: var(--ink);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 15px/1.55 var(--font-sans, "IBM Plex Sans"), "Segoe UI", sans-serif;
 }
 
 a {
@@ -36,9 +41,23 @@ header.top {
   background: var(--panel);
 }
 
+header.top .brand-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
 header.top .brand {
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  font-size: 1.05rem;
+}
+
+header.top .brand-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 header.top nav {
@@ -303,6 +322,42 @@ pre.description {
 }
 
 code {
-  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  font-family: var(--font-mono, "IBM Plex Mono"), ui-monospace, monospace;
   font-size: 0.9em;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 1.35rem;
+}
+
+.stats article {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.75rem 0.9rem;
+}
+
+.stats strong {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.stats span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.two-col-explain {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (min-width: 760px) {
+  .two-col-explain {
+    grid-template-columns: 1fr 1fr;
+  }
 }

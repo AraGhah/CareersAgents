@@ -6,6 +6,7 @@ import {
   bankForForm,
   detectLetterLang,
   fillLetter,
+  fillOutreachEmail,
   flagUnknownNouns,
   parseLinks,
   type LetterInput,
@@ -27,7 +28,11 @@ export type PackageResult = {
   dir: string;
   letterPath: string;
   pdfPath: string;
+  emailPath: string;
   letter: string;
+  emailSubject: string;
+  emailBody: string;
+  emailWordCount: number;
   lang: LetterLang;
   categories: string[];
   projects: Project[];
@@ -274,6 +279,7 @@ export async function buildApplicationPackage(opts: {
   };
 
   const letter = fillLetter(input);
+  const outreach = fillOutreachEmail(input);
   const flags = flagUnknownNouns(letter, input);
 
   const dir = path.join(
@@ -284,8 +290,14 @@ export async function buildApplicationPackage(opts: {
 
   const letterPath = path.join(dir, `cover-letter.${lang}.txt`);
   const pdfPath = path.join(dir, `cover-letter.${lang}.pdf`);
+  const emailPath = path.join(dir, `outreach-email.${lang}.txt`);
   await writeFile(letterPath, letter, "utf8");
   await writePdf(letter, pdfPath);
+  await writeFile(
+    emailPath,
+    [`Subject: ${outreach.subject}`, "", outreach.body].join("\n"),
+    "utf8",
+  );
 
   const checklist = await runChecklist({ app: opts.app, letter, input, flags });
 
@@ -301,6 +313,9 @@ export async function buildApplicationPackage(opts: {
         checklist,
         companyFact: opts.companyFact,
         companyFactSource: opts.companyFactSource,
+        emailSubject: outreach.subject,
+        emailBody: outreach.body,
+        emailWordCount: outreach.wordCount,
       },
       null,
       2,
@@ -312,7 +327,11 @@ export async function buildApplicationPackage(opts: {
     dir,
     letterPath,
     pdfPath,
+    emailPath,
     letter,
+    emailSubject: outreach.subject,
+    emailBody: outreach.body,
+    emailWordCount: outreach.wordCount,
     lang,
     categories,
     projects,

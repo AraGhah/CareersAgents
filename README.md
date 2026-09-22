@@ -34,15 +34,17 @@ for three hours so a rerun is free. `npm run discover:loop` repeats that every f
 ## Scoring
 
 `npm run score` writes five 0–1 components into `job_scores` from the posting text.
-Weights live in `weights.json` and are untuned priors, not fitted to anything.
+Weights live in `weights.json` (skills 40%, location 20%, timing 20%, language 10%, level 10%).
 If location or timing is 0 the posting is skipped regardless of the total.
+Job detail pages show English and French score explanations.
 `npm run score:check` confirms identical text scores identically, and that a
 weight change reorders two synthetic postings.
 
 ## Application package
 
 On an application page, write a company fact with its source URL and click
-**Build letter and checklist**. The letter is filled from the answer bank and
+**Build letter, email and checklist**. You get a short outreach email (120 words max),
+a cover letter, PDF, and checklist. The letter is filled from the answer bank and
 the projects whose `highlight_for` overlaps the posting. Green answers paste as
 is; yellow ones you reword; red ones you type yourself. PDFs land in
 `applications/{company}-{role}/`. The checklist is mechanical: company name,
@@ -118,3 +120,37 @@ those by hand. After you submit in the browser, set the status to `submitted` in
 `npm run export` writes `Stages_2027.xlsx` (colonnes du suivi de candidatures, liste
 déroulante Statut) and `Internships.xlsx` (short English view). The database is the
 source of truth; the spreadsheets are views of it.
+
+## Build guide status (V1–V7)
+
+| Version | Status |
+|---------|--------|
+| V1 Tracker + answer bank | Done |
+| V2 Discovery (Greenhouse / Lever / Workable) | Done |
+| V3 Scoring | Done |
+| V4 Application package | Done (+ outreach email draft) |
+| V5 MCP server | Done |
+| V6 Inbox + follow-ups (Gmail drafts only) | Done (needs your OAuth + real volume) |
+| V7 Browser assist (Playwright, no Submit) | Done |
+
+## Eight-agent workflow: what is coded vs what stays in chat
+
+| Agent | In the desk | Still manual / chat |
+|-------|-------------|---------------------|
+| 1 Chercheur | `discover`, add job, web search in Cursor | Workday postings, dedup across sources |
+| 2 Analyste | `score`, UI bands, FR explanations | Final judgment on edge cases |
+| 3 Dossier entreprise | Company fact + URL on application page | Full 10-line dossier with dated news |
+| 4 Contact | `contacts` table + seed | Finding recruiter on each new company |
+| 5 Rédacteur | Letter + PDF + **outreach-email.{lang}.txt** | Read every FR letter before sending |
+| 6 Formulaires | `assist-apply`, answer bank on application page | Red / sensitive questions |
+| 7 Excel | `npm run export` → `Stages_2027.xlsx` | Hand-enter rows you sent before the desk existed |
+| 8 Relances | `followups`, `process-followups`, Gmail drafts | You click Send in Gmail |
+
+## Remaining to complete (recommended order)
+
+1. **Source files (Step 1)** — Add CV PDF (FR + EN) and a single `seed/profile.ts` or markdown profil outside git if you prefer; keep red answers (`work_authorization`, etc.) empty in the bank until you type them yourself.
+2. **Backfill tracker** — Export Excel, add past applications by hand, or insert via SQL; re-export so Agent 7 matches reality.
+3. **Gmail** — Run `gmail:auth` once; use `sync:inbox:loop` after ~15 submissions.
+4. **Daily routine (Step 9)** — `followups:dry` then read drafts; update status when replies arrive.
+5. **Optional code later** — Workday discover helper; import Excel → DB; company dossier table; interview prep button (posting + letter + projects, no auto-send).
+6. **Do not build yet** — Auto-submit, auto-send mail, LinkedIn scraping, eight separate MCP servers (explicitly cut in the build guide).

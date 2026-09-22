@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { trackJob } from "./actions";
 import { day, percent, place } from "../lib/format";
-import { listJobs } from "../lib/queries";
+import { deskSummary, listJobs } from "../lib/queries";
+import { BAND_LABEL_FR } from "../lib/status-labels";
 import { bandOf } from "../lib/score";
 
 type Search = {
@@ -20,17 +21,39 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const includeLow = sp.low === "1";
   const includeSkipped = sp.skipped === "1";
 
-  const jobs = await listJobs({
-    search,
-    includeClosed,
-    untrackedOnly,
-    includeLow,
-    includeSkipped,
-  });
+  const [jobs, summary] = await Promise.all([
+    listJobs({
+      search,
+      includeClosed,
+      untrackedOnly,
+      includeLow,
+      includeSkipped,
+    }),
+    deskSummary(),
+  ]);
 
   return (
     <>
       <h1>Openings</h1>
+
+      <div className="stats">
+        <article>
+          <strong>{summary.openJobs}</strong>
+          <span>Offres ouvertes</span>
+        </article>
+        <article>
+          <strong>{summary.priorityOpen}</strong>
+          <span>Score 85+ (priorité)</span>
+        </article>
+        <article>
+          <strong>{summary.tracked}</strong>
+          <span>Candidatures suivies</span>
+        </article>
+        <article>
+          <strong>{summary.followupsDue}</strong>
+          <span>Relances dues</span>
+        </article>
+      </div>
       <p className="lede">
         {jobs.length} {jobs.length === 1 ? "posting" : "postings"}
         {includeClosed ? ", closed ones included" : ", open only"}
@@ -91,7 +114,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
                     {pct == null ? (
                       <span className="empty">{"\u2014"}</span>
                     ) : (
-                      <span className={`badge ${band}`}>{job.gated ? "skip" : percent(job.score)}</span>
+                      <span className={`badge ${band}`} title={band ? BAND_LABEL_FR[band] : undefined}>
+                        {job.gated ? "skip" : percent(job.score)}
+                      </span>
                     )}
                   </td>
                   <td className="tight">{day(job.first_seen_at)}</td>

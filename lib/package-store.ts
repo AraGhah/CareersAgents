@@ -14,6 +14,9 @@ export type StoredPackage = {
   lang: string | null;
   companyFact: string | null;
   companyFactSource: string | null;
+  emailSubject: string | null;
+  emailBody: string | null;
+  emailWordCount: number | null;
 };
 
 type ChecklistFile = {
@@ -24,6 +27,9 @@ type ChecklistFile = {
   checklist?: ChecklistItem[];
   companyFact?: string;
   companyFactSource?: string;
+  emailSubject?: string;
+  emailBody?: string;
+  emailWordCount?: number;
 };
 
 export async function loadStoredPackage(coverLetterPath: string | null): Promise<StoredPackage | null> {
@@ -60,5 +66,8 @@ export async function loadStoredPackage(coverLetterPath: string | null): Promise
     lang: meta.lang ?? lang,
     companyFact: meta.companyFact ?? null,
     companyFactSource: meta.companyFactSource ?? null,
+    emailSubject: meta.emailSubject ?? null,
+    emailBody: meta.emailBody ?? null,
+    emailWordCount: meta.emailWordCount ?? null,
   };
 }

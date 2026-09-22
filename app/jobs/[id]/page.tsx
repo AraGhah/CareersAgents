@@ -7,9 +7,11 @@ import {
   COMPONENT_NAMES,
   bandOf,
   explain,
+  explainFr,
   findSkills,
   type Components,
 } from "../../../lib/score";
+import { COMPONENT_LABEL_FR } from "../../../lib/status-labels";
 
 export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,6 +28,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const gated = Boolean(job.gated);
   const band = pct == null ? null : bandOf(pct, gated);
   const explanation = scored ? explain(components, pct ?? 0, gated) : null;
+  const explanationFr = scored ? explainFr(components, pct ?? 0, gated) : null;
   const found = findSkills(
     [job.title, job.location, job.workplace_type, job.company_city, job.description]
       .filter(Boolean)
@@ -96,7 +99,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                 const row = job.components.find((c) => c.component === name);
                 return (
                   <tr key={name}>
-                    <td>{name}</td>
+                    <td>
+                      {name}
+                      <span className="empty"> ({COMPONENT_LABEL_FR[name] ?? name})</span>
+                    </td>
                     <td>{percent(row?.raw_value ?? null)}</td>
                     <td className="tight">{row ? percent(row.weight) : "\u2014"}</td>
                   </tr>
@@ -104,7 +110,12 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               })}
             </tbody>
           </table>
-          {explanation ? <p className="lede">{explanation}</p> : null}
+          {explanation || explanationFr ? (
+            <div className="two-col-explain">
+              {explanation ? <p className="lede">{explanation}</p> : null}
+              {explanationFr ? <p className="lede">{explanationFr}</p> : null}
+            </div>
+          ) : null}
         </>
       ) : null}
 
