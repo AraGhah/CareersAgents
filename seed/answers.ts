@@ -38,6 +38,12 @@ const answers: SeedAnswer[] = [
     answer_fr: "438-993-6997",
   },
   {
+    key: "city",
+    category: "green",
+    answer_en: "Montr\u00e9al, Qu\u00e9bec",
+    answer_fr: "Montr\u00e9al, Qu\u00e9bec",
+  },
+  {
     key: "links",
     category: "green",
     answer_en:

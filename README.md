@@ -115,5 +115,6 @@ those by hand. After you submit in the browser, set the status to `submitted` in
 
 ## Export
 
-`npm run export` writes `Internships.xlsx` from the database. The database is the source of
-truth; the spreadsheet is a view of it.
+`npm run export` writes `Stages_2027.xlsx` (colonnes du suivi de candidatures, liste
+déroulante Statut) and `Internships.xlsx` (short English view). The database is the
+source of truth; the spreadsheets are views of it.

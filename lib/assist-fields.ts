@@ -25,6 +25,7 @@ const RULES: Rule[] = [
   { key: "full_name", pattern: /^(full\s*name|legal\s*name|name|nom complet)$/i },
   { key: "email", pattern: /^(e-?mail|courriel|email address)$/i },
   { key: "phone", pattern: /^(phone|telephone|t[eé]l[eé]phone|mobile|cell)$/i },
+  { key: "city", pattern: /^(city|ville|town|municipalit)/i },
   { key: "links", pattern: /linkedin/i, part: "linkedin" },
   { key: "links", pattern: /github/i, part: "github" },
   { key: "links", pattern: /^(website|portfolio|site web|personal website)$/i, part: "portfolio" },
