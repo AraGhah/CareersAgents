@@ -6,10 +6,17 @@ import {
   type BoardCompany,
   type NormalizedJob,
 } from "./discover-core";
+import { fetchIndeedJobs, fetchLinkedInJobs, type ExternalJob } from "./sources-external";
+import filtersConfig from "../filters.json";
 import { COMPONENT_NAMES, scoreJob, setHaveSkills, type ComponentName } from "./score";
 import { getActiveSkills, resolveResumeForJob } from "./resumes";
-import { listSourceCapabilities } from "./sources";
-import { startApplication, setApplicationStatus, getApplication } from "./queries";
+import { listSourceCapabilities, type SourceCapability } from "./sources";
+import {
+  startApplication,
+  setApplicationStatus,
+  getApplication,
+  upsertDiscoveredCompany,
+} from "./queries";
 import { researchCompanyForApplication } from "./research";
 import { researchHiringContacts, pickBestContact, logWorkflow } from "./recruiter";
 import { buildPersonalizedOutreach, createOutreachDraft, hasOpenOutreach } from "./outreach";
@@ -25,6 +32,7 @@ export type DiscoverySummary = {
   skipped: number;
   scored: number;
   qualified: number;
+  prepared: number;
   sources: ReturnType<typeof listSourceCapabilities>;
   linkedin: string;
   indeed: string;
@@ -123,7 +131,7 @@ async function scoreAllOpenJobs(): Promise<number> {
   return rows.length;
 }
 
-async function autoTrackAndQualify(minPercent = 70): Promise<number> {
+async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number; newlyQualifiedIds: string[] }> {
   const { rows } = await pool.query<{
     job_id: string;
     application_id: string | null;
@@ -153,6 +161,7 @@ async function autoTrackAndQualify(minPercent = 70): Promise<number> {
   );
 
   let qualified = 0;
+  const newlyQualifiedIds: string[] = [];
   for (const row of rows) {
     let appId = row.application_id;
     if (!appId) {
@@ -164,9 +173,10 @@ async function autoTrackAndQualify(minPercent = 70): Promise<number> {
     if (["discovered", "qualified"].includes(app.status) || app.status === ("draft" as ApplicationStatus)) {
       await setApplicationStatus(appId, "qualified", `match score ${(Number(row.score) * 100).toFixed(0)}`);
       qualified += 1;
+      newlyQualifiedIds.push(appId);
     }
   }
-  return qualified;
+  return { qualified, newlyQualifiedIds };
 }
 
 /**
@@ -212,20 +222,57 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
       }
     }
 
-    // Explicit: do not invent LinkedIn / Indeed results.
-    if (!linkedin.available) {
-      errors.push(`LinkedIn skipped — ${linkedin.reason}`);
-    } else {
-      errors.push("LinkedIn credentials present but job-search actor adapter not wired in this build — refusing fake results.");
-    }
-    if (!indeed.available) {
-      errors.push(`Indeed skipped — ${indeed.reason}`);
-    } else {
-      errors.push("Indeed publisher id present but Publisher API adapter not wired in this build — refusing fake results.");
+    // LinkedIn + Indeed: only run with a user-configured Apify token + actor
+    // each (see lib/sources-external.ts). No invented results either way.
+    const externalSources: Array<{
+      label: string;
+      capability: SourceCapability;
+      fetch: (opts: { fresh?: boolean }) => Promise<ExternalJob[]>;
+    }> = [
+      { label: "LinkedIn", capability: linkedin, fetch: fetchLinkedInJobs },
+      { label: "Indeed", capability: indeed, fetch: fetchIndeedJobs },
+    ];
+
+    for (const ext of externalSources) {
+      if (!ext.capability.available) {
+        errors.push(`${ext.label} skipped — ${ext.capability.reason}`);
+        continue;
+      }
+      try {
+        const extJobs = await ext.fetch({ fresh: opts.fresh });
+        for (const job of extJobs) {
+          const companyId = await upsertDiscoveredCompany(job.companyName, null);
+          const outcome = await upsertJob(companyId, job);
+          if (outcome === "inserted") inserted += 1;
+          else if (outcome === "updated") updated += 1;
+          else skipped += 1;
+        }
+        errors.push(`${ext.label}: ${extJobs.length} matching posting(s) via configured Apify actor.`);
+      } catch (err) {
+        errors.push(`${ext.label}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     const scored = await scoreAllOpenJobs();
-    const qualified = await autoTrackAndQualify(70);
+    const { qualified, newlyQualifiedIds } = await autoTrackAndQualify(
+      filtersConfig.autoTrackMinPercent,
+    );
+
+    // Auto-prepare: research the company, find a real published contact,
+    // and draft (never send) a personalized email for every application
+    // that just qualified — so by the time a person opens the app, only the
+    // approve-and-send click is left.
+    let prepared = 0;
+    for (const applicationId of newlyQualifiedIds) {
+      try {
+        await prepareOutreachWorkflow(applicationId);
+        prepared += 1;
+      } catch (err) {
+        errors.push(
+          `Auto-prepare ${applicationId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     await pool.query(
       `UPDATE discovery_runs
@@ -250,6 +297,7 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
       skipped,
       scored,
       qualified,
+      prepared,
       sources,
       linkedin: linkedin.reason,
       indeed: indeed.reason,

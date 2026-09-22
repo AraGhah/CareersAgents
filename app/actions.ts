@@ -323,7 +323,7 @@ export async function findInternshipsAction() {
   revalidatePath("/pipeline");
   revalidatePath("/board");
   redirect(
-    `/pipeline?found=1&new=${summary.inserted}&qualified=${summary.qualified}&boards=${summary.boards}`,
+    `/pipeline?found=1&new=${summary.inserted}&qualified=${summary.qualified}&boards=${summary.boards}&prepared=${summary.prepared}`,
   );
 }
 

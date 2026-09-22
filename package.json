@@ -15,6 +15,7 @@
     "discover": "tsx scripts/discover.ts",
     "discover:fresh": "tsx scripts/discover.ts --fresh",
     "discover:loop": "tsx scripts/discover.ts --loop",
+    "automate": "tsx scripts/automate.ts",
     "score": "tsx scripts/score.ts",
     "score:check": "tsx scripts/score.ts --check",
     "package:check": "tsx scripts/package-check.ts",

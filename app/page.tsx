@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { trackJob } from "./actions";
-import { day, percent, place } from "../lib/format";
+import { SubmitButton } from "./components/client-ui";
+import {
+  DbUnavailable,
+  EmptyState,
+  PageHeader,
+  ScoreMeter,
+  Stat,
+  StatusPill,
+  TableWrap,
+} from "./components/ui";
+import { day, place } from "../lib/format";
 import { deskSummary, listJobs } from "../lib/queries";
-import { BAND_LABEL_FR } from "../lib/status-labels";
-import { bandOf } from "../lib/score";
 
 type Search = {
   q?: string;
@@ -13,6 +21,8 @@ type Search = {
   skipped?: string;
 };
 
+export const metadata = { title: "Offres" };
+
 export default async function JobsPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
   const search = sp.q?.trim() || undefined;
@@ -21,122 +31,192 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const includeLow = sp.low === "1";
   const includeSkipped = sp.skipped === "1";
 
-  const [jobs, summary] = await Promise.all([
-    listJobs({
-      search,
-      includeClosed,
-      untrackedOnly,
-      includeLow,
-      includeSkipped,
-    }),
-    deskSummary(),
-  ]);
+  let jobs, summary;
+  try {
+    [jobs, summary] = await Promise.all([
+      listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped }),
+      deskSummary(),
+    ]);
+  } catch (err) {
+    return (
+      <>
+        <PageHeader eyebrow="Découverte" title="Offres" />
+        <DbUnavailable detail={(err as Error).message} />
+      </>
+    );
+  }
+
+  const activeFilters = [
+    search ? `« ${search} »` : null,
+    untrackedOnly ? "non suivies" : null,
+    includeClosed ? "fermées incluses" : null,
+    includeLow ? "sous 60 incluses" : null,
+    includeSkipped ? "rejetées incluses" : null,
+  ].filter(Boolean) as string[];
+
+  const filtered = activeFilters.length > 0;
 
   return (
     <>
-      <h1>Openings</h1>
+      <PageHeader
+        eyebrow="Découverte"
+        title="Offres"
+        lede="Tout ce que le desk a trouvé ou que tu as ajouté à la main. Le score compare l'offre à ton CV actif — 85 et plus passe en priorité."
+        actions={
+          <>
+            <Link href="/jobs/new" className="btn">
+              Ajouter une offre
+            </Link>
+            <Link href="/pipeline" className="btn primary">
+              Lancer une recherche
+            </Link>
+          </>
+        }
+      />
 
       <div className="stats">
-        <article>
-          <strong>{summary.openJobs}</strong>
-          <span>Offres ouvertes</span>
-        </article>
-        <article>
-          <strong>{summary.priorityOpen}</strong>
-          <span>Score 85+ (priorité)</span>
-        </article>
-        <article>
-          <strong>{summary.tracked}</strong>
-          <span>Candidatures suivies</span>
-        </article>
-        <article>
-          <strong>{summary.followupsDue}</strong>
-          <span>Relances dues</span>
-        </article>
+        <Stat value={summary.openJobs} label="Offres ouvertes" />
+        <Stat
+          value={summary.priorityOpen}
+          label="Priorité — score 85+"
+          tone={summary.priorityOpen > 0 ? "good" : undefined}
+        />
+        <Stat value={summary.tracked} label="Candidatures suivies" href="/board" />
+        <Stat
+          value={summary.followupsDue}
+          label="Relances dues"
+          href="/followups"
+          tone={summary.followupsDue > 0 ? "alert" : undefined}
+        />
       </div>
-      <p className="lede">
-        {jobs.length} {jobs.length === 1 ? "posting" : "postings"}
-        {includeClosed ? ", closed ones included" : ", open only"}
-        {untrackedOnly ? ", not tracked yet" : ""}
-        {includeLow ? ", below 60 included" : ", below 60 hidden"}
-        {includeSkipped ? ", skipped included" : ""}.
-      </p>
 
-      <form className="filters" method="get">
-        <input type="text" name="q" placeholder="Role or company" defaultValue={search ?? ""} />
-        <label>
-          <input type="checkbox" name="untracked" value="1" defaultChecked={untrackedOnly} /> Not
-          tracked yet
+      <form className="filters" method="get" role="search">
+        <div className="search">
+          <label htmlFor="q" className="visually-hidden">
+            Chercher un poste ou une entreprise
+          </label>
+          <input
+            type="search"
+            id="q"
+            name="q"
+            placeholder="Poste ou entreprise…"
+            defaultValue={search ?? ""}
+          />
+        </div>
+
+        <label className="check">
+          <input type="checkbox" name="untracked" value="1" defaultChecked={untrackedOnly} />
+          Non suivies
         </label>
-        <label>
-          <input type="checkbox" name="closed" value="1" defaultChecked={includeClosed} /> Include
-          closed
+        <label className="check">
+          <input type="checkbox" name="closed" value="1" defaultChecked={includeClosed} />
+          Fermées
         </label>
-        <label>
-          <input type="checkbox" name="low" value="1" defaultChecked={includeLow} /> Below 60
+        <label className="check">
+          <input type="checkbox" name="low" value="1" defaultChecked={includeLow} />
+          Sous 60
         </label>
-        <label>
-          <input type="checkbox" name="skipped" value="1" defaultChecked={includeSkipped} /> Skipped
-          (location/timing)
+        <label className="check">
+          <input type="checkbox" name="skipped" value="1" defaultChecked={includeSkipped} />
+          Rejetées
         </label>
-        <button type="submit">Filter</button>
+
+        <SubmitButton className="primary">Filtrer</SubmitButton>
+        {filtered ? (
+          <Link href="/" className="btn ghost">
+            Réinitialiser
+          </Link>
+        ) : null}
       </form>
 
+      <p className="small muted" aria-live="polite" style={{ marginBottom: "var(--s-4)" }}>
+        <strong className="mono">{jobs.length}</strong>{" "}
+        {jobs.length === 1 ? "offre affichée" : "offres affichées"}
+        {filtered ? ` · filtres : ${activeFilters.join(", ")}` : " · ouvertes uniquement"}
+      </p>
+
       {jobs.length === 0 ? (
-        <p className="empty">
-          Nothing here yet. <Link href="/jobs/new">Add a job you found</Link>.
-        </p>
+        <EmptyState
+          mark={filtered ? "Aucun résultat" : "Vide"}
+          title={filtered ? "Aucune offre ne correspond" : "Aucune offre pour l'instant"}
+          actions={
+            <>
+              {filtered ? (
+                <Link href="/" className="btn">
+                  Effacer les filtres
+                </Link>
+              ) : null}
+              <Link href="/jobs/new" className="btn primary">
+                Ajouter une offre
+              </Link>
+              <Link href="/pipeline" className="btn">
+                Lancer la recherche ATS
+              </Link>
+            </>
+          }
+        >
+          {filtered
+            ? "Élargis la recherche : coche « Sous 60 » ou « Fermées » pour voir ce qui a été écarté."
+            : "Lance une recherche depuis le pipeline, ou colle toi-même une offre trouvée ailleurs."}
+        </EmptyState>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Company</th>
-              <th>Where</th>
-              <th>Score</th>
-              <th>First seen</th>
-              <th>Application</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => {
-              const pct = job.score == null ? null : Math.round(Number(job.score) * 100);
-              const band = pct == null ? null : bandOf(pct, Boolean(job.gated));
-              return (
+        <TableWrap>
+          <table>
+            <caption className="visually-hidden">
+              Offres trouvées, avec leur score de correspondance et l&apos;état de la candidature
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Poste</th>
+                <th scope="col">Entreprise</th>
+                <th scope="col">Lieu</th>
+                <th scope="col">Score</th>
+                <th scope="col" className="tight">
+                  Vue le
+                </th>
+                <th scope="col">Candidature</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
                 <tr key={job.id}>
-                  <td>
-                    <Link href={`/jobs/${job.id}`}>{job.title}</Link>
-                    {job.closed_at ? <span className="badge"> closed</span> : null}
-                  </td>
-                  <td>{job.company_name}</td>
-                  <td>{place(job.location, job.workplace_type)}</td>
-                  <td>
-                    {pct == null ? (
-                      <span className="empty">{"\u2014"}</span>
-                    ) : (
-                      <span className={`badge ${band}`} title={band ? BAND_LABEL_FR[band] : undefined}>
-                        {job.gated ? "skip" : percent(job.score)}
+                  <td data-label="Poste">
+                    <Link href={`/jobs/${job.id}`} className="cell-main">
+                      {job.title}
+                    </Link>
+                    {job.closed_at ? (
+                      <span className="cell-sub">
+                        <span className="badge neutral">fermée</span>
                       </span>
-                    )}
+                    ) : null}
                   </td>
-                  <td className="tight">{day(job.first_seen_at)}</td>
-                  <td>
+                  <td data-label="Entreprise">{job.company_name}</td>
+                  <td data-label="Lieu" className="muted">
+                    {place(job.location, job.workplace_type)}
+                  </td>
+                  <td data-label="Score">
+                    <ScoreMeter score={job.score} gated={job.gated} />
+                  </td>
+                  <td data-label="Vue le" className="tight num muted">
+                    {day(job.first_seen_at)}
+                  </td>
+                  <td data-label="Candidature">
                     {job.application_id ? (
                       <Link href={`/applications/${job.application_id}`}>
-                        <span className="badge">{job.status}</span>
+                        <StatusPill status={job.status} />
                       </Link>
                     ) : (
                       <form action={trackJob}>
                         <input type="hidden" name="jobId" value={job.id} />
-                        <button type="submit">Track</button>
+                        <SubmitButton className="small">Suivre</SubmitButton>
                       </form>
                     )}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
       )}
     </>
   );

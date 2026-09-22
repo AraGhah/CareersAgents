@@ -1,0 +1,6 @@
+{
+  "internshipTerms": ["intern", "interns", "internship", "internships", "stage", "stages", "stagiaire", "stagiaires", "interne", "internes", "co-op", "co-ops", "coop", "coops"],
+  "roleTerms": ["full-stack", "full stack", "fullstack", "software", "developer", "développeur", "développeuse", "engineer", "ingénieur", "ingénieure", "backend", "back-end", "frontend", "front-end", "web"],
+  "excludeTerms": ["senior", "staff", "principal", "director", "directeur", "directrice", "manager", "gestionnaire", "lead", "vp", "head of"],
+  "autoTrackMinPercent": 70
+}

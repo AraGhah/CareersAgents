@@ -1,7 +1,8 @@
 # Internship Desk
 
 A CRM for my Winter 2027 stage search. It tracks openings, applications and their status.
-It stops at the submit button: nothing is submitted or emailed automatically.
+Finding, matching, tracking, researching and drafting all run themselves (see "Automatic
+mode"). It stops at the submit button: nothing is submitted or emailed without a click.
 
 ## Pipeline & Find Internships (V9)
 
@@ -14,14 +15,45 @@ npm run discover          # ATS boards + score vs active CV (no fake LinkedIn/In
 
 Pipeline: Discovered → Qualified → Ready → Applied → Follow-Up → Interview → Accepted/Rejected.
 
-LinkedIn / Indeed stay **disabled** until you set authorized credentials
-(`APIFY_TOKEN` + `APIFY_LINKEDIN_JOBS_ACTOR`, or `INDEED_PUBLISHER_ID`). The UI shows that
-clearly instead of inventing results.
+Every job that qualifies (score ≥ 70, not gated) is auto-tracked **and** auto-prepared: company
+dossier researched, a real published contact found on the company's own site, a personalized
+email drafted. Nothing is sent — that's still **Approuver**, on purpose (see "Automatic mode"
+below). "Chercher des stages" runs this end to end; so does `npm run automate` on a schedule.
 
-On an application: **Préparer** runs company + recruiter research and builds a personalized
-email with the correct EN/FR CV. **Approuver** creates a Gmail draft for
-`ara.ghahramanyan07@gmail.com` (send-yourself). Optional `GMAIL_ALLOW_SEND=true` + re-auth
-with `gmail.send` enables approve-and-send.
+LinkedIn and Indeed each stay **disabled** until you set your own Apify actor for that one
+(`APIFY_TOKEN` + `APIFY_LINKEDIN_JOBS_ACTOR` / `APIFY_INDEED_JOBS_ACTOR`) — pick actors that
+read public listings with no login/cookies on either platform, so there's no account of yours
+to put at risk. Indeed's own official Publisher API was retired in 2023 and stays dead
+regardless of any credential; the Apify route is the only way Indeed sourcing works today. The
+UI reports the real state of both instead of inventing results.
+
+On an application: **Préparer** re-runs company + recruiter research and rebuilds the
+personalized email by hand, for anything auto-prepare missed or you want to redo. **Approuver**
+creates a Gmail draft for `ara.ghahramanyan07@gmail.com` (send-yourself). Optional
+`GMAIL_ALLOW_SEND=true` + re-auth with `gmail.send` enables approve-and-send — still one click,
+still never automatic.
+
+## Automatic mode
+
+Everything up to *send* can run unattended. `npm run automate` starts one long-lived process:
+
+```
+npm run automate
+```
+
+- **Discover, every 4h** — new postings from the ATS boards (and LinkedIn, if configured),
+  scored against your active CV, auto-tracked, auto-researched, contact found, email drafted.
+- **Inbox sync, every 30 min** — matches Gmail replies to applications, updates status, cancels
+  follow-ups on a reply.
+- **Follow-ups, daily at 08:00** — drafts the day-7 / day-14 nudge for anything still open.
+
+It runs each once immediately on startup, then on schedule. Leave it running in a terminal (or
+under `pm2` / a Windows Scheduled Task / systemd if you want it to survive a reboot). Open the
+app whenever you like — approvals are the only thing waiting for you; nothing sends or submits
+itself. Stop it with Ctrl+C.
+
+Prefer the individual loops instead: `discover:loop` (4h), `sync:inbox:loop` (30 min), and
+`followups` run once daily via your own scheduler — `automate` is just all three in one place.
 
 Demo recording (server must be running):
 
@@ -57,8 +89,28 @@ npm run seed:contacts
 ## Discovery
 
 `npm run discover` reads Greenhouse, Lever and Workable JSON boards for companies
-that have a `board_token`. Workday stays manual. Raw responses sit in `cache/discover/`
-for three hours so a rerun is free. `npm run discover:loop` repeats that every four hours.
+that have a `board_token`, plus LinkedIn and Indeed via Apify if configured. Workday stays manual.
+Raw responses sit in `cache/discover/` for three hours so a rerun is free.
+`npm run discover:loop` repeats that every four hours; `npm run automate` runs this
+alongside inbox sync and follow-ups in one process (see "Automatic mode" above).
+
+### Filters — three layers, three places to tune
+
+1. **What gets searched.** `APIFY_LINKEDIN_SEARCH_QUERY` / `APIFY_INDEED_SEARCH_QUERY` in
+   `.env.local` accept a comma-separated list — `"software engineering intern, backend intern,
+   full stack intern"` — and the actor runs once per term, merged and deduped. Location is
+   `APIFY_*_SEARCH_LOCATION`. Full control over an actor's own fields (remote-only, date
+   posted, experience level, ...): set `APIFY_*_JOBS_INPUT` to the exact JSON that actor
+   expects instead.
+2. **What counts as relevant.** Every result from every source — ATS boards, LinkedIn, Indeed
+   — passes through `filters.json`: `internshipTerms` (title must contain one), `roleTerms`
+   (title or description must contain one, unless it's already an internship title), and
+   `excludeTerms` (title match here kills it outright, even if everything else matched —
+   this is where "senior", "staff", "director" live, so a senior post never sneaks in on a
+   strong skills match). Edit the arrays directly; no restart needed beyond the next run.
+3. **What gets auto-tracked.** `filters.json`'s `autoTrackMinPercent` (default 70) is the score
+   cutoff from the weights below. Raise it to auto-track fewer, more certain matches; lower it
+   to catch more borderline ones for you to review by hand on `/pipeline`.
 
 ## Scoring
 

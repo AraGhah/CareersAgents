@@ -142,6 +142,23 @@ export async function createCompany(name: string, city: string | null): Promise<
   return rows[0].id;
 }
 
+/**
+ * Companies surfaced by an external search (LinkedIn, etc.), not a company
+ * the user deliberately named. Left off the target list (is_target stays
+ * false) so it doesn't get treated as a "fill this one by hand" company by
+ * the browser-assist gate the way a manually-added one does.
+ */
+export async function upsertDiscoveredCompany(name: string, website: string | null): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO companies (name, website, is_target)
+     VALUES ($1, $2, false)
+     ON CONFLICT (name) DO UPDATE SET website = COALESCE(companies.website, EXCLUDED.website)
+     RETURNING id`,
+    [name, website],
+  );
+  return rows[0].id;
+}
+
 // Jobs I found myself. The ATS id slot still has to be filled, so mark the origin in it.
 export async function createManualJob(input: {
   companyId: string;

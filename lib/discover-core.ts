@@ -1,6 +1,30 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { WorkplaceType } from "./types";
+import filtersConfig from "../filters.json";
+
+type FiltersConfig = {
+  internshipTerms: string[];
+  roleTerms: string[];
+  excludeTerms: string[];
+  autoTrackMinPercent: number;
+};
+
+const filters = filtersConfig as FiltersConfig;
+
+function escapeRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Word-boundary match against any of the given terms (case-insensitive). */
+function termsToRegex(terms: string[]): RegExp | null {
+  if (terms.length === 0) return null;
+  return new RegExp(`\\b(?:${terms.map(escapeRegex).join("|")})\\b`, "i");
+}
+
+const INTERNSHIP_RE = termsToRegex(filters.internshipTerms);
+const ROLE_RE = termsToRegex(filters.roleTerms);
+const EXCLUDE_RE = termsToRegex(filters.excludeTerms);
 
 export type BoardCompany = {
   id: string;
@@ -98,7 +122,7 @@ async function fetchJson(url: string, label: string): Promise<unknown> {
   throw new Error(`${label}: still rate limited`);
 }
 
-async function cachedFetch(
+export async function cachedFetch(
   key: string,
   url: string,
   label: string,
@@ -308,26 +332,23 @@ export async function fetchBoard(
   return [];
 }
 
-/** Title filter for internship / stage / co-op roles. */
+/** Title filter for internship / stage / co-op roles. Terms live in filters.json. */
 export function isInternshipTitle(title: string): boolean {
-  return /\bintern(?:s|ship|ships)?\b|\bstages?\b|\bstagiaires?\b|\binternes?\b|\bco-?ops?\b/i.test(
-    title,
-  );
+  return INTERNSHIP_RE ? INTERNSHIP_RE.test(title) : false;
 }
 
-/** Full-stack / software developer relevance vs generic roles. */
+/** Title-level hard exclude (seniority, management, ...). Terms live in filters.json. */
+export function isExcludedTitle(title: string): boolean {
+  return EXCLUDE_RE ? EXCLUDE_RE.test(title) : false;
+}
+
+/** Full-stack / software developer relevance vs generic roles. Terms live in filters.json. */
 export function isSoftwareRelevant(title: string, description: string | null): boolean {
+  if (isExcludedTitle(title)) return false;
   const text = `${title}\n${description ?? ""}`;
-  if (
-    /\b(?:full[- ]?stack|software|developer|d[eé]veloppeur|engineer|ing[eé]nieur|backend|front[- ]?end|web)\b/i.test(
-      text,
-    )
-  ) {
-    return true;
-  }
-  // Catch-all winter internship portals (e.g. Genetec) still count when titled as internship.
-  if (isInternshipTitle(title) && /\b(?:software|engineering|technologie|informatique|dev)\b/i.test(text)) {
-    return true;
-  }
+  if (ROLE_RE?.test(text)) return true;
+  // The middle "internship-titled + narrower tech word" case from the old
+  // hardcoded version was a strict subset of isInternshipTitle(title) and
+  // could never change the outcome — this fallback covers it identically.
   return isInternshipTitle(title);
 }

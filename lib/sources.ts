@@ -10,12 +10,12 @@ export type SourceCapability = {
 };
 
 export function listSourceCapabilities(): SourceCapability[] {
-  const linkedinToken =
+  const apifyToken =
     process.env.LINKEDIN_ACCESS_TOKEN?.trim() ||
     process.env.APIFY_TOKEN?.trim() ||
     process.env.APIFY_API_TOKEN?.trim();
   const linkedinActor = process.env.APIFY_LINKEDIN_JOBS_ACTOR?.trim();
-  const indeedPublisher = process.env.INDEED_PUBLISHER_ID?.trim();
+  const indeedActor = process.env.APIFY_INDEED_JOBS_ACTOR?.trim();
 
   return [
     {
@@ -39,18 +39,20 @@ export function listSourceCapabilities(): SourceCapability[] {
     {
       id: "linkedin",
       label: "LinkedIn Jobs",
-      available: Boolean(linkedinToken && linkedinActor),
-      reason: linkedinToken && linkedinActor
-        ? "Authorized via APIFY_TOKEN + APIFY_LINKEDIN_JOBS_ACTOR."
-        : "Not configured. Set APIFY_TOKEN and APIFY_LINKEDIN_JOBS_ACTOR (or LINKEDIN_ACCESS_TOKEN) — no fake results.",
+      available: Boolean(apifyToken && linkedinActor),
+      reason:
+        apifyToken && linkedinActor
+          ? "Runs your configured Apify actor (public listings only — no LinkedIn login used)."
+          : "Not configured. Set APIFY_TOKEN and APIFY_LINKEDIN_JOBS_ACTOR to your own Apify account and actor — no fake results.",
     },
     {
       id: "indeed",
       label: "Indeed",
-      available: Boolean(indeedPublisher),
-      reason: indeedPublisher
-        ? "Authorized via INDEED_PUBLISHER_ID."
-        : "Not configured. Set INDEED_PUBLISHER_ID for the official Publisher API — no fake results.",
+      available: Boolean(apifyToken && indeedActor),
+      reason:
+        apifyToken && indeedActor
+          ? "Runs your configured Apify actor (public listings only — no Indeed login used)."
+          : "Not configured. Indeed's own Publisher API was retired in 2023, so this only works via your own Apify actor: set APIFY_TOKEN and APIFY_INDEED_JOBS_ACTOR — no fake results.",
     },
   ];
 }
