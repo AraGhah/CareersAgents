@@ -1,16 +1,19 @@
 export const APPLICATION_STATUSES = [
-  "draft",
+  "discovered",
+  "qualified",
   "ready",
-  "submitted",
-  "replied",
+  "applied",
+  "followup",
   "interview",
-  "assessment",
+  "accepted",
   "rejected",
-  "offer",
   "withdrawn",
 ] as const;
 
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
+
+/** Dashboard pipeline columns (Assisted Mode). */
+export const PIPELINE_STATUSES = APPLICATION_STATUSES;
 
 export const WORKPLACE_TYPES = ["onsite", "hybrid", "remote"] as const;
 
@@ -66,6 +69,7 @@ export type ApplicationDetail = {
   submitted_at: Date | null;
   resume_path: string | null;
   cover_letter_path: string | null;
+  resume_id: string | null;
   notes: string | null;
   job_id: string;
   title: string;
@@ -75,6 +79,7 @@ export type ApplicationDetail = {
   description: string | null;
   posted_at: Date | null;
   closed_at: Date | null;
+  company_id: string;
   company_name: string;
   company_website: string | null;
   company_city: string | null;

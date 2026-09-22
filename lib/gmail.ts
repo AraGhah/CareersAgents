@@ -10,6 +10,14 @@ export const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.compose",
 ];
 
+/** Desk owner's Gmail — used for OAuth context / From checks. */
+export function getGmailUserEmail(): string {
+  return (
+    process.env.GMAIL_USER_EMAIL?.trim() ||
+    "ara.ghahramanyan07@gmail.com"
+  );
+}
+
 const TOKEN_PATH = path.join("cache", "gmail-token.json");
 
 export type GmailTokens = {
@@ -186,5 +194,36 @@ export async function createDraft(opts: {
   });
   const id = draft.data.id;
   if (!id) throw new Error("Gmail draft create returned no id");
+  return id;
+}
+
+/** Explicit send — only used after user approval when GMAIL_ALLOW_SEND=true. */
+export async function sendMail(opts: {
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<string> {
+  const gmail = await getGmail();
+  const raw = [
+    `To: ${opts.to}`,
+    `Subject: ${opts.subject}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    "",
+    opts.body,
+  ].join("\r\n");
+
+  const encoded = Buffer.from(raw)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const sent = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw: encoded },
+  });
+  const id = sent.data.id;
+  if (!id) throw new Error("Gmail send returned no id");
   return id;
 }

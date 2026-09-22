@@ -9,10 +9,12 @@ import { pool } from "../lib/db";
 import {
   domainsMatch,
   extractDomain,
+  extractEmailAddress,
   getGmail,
   headerValue,
   websiteHost,
 } from "../lib/gmail";
+import { markOutreachSentFromOutbound } from "../lib/outreach";
 import { setApplicationStatus } from "../lib/queries";
 
 const LOOP = process.argv.includes("--loop");
@@ -181,9 +183,53 @@ async function run() {
     }
   } while (pageToken);
 
+  // Also scan Sent mailbox to mark outreach drafts as sent (still never auto-sends).
+  let sentMarked = 0;
+  {
+    const sentList = await gmail.users.messages.list({
+      userId: "me",
+      q: `in:sent after:${afterEpoch}`,
+      maxResults: 40,
+    });
+    for (const ref of sentList.data.messages ?? []) {
+      if (!ref.id) continue;
+      const full = await gmail.users.messages.get({
+        userId: "me",
+        id: ref.id,
+        format: "metadata",
+        metadataHeaders: ["To", "Subject", "Date"],
+      });
+      const headers = full.data.payload?.headers;
+      const to = headerValue(headers, "To");
+      const subject = headerValue(headers, "Subject");
+      const threadId = full.data.threadId ?? null;
+      const internalDate = full.data.internalDate
+        ? new Date(Number(full.data.internalDate))
+        : new Date();
+      const toEmail = extractEmailAddress(to);
+      const app = await matchApplication(apps, { threadId, from: to });
+      if (!app) continue;
+
+      await pool.query(
+        `INSERT INTO messages (application_id, gmail_thread_id, gmail_message_id,
+                               direction, subject, snippet, classification, occurred_at)
+         VALUES ($1, $2, $3, 'outbound', $4, $5, NULL, $6)
+         ON CONFLICT (gmail_message_id) DO NOTHING`,
+        [app.id, threadId, ref.id, subject || null, null, internalDate],
+      );
+
+      await markOutreachSentFromOutbound({
+        applicationId: app.id,
+        toOrSubjectHint: toEmail ?? subject,
+        occurredAt: internalDate,
+      });
+      sentMarked += 1;
+    }
+  }
+
   await saveSync(new Date());
   console.log(
-    `Done. ${seen} listed, ${stored} new, ${classified} classified, ${statusChanges} status change(s).`,
+    `Done. ${seen} listed, ${stored} new, ${classified} classified, ${statusChanges} status change(s), ${sentMarked} sent scanned.`,
   );
 }
 

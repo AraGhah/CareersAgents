@@ -74,31 +74,37 @@ export function classifyMessage(input: ClassifyInput): MessageClassification | n
 
 /** Prefer not to move an application backwards. */
 const RANK: Record<string, number> = {
-  draft: 0,
-  ready: 1,
-  submitted: 2,
-  replied: 3,
-  assessment: 4,
+  discovered: 0,
+  qualified: 1,
+  ready: 2,
+  applied: 3,
+  followup: 4,
   interview: 5,
-  offer: 6,
+  accepted: 6,
   rejected: 7,
   withdrawn: 7,
+  // legacy aliases during transition
+  draft: 0,
+  submitted: 3,
+  replied: 4,
+  assessment: 5,
+  offer: 6,
 };
 
 export function statusFromClassification(
   classification: MessageClassification,
-): "replied" | "rejected" | "interview" | "assessment" | "offer" | null {
+): "followup" | "rejected" | "interview" | "accepted" | null {
   switch (classification) {
     case "confirmation":
-      return "replied";
+      return "followup";
     case "rejection":
       return "rejected";
     case "interview":
       return "interview";
     case "assessment":
-      return "assessment";
+      return "interview";
     case "offer":
-      return "offer";
+      return "accepted";
     default:
       return null;
   }
@@ -107,7 +113,7 @@ export function statusFromClassification(
 export function shouldApplyStatus(current: string, next: string): boolean {
   if (current === next) return false;
   if (current === "withdrawn") return false;
-  if (current === "rejected" && next !== "offer") return false;
-  if (current === "offer") return false;
+  if (current === "rejected" && next !== "accepted" && next !== "offer") return false;
+  if (current === "accepted" || current === "offer") return false;
   return (RANK[next] ?? 0) >= (RANK[current] ?? 0);
 }

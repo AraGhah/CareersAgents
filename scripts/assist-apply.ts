@@ -166,6 +166,14 @@ async function main() {
     isTarget = app.is_target;
   }
 
+  const lang = detectLetterLang(title, description);
+
+  if (!resumePath) {
+    const { resolveResumeForJob } = await import("../lib/resumes");
+    const resume = await resolveResumeForJob(lang);
+    if (resume) resumePath = resume.storage_path;
+  }
+
   if (!url) throw new Error("no URL to open");
 
   if (isTarget && !iKnow) {
@@ -175,7 +183,6 @@ async function main() {
     process.exit(2);
   }
 
-  const lang = detectLetterLang(title, description);
   console.log(`Opening ${companyName} · ${title}`);
   console.log(`URL: ${url}`);
   console.log("Browser is headed. Submit stays yours — this script will not click it.\n");

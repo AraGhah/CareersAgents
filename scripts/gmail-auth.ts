@@ -4,9 +4,10 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { GMAIL_SCOPES, runLocalAuth } from "../lib/gmail";
+import { GMAIL_SCOPES, getGmailUserEmail, runLocalAuth } from "../lib/gmail";
 
 async function main() {
+  console.log(`Authorize this Gmail account: ${getGmailUserEmail()}`);
   console.log("Scopes requested:");
   for (const scope of GMAIL_SCOPES) console.log(`  ${scope}`);
   console.log("gmail.send is not requested on purpose.\n");

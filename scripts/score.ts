@@ -6,6 +6,7 @@ import {
   COMPONENT_NAMES,
   checkScoring,
   scoreJob,
+  setHaveSkills,
   type ComponentName,
 } from "../lib/score";
 import type { WorkplaceType } from "../lib/types";
@@ -24,6 +25,11 @@ type JobToScore = {
 
 async function run() {
   const { pool } = await import("../lib/db");
+  const { getActiveSkills } = await import("../lib/resumes");
+  const skills = await getActiveSkills();
+  setHaveSkills(skills);
+  console.log(`Using ${skills.length} skills from active resume profile`);
+
   const scoredAt = new Date();
   const { rows } = await pool.query<JobToScore>(
     `SELECT j.id, j.title, j.location, j.workplace_type, j.description,

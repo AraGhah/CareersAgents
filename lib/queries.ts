@@ -185,10 +185,10 @@ export async function startApplication(jobId: string): Promise<string> {
 
 export async function getApplication(id: string): Promise<ApplicationDetail | null> {
   const { rows } = await pool.query<ApplicationDetail>(
-    `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.notes,
+    `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.resume_id, a.notes,
             j.id AS job_id, j.title, j.location, j.workplace_type, j.url, j.description,
             j.posted_at, j.closed_at,
-            c.name AS company_name, c.website AS company_website, c.city AS company_city
+            c.id AS company_id, c.name AS company_name, c.website AS company_website, c.city AS company_city
        FROM applications a
        JOIN jobs j ON j.id = a.job_id
        JOIN companies c ON c.id = j.company_id
@@ -200,10 +200,10 @@ export async function getApplication(id: string): Promise<ApplicationDetail | nu
 
 export async function listApplications(): Promise<ApplicationDetail[]> {
   const { rows } = await pool.query<ApplicationDetail>(
-    `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.notes,
+    `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.resume_id, a.notes,
             j.id AS job_id, j.title, j.location, j.workplace_type, j.url, j.description,
             j.posted_at, j.closed_at,
-            c.name AS company_name, c.website AS company_website, c.city AS company_city
+            c.id AS company_id, c.name AS company_name, c.website AS company_website, c.city AS company_city
        FROM applications a
        JOIN jobs j ON j.id = a.job_id
        JOIN companies c ON c.id = j.company_id
@@ -212,7 +212,7 @@ export async function listApplications(): Promise<ApplicationDetail[]> {
   return rows;
 }
 
-// 'submitted' is the one status that carries a date, so stamp it the first time we get there.
+// 'applied' is the status that carries a date, so stamp it the first time we get there.
 export async function setApplicationStatus(
   id: string,
   status: ApplicationStatus,
@@ -230,7 +230,7 @@ export async function setApplicationStatus(
     `UPDATE applications
         SET status = $2,
             submitted_at = CASE
-              WHEN $2 = 'submitted' AND submitted_at IS NULL THEN now()
+              WHEN $2 = 'applied' AND submitted_at IS NULL THEN now()
               ELSE submitted_at
             END
       WHERE id = $1
@@ -245,21 +245,93 @@ export async function setApplicationStatus(
     reason,
   });
 
-  if (status === "submitted" && rows[0]?.submitted_at) {
+  if (status === "applied" && rows[0]?.submitted_at) {
     await scheduleFollowups(id, rows[0].submitted_at);
   }
 }
 
 export async function updateApplicationFields(
   id: string,
-  fields: { notes: string | null; resumePath: string | null; coverLetterPath: string | null },
+  fields: {
+    notes: string | null;
+    resumePath: string | null;
+    coverLetterPath: string | null;
+    resumeId?: string | null;
+  },
 ) {
+  if (fields.resumeId !== undefined) {
+    await pool.query(
+      `UPDATE applications
+          SET notes = $2, resume_path = $3, cover_letter_path = $4, resume_id = $5
+        WHERE id = $1`,
+      [id, fields.notes, fields.resumePath, fields.coverLetterPath, fields.resumeId],
+    );
+    return;
+  }
   await pool.query(
     `UPDATE applications
         SET notes = $2, resume_path = $3, cover_letter_path = $4
       WHERE id = $1`,
     [id, fields.notes, fields.resumePath, fields.coverLetterPath],
   );
+}
+
+export async function listContactsForCompany(companyId: string) {
+  const { rows } = await pool.query<{
+    id: string;
+    name: string | null;
+    role: string | null;
+    email: string | null;
+    source_url: string;
+    verified: boolean;
+  }>(
+    `SELECT id, name, role, email, source_url, verified
+       FROM contacts
+      WHERE company_id = $1
+      ORDER BY verified DESC, email`,
+    [companyId],
+  );
+  return rows;
+}
+
+export async function addVerifiedContact(opts: {
+  companyId: string;
+  name?: string | null;
+  role?: string | null;
+  email: string;
+  sourceUrl: string;
+}) {
+  const email = opts.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Invalid email");
+  }
+  if (!opts.sourceUrl.trim()) {
+    throw new Error("source_url is required — no guessed addresses");
+  }
+
+  const existing = await pool.query<{ id: string }>(
+    `SELECT id FROM contacts WHERE company_id = $1 AND lower(email) = lower($2)`,
+    [opts.companyId, email],
+  );
+  if (existing.rows[0]) {
+    await pool.query(
+      `UPDATE contacts
+          SET name = COALESCE($2, name),
+              role = COALESCE($3, role),
+              source_url = $4
+        WHERE id = $1`,
+      [existing.rows[0].id, opts.name ?? null, opts.role ?? null, opts.sourceUrl],
+    );
+    return existing.rows[0].id;
+  }
+
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO contacts (company_id, name, role, email, source_url, verified)
+     VALUES ($1, $2, $3, $4, $5, false)
+     RETURNING id`,
+    [opts.companyId, opts.name ?? null, opts.role ?? null, email, opts.sourceUrl],
+  );
+  return rows[0].id;
 }
 
 export async function appendApplicationNote(id: string, note: string) {
@@ -307,7 +379,7 @@ export async function deskSummary(): Promise<DeskSummary> {
      SELECT
        (SELECT count(*)::text FROM jobs WHERE closed_at IS NULL) AS open_jobs,
        (SELECT count(*)::text FROM applications) AS tracked,
-       (SELECT count(*)::text FROM applications WHERE status = 'submitted') AS submitted,
+       (SELECT count(*)::text FROM applications WHERE status = 'applied') AS submitted,
        (SELECT count(*)::text
           FROM jobs j
           JOIN totals t ON t.job_id = j.id
@@ -334,6 +406,66 @@ export async function listProjects(): Promise<Project[]> {
     `SELECT id, name, summary, tech, url, highlight_for
        FROM projects
       ORDER BY name`,
+  );
+  return rows;
+}
+
+export type PipelineRow = {
+  application_id: string;
+  status: ApplicationStatus;
+  submitted_at: Date | null;
+  title: string;
+  location: string | null;
+  company_name: string;
+  source: string | null;
+  score: string | null;
+  gated: boolean | null;
+  recruiter_name: string | null;
+  recruiter_email: string | null;
+  next_followup: string | null;
+  outreach_approved: boolean;
+};
+
+export async function listPipelineRows(): Promise<PipelineRow[]> {
+  const { rows } = await pool.query<PipelineRow>(
+    `${SCORE_CTE}
+     SELECT a.id AS application_id, a.status, a.submitted_at,
+            j.title, j.location, j.source,
+            c.name AS company_name,
+            t.score, t.gated,
+            (
+              SELECT ct.name FROM contacts ct
+               WHERE ct.company_id = c.id AND ct.email IS NOT NULL
+               ORDER BY ct.verified DESC, ct.email
+               LIMIT 1
+            ) AS recruiter_name,
+            (
+              SELECT ct.email FROM contacts ct
+               WHERE ct.company_id = c.id AND ct.email IS NOT NULL
+               ORDER BY ct.verified DESC, ct.email
+               LIMIT 1
+            ) AS recruiter_email,
+            (
+              SELECT f.due_on::text FROM followups f
+               WHERE f.application_id = a.id AND f.state IN ('pending', 'drafted')
+               ORDER BY f.due_on
+               LIMIT 1
+            ) AS next_followup,
+            EXISTS (
+              SELECT 1 FROM outreach_drafts o
+               WHERE o.application_id = a.id AND o.approved_at IS NOT NULL
+            ) AS outreach_approved
+       FROM applications a
+       JOIN jobs j ON j.id = a.job_id
+       JOIN companies c ON c.id = j.company_id
+       LEFT JOIN totals t ON t.job_id = j.id
+      ORDER BY CASE a.status
+                 WHEN 'discovered' THEN 0 WHEN 'qualified' THEN 1 WHEN 'ready' THEN 2
+                 WHEN 'applied' THEN 3 WHEN 'followup' THEN 4 WHEN 'interview' THEN 5
+                 WHEN 'accepted' THEN 6 ELSE 7
+               END,
+               t.score DESC NULLS LAST,
+               a.submitted_at DESC NULLS LAST`,
   );
   return rows;
 }

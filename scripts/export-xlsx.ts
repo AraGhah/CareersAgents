@@ -25,20 +25,25 @@ const STATUTS = [
 function statusFr(status: string | null, hasApp: boolean): string {
   if (!hasApp) return "Trouvé";
   switch (status) {
+    case "discovered":
     case "draft":
+      return "Trouvé";
+    case "qualified":
       return "Trouvé";
     case "ready":
       return "Brouillon prêt";
+    case "applied":
     case "submitted":
       return "Postulé";
+    case "followup":
     case "replied":
       return "Réponse";
     case "interview":
-      return "Entrevue";
     case "assessment":
-      return "Réponse";
+      return "Entrevue";
     case "rejected":
       return "Refus";
+    case "accepted":
     case "offer":
       return "Offre";
     case "withdrawn":
@@ -194,9 +199,9 @@ async function buildStagesSheet(book: ExcelJS.Workbook) {
   for (const row of rows) {
     let statut = statusFr(row.status, Boolean(row.application_id));
     const nRelances = Number(row.relances_faites ?? 0);
-    if (row.status === "submitted" && !row.reponse_recue && nRelances >= 2) {
+    if (row.status === "applied" && !row.reponse_recue && nRelances >= 2) {
       statut = "Relance 2";
-    } else if (row.status === "submitted" && !row.reponse_recue && nRelances >= 1) {
+    } else if (row.status === "applied" && !row.reponse_recue && nRelances >= 1) {
       statut = "Relance 1";
     }
     sheet.addRow({

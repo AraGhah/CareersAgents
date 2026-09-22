@@ -3,13 +3,42 @@
 A CRM for my Winter 2027 stage search. It tracks openings, applications and their status.
 It stops at the submit button: nothing is submitted or emailed automatically.
 
+## Pipeline & Find Internships (V9)
+
+Assisted Mode dashboard at `/pipeline`:
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v9.sql
+npm run discover          # ATS boards + score vs active CV (no fake LinkedIn/Indeed)
+```
+
+Pipeline: Discovered → Qualified → Ready → Applied → Follow-Up → Interview → Accepted/Rejected.
+
+LinkedIn / Indeed stay **disabled** until you set authorized credentials
+(`APIFY_TOKEN` + `APIFY_LINKEDIN_JOBS_ACTOR`, or `INDEED_PUBLISHER_ID`). The UI shows that
+clearly instead of inventing results.
+
+On an application: **Préparer** runs company + recruiter research and builds a personalized
+email with the correct EN/FR CV. **Approuver** creates a Gmail draft for
+`ara.ghahramanyan07@gmail.com` (send-yourself). Optional `GMAIL_ALLOW_SEND=true` + re-auth
+with `gmail.send` enables approve-and-send.
+
+Demo recording (server must be running):
+
+```
+npm run dev
+npm run demo:record   # writes demos/internship-desk-demo.webm at 1080p
+```
+
 ## Running it
 
 ```
 docker compose up -d
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v8.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
+npm run resumes:import
 npm run dev
 ```
 
@@ -132,6 +161,7 @@ source of truth; the spreadsheets are views of it.
 | V5 MCP server | Done |
 | V6 Inbox + follow-ups (Gmail drafts only) | Done (needs your OAuth + real volume) |
 | V7 Browser assist (Playwright, no Submit) | Done |
+| V8 Resumes + Dossier research + Gmail outreach drafts | Done |
 
 ## Eight-agent workflow: what is coded vs what stays in chat
 

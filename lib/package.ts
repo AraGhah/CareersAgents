@@ -38,6 +38,8 @@ export type PackageResult = {
   projects: Project[];
   flags: NounFlag[];
   checklist: ChecklistItem[];
+  resumeId: string | null;
+  resumePath: string | null;
 };
 
 function slugPart(value: string): string {
@@ -259,6 +261,9 @@ export async function buildApplicationPackage(opts: {
   const categories = detectCategories(opts.app.title, opts.app.description);
   const projects = await projectsForCategories(categories);
 
+  const { resolveResumeForJob } = await import("./resumes");
+  const resume = await resolveResumeForJob(lang);
+
   const fullName = await answerText("full_name", lang);
   const availability = await answerText("available_from", lang);
   const locationRule = await answerText("location_rule", lang);
@@ -299,7 +304,15 @@ export async function buildApplicationPackage(opts: {
     "utf8",
   );
 
-  const checklist = await runChecklist({ app: opts.app, letter, input, flags });
+  const checklist = await runChecklist({
+    app: {
+      ...opts.app,
+      resume_path: resume?.storage_path ?? opts.app.resume_path,
+    },
+    letter,
+    input,
+    flags,
+  });
 
   await writeFile(
     path.join(dir, "checklist.json"),
@@ -316,6 +329,8 @@ export async function buildApplicationPackage(opts: {
         emailSubject: outreach.subject,
         emailBody: outreach.body,
         emailWordCount: outreach.wordCount,
+        resumeId: resume?.id ?? null,
+        resumePath: resume?.storage_path ?? opts.app.resume_path,
       },
       null,
       2,
@@ -337,6 +352,8 @@ export async function buildApplicationPackage(opts: {
     projects,
     flags,
     checklist,
+    resumeId: resume?.id ?? null,
+    resumePath: resume?.storage_path ?? opts.app.resume_path ?? null,
   };
 }
 

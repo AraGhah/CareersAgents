@@ -28,9 +28,13 @@
     "followups:dry": "tsx scripts/process-followups.ts --dry",
     "followups:check": "tsx scripts/followups-check.ts",
     "assist": "tsx scripts/assist-apply.ts",
-    "assist:check": "tsx scripts/assist-check.ts"
+    "assist:check": "tsx scripts/assist-check.ts",
+    "resumes:import": "tsx scripts/import-resumes.ts",
+    "dossier:check": "tsx scripts/dossier-check.ts",
+    "demo:record": "tsx scripts/record-demo.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.127.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "decimal.js": "^10.6.0",
     "dotenv": "^18.0.1",
@@ -39,6 +43,7 @@
     "next": "16.3.5",
     "node-cron": "^4.6.0",
     "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.23.0",
     "playwright": "^1.63.0",
     "react": "19.2.8",
@@ -48,6 +53,7 @@
   "devDependencies": {
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
+    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

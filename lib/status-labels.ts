@@ -2,14 +2,14 @@ import type { ApplicationStatus } from "./types";
 import type { Band } from "./score";
 
 export const APPLICATION_STATUS_FR: Record<ApplicationStatus, string> = {
-  draft: "Trouvé",
-  ready: "Brouillon prêt",
-  submitted: "Postulé",
-  replied: "Réponse",
+  discovered: "Découvert",
+  qualified: "Qualifié",
+  ready: "Prêt",
+  applied: "Postulé",
+  followup: "Relance",
   interview: "Entrevue",
-  assessment: "Évaluation",
-  rejected: "Refus",
-  offer: "Offre",
+  accepted: "Accepté",
+  rejected: "Refusé",
   withdrawn: "Abandonné",
 };
 

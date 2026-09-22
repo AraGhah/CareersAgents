@@ -42,6 +42,12 @@ Stages_2027.xlsx
 # generated application packages (letters, PDFs, checklists)
 /applications/
 
+# uploaded / imported resumes (binary PDFs)
+/resumes/
+
+# demo recordings
+/demos/
+
 # raw ATS responses from discovery
 /cache/
 

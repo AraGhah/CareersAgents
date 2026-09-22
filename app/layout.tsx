@@ -31,8 +31,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <nav>
             <Link href="/">Offres</Link>
-            <Link href="/board">Pipeline</Link>
+            <Link href="/pipeline">Pipeline</Link>
+            <Link href="/board">Board</Link>
             <Link href="/followups">Relances</Link>
+            <Link href="/resumes">CV</Link>
             <Link href="/answers">Banque</Link>
             <Link href="/jobs/new">Ajouter</Link>
           </nav>

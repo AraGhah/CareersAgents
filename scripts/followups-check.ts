@@ -15,8 +15,8 @@ async function main() {
     occurredAt: new Date(),
   });
   if (rejection !== "rejection") throw new Error(`expected rejection, got ${rejection}`);
-  if (!shouldApplyStatus("submitted", statusFromClassification(rejection)!)) {
-    throw new Error("rejection should apply from submitted");
+  if (!shouldApplyStatus("applied", statusFromClassification(rejection)!)) {
+    throw new Error("rejection should apply from applied");
   }
   console.log("classification rules ok");
 
@@ -29,7 +29,7 @@ async function main() {
   }
   const applicationId = apps.rows[0].id;
 
-  await setApplicationStatus(applicationId, "submitted", "followups-check");
+  await setApplicationStatus(applicationId, "applied", "followups-check");
   const { rows: followups } = await pool.query<{ due_on: string; state: string }>(
     `SELECT due_on::text, state FROM followups WHERE application_id = $1 ORDER BY due_on`,
     [applicationId],

@@ -39,7 +39,22 @@ const dictionary = (skillsFile.dictionary as DictionaryEntry[]).map((entry) => (
   regexes: entry.patterns.map((pattern) => new RegExp(pattern, "i")),
 }));
 
-const have = new Set(skillsFile.have as string[]);
+const defaultHave = new Set(skillsFile.have as string[]);
+
+/** Skills the candidate actually has — from the active resume profile when available. */
+let haveSkills: Set<string> = defaultHave;
+
+export function setHaveSkills(skills: string[] | null | undefined) {
+  if (!skills || skills.length === 0) {
+    haveSkills = defaultHave;
+    return;
+  }
+  haveSkills = new Set(skills);
+}
+
+export function getHaveSkills(): string[] {
+  return [...haveSkills];
+}
 
 function asWeights(raw: Record<string, number>): Weights {
   const weights = {} as Weights;
@@ -70,7 +85,7 @@ export function findSkills(text: string): SkillHit[] {
   const found: SkillHit[] = [];
   for (const entry of dictionary) {
     if (entry.regexes.some((re) => re.test(text))) {
-      found.push({ name: entry.name, have: have.has(entry.name) });
+      found.push({ name: entry.name, have: haveSkills.has(entry.name) });
     }
   }
   return found;
