@@ -371,7 +371,7 @@ export async function approveOutreachDraft(opts: {
     await setApplicationStatus(
       row.application_id,
       "ready",
-      "approved — Gmail draft ready (Assisted Mode; you send)",
+      "approved: Gmail draft ready (Assisted Mode; you send)",
     );
     return { mode: "draft", gmailId: draftId };
   }
@@ -379,7 +379,7 @@ export async function approveOutreachDraft(opts: {
   await setApplicationStatus(
     row.application_id,
     "ready",
-    `approved locally — Gmail draft not created (${gmailError}). Set up Gmail OAuth to push drafts automatically.`,
+    `approved locally: Gmail draft not created (${gmailError}). Set up Gmail OAuth to push drafts automatically.`,
   );
   return { mode: "local", gmailId: null, gmailError };
 }

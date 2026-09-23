@@ -11,7 +11,7 @@ import {
   researchApplicationAction,
   saveApplication,
 } from "../../actions";
-import { Flash, SubmitButton } from "../../components/client-ui";
+import { Flash, Select, SubmitButton } from "../../components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Section, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
 import { detectCategories } from "../../../lib/category";
@@ -104,7 +104,7 @@ export default async function ApplicationPage({
         lede={
           <>
             {place(app.location, app.workplace_type)}
-            {" — "}
+            {" · "}
             <a href={app.url} target="_blank" rel="noreferrer">
               voir l&apos;offre
             </a>
@@ -144,7 +144,7 @@ export default async function ApplicationPage({
         {sp.approved === "sent" ? <Flash>Approuvé et envoyé via Gmail.</Flash> : null}
         {sp.approved === "local" ? (
           <Flash tone="info">
-            Approuvé localement — Gmail n&apos;est pas configuré, donc aucun brouillon n&apos;a été
+            Approuvé localement : Gmail n&apos;est pas configuré, donc aucun brouillon n&apos;a été
             créé. Copie le texte ci-dessous pour l&apos;envoyer toi-même, ou configure Gmail (
             <code>GMAIL_CLIENT_ID</code>/<code>GMAIL_CLIENT_SECRET</code> dans <code>.env.local</code>
             , puis <code>npm run gmail:auth</code>) pour que les prochaines approbations créent un
@@ -157,7 +157,7 @@ export default async function ApplicationPage({
             ) : null}
           </Flash>
         ) : null}
-        {sp.applied === "1" ? <Flash>Marqué postulé — relances planifiées.</Flash> : null}
+        {sp.applied === "1" ? <Flash>Marqué postulé, relances planifiées.</Flash> : null}
         {sp.drafted ? <Flash tone="info">Brouillon Gmail créé (tu envoies toi-même).</Flash> : null}
         {sp.contact === "1" ? <Flash>Contact enregistré.</Flash> : null}
       </div>
@@ -180,7 +180,7 @@ export default async function ApplicationPage({
               Préparer (recherche + email)
             </SubmitButton>
             <span className="small muted grow">
-              Recherche l&apos;entreprise, trouve un contact, rédige l&apos;email — s&apos;arrête
+              Recherche l&apos;entreprise, trouve un contact, rédige l&apos;email. S&apos;arrête
               avant tout envoi.
             </span>
           </form>
@@ -239,13 +239,13 @@ export default async function ApplicationPage({
             <dd>
               <form action={changeStatus} className="inline">
                 <input type="hidden" name="applicationId" value={app.id} />
-                <select name="status" defaultValue={app.status} aria-label="Changer le statut">
-                  {APPLICATION_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {APPLICATION_STATUS_FR[s]}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  name="status"
+                  ariaLabel="Changer le statut"
+                  defaultValue={app.status}
+                  options={APPLICATION_STATUSES.map((s) => ({ value: s, label: APPLICATION_STATUS_FR[s] }))}
+                  compact
+                />
                 <SubmitButton className="small">Mettre à jour</SubmitButton>
               </form>
             </dd>
@@ -291,7 +291,7 @@ export default async function ApplicationPage({
                 </>
               ) : (
                 <span className="empty">
-                  Aucun CV actif — <Link href="/resumes">uploader un CV</Link>
+                  Aucun CV actif : <Link href="/resumes">uploader un CV</Link>
                 </span>
               )}
             </dd>
@@ -358,7 +358,7 @@ export default async function ApplicationPage({
               <ul className="stack" style={{ gap: "var(--s-3)", margin: 0, paddingLeft: "1.1rem" }}>
                 {dossier.contact_targets.map((t, i) => (
                   <li key={`${t.role}-${i}`} className="small">
-                    <strong>{t.role}</strong> — {t.why}
+                    <strong>{t.role}</strong> : {t.why}
                     <span className="field-hint">{t.searchHint}</span>
                   </li>
                 ))}
@@ -447,12 +447,18 @@ export default async function ApplicationPage({
                         <form action={draftOutreachAction} className="inline">
                           <input type="hidden" name="applicationId" value={app.id} />
                           <input type="hidden" name="contactId" value={c.id} />
-                          <select name="kind" defaultValue="outreach" aria-label="Type d'email">
-                            <option value="outreach">Prise de contact</option>
-                            <option value="application">Candidature</option>
-                            <option value="cover">Lettre de motivation</option>
-                            <option value="followup">Relance</option>
-                          </select>
+                          <Select
+                            name="kind"
+                            ariaLabel="Type d'email"
+                            defaultValue="outreach"
+                            options={[
+                              { value: "outreach", label: "Prise de contact" },
+                              { value: "application", label: "Candidature" },
+                              { value: "cover", label: "Lettre de motivation" },
+                              { value: "followup", label: "Relance" },
+                            ]}
+                            compact
+                          />
                           <SubmitButton className="primary small" pendingLabel="Création…">
                             Créer brouillon
                           </SubmitButton>
@@ -588,10 +594,15 @@ export default async function ApplicationPage({
           </div>
           <div className="field">
             <label htmlFor="lang">Langue de la lettre</label>
-            <select id="lang" name="lang" defaultValue={stored?.lang ?? lang}>
-              <option value="en">English</option>
-              <option value="fr">French</option>
-            </select>
+            <Select
+              name="lang"
+              ariaLabel="Langue de la lettre"
+              defaultValue={stored?.lang ?? lang}
+              options={[
+                { value: "en", label: "English" },
+                { value: "fr", label: "French" },
+              ]}
+            />
           </div>
           <div className="form-actions">
             <SubmitButton className="primary" pendingLabel="Génération…">
@@ -732,7 +743,7 @@ export default async function ApplicationPage({
                     </td>
                     <td>
                       {a.mode === "manual" ? (
-                        <span className="empty">{a.text ?? "pas de texte — à taper sur le formulaire"}</span>
+                        <span className="empty">{a.text ?? "pas de texte, à taper sur le formulaire"}</span>
                       ) : (
                         (a.text ?? <span className="empty">à écrire</span>)
                       )}

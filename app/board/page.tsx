@@ -78,7 +78,7 @@ export default async function BoardPage() {
                 <section
                   key={status}
                   className={`board-col${column.length === 0 ? " is-empty" : ""}`}
-                  aria-label={`${APPLICATION_STATUS_FR[status]} — ${column.length}`}
+                  aria-label={`${APPLICATION_STATUS_FR[status]} : ${column.length}`}
                 >
                   <h3>
                     {APPLICATION_STATUS_FR[status]}

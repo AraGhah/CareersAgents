@@ -73,7 +73,7 @@ export default async function FollowupsPage() {
       <PageHeader
         eyebrow="Suivi"
         title="Relances"
-        lede="Les relances se planifient toutes seules au jour 7 et au jour 14 après l'envoi. Le desk prépare le brouillon dans Gmail — c'est toi qui appuies sur envoyer."
+        lede="Les relances se planifient toutes seules au jour 7 et au jour 14 après l'envoi. Le desk prépare le brouillon dans Gmail, c'est toi qui appuies sur envoyer."
         actions={
           <Link href="/board" className="btn">
             Voir le board

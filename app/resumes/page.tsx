@@ -5,7 +5,7 @@ import {
   replaceResumeAction,
   uploadResumeAction,
 } from "../actions";
-import { Flash, SubmitButton } from "../components/client-ui";
+import { Flash, Select, SubmitButton } from "../components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Section, Stat, TableWrap } from "../components/ui";
 import { day } from "../../lib/format";
 import { listResumes } from "../../lib/resumes";
@@ -43,7 +43,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
       <PageHeader
         eyebrow="Profil"
         title="CV"
-        lede="Les CV actifs pilotent le matching, le package de candidature et la langue des emails. Rien n'est codé en dur : uploade, active, remplace — le profil est réanalysé automatiquement."
+        lede="Les CV actifs pilotent le matching, le package de candidature et la langue des emails. Rien n'est codé en dur : uploade, active, remplace. Le profil est réanalysé automatiquement."
       />
 
       {sp.ok && OK_MESSAGE[sp.ok] ? <Flash>{OK_MESSAGE[sp.ok]}</Flash> : null}
@@ -68,10 +68,15 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
           <div className="row">
             <div className="field">
               <label htmlFor="language">Langue</label>
-              <select id="language" name="language" required defaultValue="en">
-                <option value="en">English</option>
-                <option value="fr">Français</option>
-              </select>
+              <Select
+                name="language"
+                ariaLabel="Langue"
+                defaultValue="en"
+                options={[
+                  { value: "en", label: "English" },
+                  { value: "fr", label: "Français" },
+                ]}
+              />
             </div>
             <div className="field">
               <label htmlFor="label">Libellé</label>

@@ -31,9 +31,9 @@ export const metadata = { title: "Pipeline" };
 const FLOW = [
   "Trouver les offres (ATS réels + LinkedIn si configuré)",
   "Matcher avec le CV actif et qualifier automatiquement",
-  "Rechercher l'entreprise et un contact public — automatique",
-  "Rédiger un email personnalisé — automatique",
-  "Ton approbation — rien ne part sans elle",
+  "Rechercher l'entreprise et un contact public (automatique)",
+  "Rédiger un email personnalisé (automatique)",
+  "Ton approbation : rien ne part sans elle",
   "Brouillon Gmail, puis suivi des relances",
 ];
 
@@ -71,14 +71,14 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
 
       {sp.found === "1" ? (
         <Flash>
-          Recherche terminée — <strong>{sp.new ?? "0"}</strong> nouvelles offres,{" "}
+          Recherche terminée : <strong>{sp.new ?? "0"}</strong> nouvelles offres,{" "}
           <strong>{sp.qualified ?? "0"}</strong> qualifiées, <strong>{sp.boards ?? "0"}</strong>{" "}
           boards ATS consultés.
           {Number(sp.prepared) > 0 ? (
             <>
               {" "}
               <strong>{sp.prepared}</strong> déjà préparée{Number(sp.prepared) > 1 ? "s" : ""}{" "}
-              (recherche + contact + brouillon d&apos;email) — reste à approuver.
+              (recherche + contact + brouillon d&apos;email), reste à approuver.
             </>
           ) : null}
         </Flash>
@@ -137,9 +137,9 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
             <span className="small muted grow">
               Interroge les ATS réels (Greenhouse, Lever, Workable, Ashby) puis score chaque offre
               contre ton CV. LinkedIn et Indeed tournent chacun si leur acteur Apify est
-              configuré (Indeed n&apos;a plus d&apos;API officielle depuis 2023 — seul Apify
+              configuré (Indeed n&apos;a plus d&apos;API officielle depuis 2023, seul Apify
               fonctionne). Chaque offre qualifiée est automatiquement suivie, recherchée et son
-              email préparé — il ne reste que ton approbation. Programme
+              email préparé. Il ne reste que ton approbation. Programme
               <code> npm run automate</code> pour que ça tourne tout seul, sans revenir ici.
             </span>
           </form>

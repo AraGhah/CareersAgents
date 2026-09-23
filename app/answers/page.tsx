@@ -29,7 +29,7 @@ export default async function AnswersPage() {
       <PageHeader
         eyebrow="Référence"
         title="Banque de réponses"
-        lede="Vert se colle sans y toucher. Jaune est un point de départ à reformuler pour l'offre. Rouge te rappelle le sujet — tu tapes la réponse toi-même."
+        lede="Vert se colle sans y toucher. Jaune est un point de départ à reformuler pour l'offre. Rouge te rappelle le sujet : tu tapes la réponse toi-même."
       />
 
       <div className="stats">

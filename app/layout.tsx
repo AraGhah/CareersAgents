@@ -2,8 +2,13 @@ import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Serif } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
-import { Nav, type NavItem } from "./components/nav";
-import { ThemeToggle } from "./components/client-ui";
+import { CommandPaletteProvider } from "./components/command-palette";
+import { NAV_ITEMS } from "./components/nav-items";
+import { Nav } from "./components/nav";
+import { ToastProvider } from "./components/toaster";
+import { TooltipProvider } from "./components/client-ui";
+import { TopBar } from "./components/topbar";
+import { assistedModeDefault } from "../lib/sources";
 
 const sans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -28,38 +33,28 @@ const display = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: { default: "Internship Desk", template: "%s · Internship Desk" },
-  description: "Suivi de stages hiver 2027 — Montréal / Laval",
+  description: "Suivi de stages hiver 2027 · Montréal / Laval",
 };
 
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#121411" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0e0b" },
   ],
 };
 
-// Intentionally static, with no DB-backed badge (e.g. a live "relances dues"
-// count). The layout wraps every route, so any query here runs on every
-// single request; if Postgres is down that query rejects on every request
-// too, and in Next 16 dev/Turbopack that reliably corrupts the response
-// stream (see lib/db.ts and instrumentation.ts) — even when caught, even
-// outside the layout. Keeping the shell free of data fetching means the nav
-// stays usable during a DB outage instead of going down with whatever page
-// hit it. The count still lives on the offres page's own stat card.
-const NAV: NavItem[] = [
-  { href: "/", label: "Offres" },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/board", label: "Board" },
-  { href: "/followups", label: "Relances" },
-  { href: "/resumes", label: "CV" },
-  { href: "/answers", label: "Banque" },
-  { href: "/jobs/new", label: "Ajouter" },
-];
-
-/** Applies the stored theme before first paint so the page never flashes. */
+/** Applies the stored theme before first paint so the page never flashes.
+ *  Dark is the default identity: only an explicit stored "light" choice
+ *  ever sets the attribute here — everything else falls through to the CSS
+ *  default (dark), except a first-time OS light preference (handled in CSS). */
 const THEME_SCRIPT = `try{var t=localStorage.getItem('desk-theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // A pure env-var read, not a DB query — safe in the layout even during a
+  // Postgres outage (see the NAV_ITEMS comment in nav-items.ts for why
+  // anything DB-backed stays out of this file).
+  const assistedMode = assistedModeDefault();
+
   return (
     <html
       lang="fr"
@@ -75,25 +70,35 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Aller au contenu
         </a>
 
-        <div className="shell">
-          <header className="rail">
-            <Link href="/" className="brand">
-              <span className="brand-mark">Internship Desk</span>
-              <span className="brand-sub">Hiver 2027 · Ara G.</span>
-            </Link>
+        <ToastProvider>
+          <TooltipProvider>
+            <CommandPaletteProvider>
+              <div className="shell">
+                <TopBar assistedMode={assistedMode} />
 
-            <Nav items={NAV} />
+                <div className="shell-body">
+                  <header className="rail">
+                    <Link href="/" className="brand">
+                      <span className="brand-mark">Internship Desk</span>
+                      <span className="brand-sub">Hiver 2027 · Ara G.</span>
+                    </Link>
 
-            <div className="rail-foot">
-              <span className="rail-env">Mode assisté</span>
-              <ThemeToggle />
-            </div>
-          </header>
+                    <Nav items={NAV_ITEMS} />
 
-          <main className="page" id="main">
-            {children}
-          </main>
-        </div>
+                    <div className="rail-foot">
+                      <span>Trouver une page</span>
+                      <kbd>⌘K</kbd>
+                    </div>
+                  </header>
+
+                  <main className="page" id="main">
+                    {children}
+                  </main>
+                </div>
+              </div>
+            </CommandPaletteProvider>
+          </TooltipProvider>
+        </ToastProvider>
       </body>
     </html>
   );

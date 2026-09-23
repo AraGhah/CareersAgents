@@ -61,7 +61,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       <PageHeader
         eyebrow="Découverte"
         title="Offres"
-        lede="Tout ce que le desk a trouvé ou que tu as ajouté à la main. Le score compare l'offre à ton CV actif — 85 et plus passe en priorité."
+        lede="Tout ce que le desk a trouvé ou que tu as ajouté à la main. Le score compare l'offre à ton CV actif : 85 et plus passe en priorité."
         actions={
           <>
             <Link href="/jobs/new" className="btn">
@@ -78,7 +78,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <Stat value={summary.openJobs} label="Offres ouvertes" />
         <Stat
           value={summary.priorityOpen}
-          label="Priorité — score 85+"
+          label="Priorité · score 85+"
           tone={summary.priorityOpen > 0 ? "good" : undefined}
         />
         <Stat value={summary.tracked} label="Candidatures suivies" href="/board" />

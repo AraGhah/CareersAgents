@@ -161,7 +161,7 @@ function heuristicDossier(opts: {
 
   return {
     summary: [
-      `${opts.companyName} — research brief for ${opts.roleTitle}.`,
+      `${opts.companyName}: research brief for ${opts.roleTitle}.`,
       company_fact,
       uniqueTech.length ? `Observed technologies: ${uniqueTech.join(", ")}.` : null,
       "Contact emails are never guessed; add verified addresses from a public source_url.",

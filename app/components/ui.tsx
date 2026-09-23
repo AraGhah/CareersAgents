@@ -166,7 +166,7 @@ export function ScoreMeter({
   }
 
   return (
-    <span className={`meter meter-${band}`} title={`${label} — ${pct}/100`}>
+    <span className={`meter meter-${band}`} title={`${label} : ${pct}/100`}>
       <span className="meter-num">{gated ? "—" : pct}</span>
       <span className="meter-track">
         <span className="meter-fill" style={{ width: `${gated ? 100 : pct}%` }} />

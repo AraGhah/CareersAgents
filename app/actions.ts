@@ -90,6 +90,144 @@ export async function addManualJob(form: FormData) {
   redirect("/");
 }
 
+/* --------------------------------------------------------------------------
+   "Ajouter une offre" live helpers — called directly from the client
+   composer (not through a <form action>), so the preview pane can update as
+   you type without a page navigation.
+   -------------------------------------------------------------------------- */
+
+export type JobUrlAnalysis = {
+  ok: boolean;
+  title: string | null;
+  description: string | null;
+  location: string | null;
+  hostname: string | null;
+  error?: string;
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .trim();
+}
+
+function firstMetaMatch(html: string, patterns: RegExp[]): string | null {
+  for (const re of patterns) {
+    const match = html.match(re);
+    if (match?.[1]) {
+      const value = decodeHtmlEntities(match[1]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Best-effort extraction from a pasted job URL: title, description, a
+ * location guess, and the hostname (used for the company logo). Static HTML
+ * only — job boards that render entirely client-side (some SPA-heavy ATS
+ * pages) will come back with little or nothing, and the form stays exactly
+ * as editable as if this had never run.
+ */
+export async function analyzeJobUrl(rawUrl: string): Promise<JobUrlAnalysis> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return { ok: false, title: null, description: null, location: null, hostname: null, error: "URL invalide" };
+  }
+  const hostname = url.hostname.replace(/^www\./, "");
+
+  try {
+    const res = await fetch(url.toString(), {
+      redirect: "follow",
+      headers: {
+        "user-agent": "InternshipDesk/0.1 (+manual job add)",
+        accept: "text/html,application/xhtml+xml",
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) {
+      return { ok: false, title: null, description: null, location: null, hostname, error: `HTTP ${res.status}` };
+    }
+    const html = await res.text();
+
+    const ogTitle = firstMetaMatch(html, [
+      /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i,
+    ]);
+    let title = ogTitle ?? firstMetaMatch(html, [/<title[^>]*>([^<]+)<\/title>/i]);
+    if (title) {
+      // Strip a trailing " | Company" / " – Company" suffix most ATS pages add.
+      title = title.replace(/\s+[|–—-]\s+[^|–—-]{2,50}$/, "").trim();
+    }
+
+    const description = firstMetaMatch(html, [
+      /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+    ]);
+
+    const location = firstMetaMatch(html, [
+      /<meta[^>]+property=["']og:locality["'][^>]+content=["']([^"']+)["']/i,
+      /<meta[^>]+property=["']job:location["'][^>]+content=["']([^"']+)["']/i,
+    ]);
+
+    return { ok: Boolean(title || description), title, description, location, hostname };
+  } catch (err) {
+    return {
+      ok: false,
+      title: null,
+      description: null,
+      location: null,
+      hostname,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export type JobMatchPreview = {
+  percent: number;
+  gated: boolean;
+  band: string;
+  skills: Array<{ name: string; have: boolean }>;
+};
+
+/** Live CV-match preview for the "Ajouter une offre" form — the exact same
+ *  scorer the real pipeline uses, just called eagerly against whatever the
+ *  form currently holds instead of a saved job row. */
+export async function previewJobMatch(input: {
+  title: string;
+  location: string;
+  workplaceType: string;
+  description: string;
+}): Promise<JobMatchPreview> {
+  const { scoreJob, setHaveSkills } = await import("../lib/score");
+  const { getActiveSkills } = await import("../lib/resumes");
+
+  setHaveSkills(await getActiveSkills());
+
+  const workplaceType =
+    input.workplaceType && (WORKPLACE_TYPES as readonly string[]).includes(input.workplaceType)
+      ? (input.workplaceType as WorkplaceType)
+      : null;
+
+  const result = scoreJob({
+    title: input.title || "",
+    location: input.location || null,
+    workplaceType,
+    description: input.description || null,
+    companyCity: null,
+  });
+
+  return { percent: result.percent, gated: result.gated, band: result.band, skills: result.found };
+}
+
 export async function changeStatus(form: FormData) {
   const id = required(form, "applicationId");
   const status = required(form, "status");

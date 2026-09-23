@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect, useRef, useState } from "react";
 
 export type NavItem = {
   href: string;
@@ -18,9 +19,40 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Nav({ items }: { items: NavItem[] }) {
   const pathname = usePathname() ?? "/";
+  const activeIndex = items.findIndex((item) => isActive(pathname, item.href));
+  const navRef = useRef<HTMLElement>(null);
+  const [indicator, setIndicator] = useState<{ y: number; visible: boolean }>({
+    y: 0,
+    visible: false,
+  });
+
+  // Reads real layout (link offsetTop) to drive the sliding highlight — no
+  // way to know that ahead of paint, so this is a legitimate effect, not a
+  // workaround. Runs before the browser paints to avoid a visible jump.
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav || activeIndex < 0) {
+      setIndicator((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+    const link = nav.querySelectorAll<HTMLAnchorElement>(".nav-link")[activeIndex];
+    if (!link) return;
+    setIndicator({ y: link.offsetTop, visible: true });
+  }, [activeIndex, pathname]);
 
   return (
-    <nav className="rail-nav" aria-label="Sections">
+    <nav
+      className="rail-nav"
+      aria-label="Sections"
+      ref={navRef}
+      style={
+        {
+          "--nav-y": `${indicator.y}px`,
+          "--nav-o": indicator.visible ? 1 : 0,
+        } as React.CSSProperties
+      }
+    >
+      <span className="nav-indicator" aria-hidden="true" />
       {items.map((item, i) => {
         const active = isActive(pathname, item.href);
         return (

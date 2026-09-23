@@ -54,7 +54,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         lede={
           <>
             {place(job.location, job.workplace_type)}
-            {" — "}
+            {" · "}
             <a href={job.url} target="_blank" rel="noreferrer">
               voir l&apos;offre
             </a>
@@ -145,7 +145,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   <span key={s.name} className={`badge ${s.have ? "green" : "neutral"}`}>
                     {s.have ? <span className="dot" aria-hidden="true" /> : null}
                     {s.name}
-                    {s.have ? "" : " — manquant"}
+                    {s.have ? "" : " (manquant)"}
                   </span>
                 ))}
               </p>
@@ -184,7 +184,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   <>
                     <ScoreMeter score={job.score} gated={gated} />
                     {gated ? (
-                      <span className="field-hint">Lieu ou période à 0 — offre écartée.</span>
+                      <span className="field-hint">Lieu ou période à 0 : offre écartée.</span>
                     ) : null}
                   </>
                 ) : (
