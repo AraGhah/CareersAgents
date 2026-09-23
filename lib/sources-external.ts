@@ -83,21 +83,35 @@ function cacheKeyFor(prefix: string, discriminator: string): string {
   return `${prefix}-apify-${discriminator.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
 /**
  * Normalizes one dataset item into a NormalizedJob. Different actors name
  * fields differently, so every lookup tries several common variants rather
- * than assuming one specific actor's schema.
+ * than assuming one specific actor's schema. A few actors (e.g. Indeed
+ * scrapers) nest company/location under an object instead of a flat string —
+ * those fall back to reading the nested shape.
  */
 function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
   if (raw === null || typeof raw !== "object") return null;
   const item = raw as Record<string, unknown>;
 
   const title = pick(item, ["title", "jobTitle", "position", "positionName", "name"]);
-  const companyName = pick(item, ["companyName", "company", "organization", "employer"]);
+  const employerObj = asRecord(item.employer ?? item.company);
+  const companyName =
+    pick(item, ["companyName", "company", "organization", "employer"]) ??
+    pick(employerObj, ["name", "companyName"]);
   const url = pick(item, ["link", "url", "jobUrl", "applyUrl", "postingUrl", "externalApplyLink"]);
   if (!title || !companyName || !url) return null;
 
-  const location = pick(item, ["location", "jobLocation", "place", "formattedLocation"]);
+  const locationObj = asRecord(item.location);
+  const nestedLocation =
+    [str(locationObj.city), str(locationObj.admin1Code) ?? str(locationObj.region), str(locationObj.countryName)]
+      .filter(Boolean)
+      .join(", ") || null;
+  const location = pick(item, ["location", "jobLocation", "place", "formattedLocation"]) ?? nestedLocation;
   const descriptionHtml = pick(item, [
     "description",
     "jobDescription",
@@ -106,7 +120,14 @@ function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
     "snippet",
   ]);
   const employmentType = pick(item, ["employmentType", "workType", "jobType", "workplaceType"]);
-  const postedRaw = pick(item, ["postedAt", "datePosted", "publishedAt", "postedDate", "listedAt"]);
+  const postedRaw = pick(item, [
+    "postedAt",
+    "datePosted",
+    "publishedAt",
+    "postedDate",
+    "listedAt",
+    "datePublished",
+  ]);
   const externalId = pick(item, ["id", "jobId", "postingId"]) ?? url;
 
   return {
@@ -131,6 +152,7 @@ type ApifyJobsSource = {
   inputEnvVar: string;
   queryEnvVar: string;
   locationEnvVar: string;
+  countryEnvVar: string;
   defaultQuery: string;
 };
 
@@ -175,18 +197,38 @@ async function runApifyActorJobs(
 
   const customInput = process.env[cfg.inputEnvVar]?.trim();
   const location = process.env[cfg.locationEnvVar]?.trim() || "Montreal, Quebec, Canada";
+  const country = process.env[cfg.countryEnvVar]?.trim() || "ca";
   const queries = (process.env[cfg.queryEnvVar]?.trim() || cfg.defaultQuery)
     .split(",")
     .map((q) => q.trim())
     .filter(Boolean);
 
+  // Actors name their input fields differently (title vs searchQuery vs query,
+  // rows vs maxJobs vs limit, ...) and there's no way to know which one a
+  // given actor expects without reading its schema. Sending every common
+  // alias at once satisfies whichever one the actor actually reads — extra,
+  // unrecognized keys are harmless as long as the actor doesn't reject
+  // unknown properties outright (the actors this app ships with don't).
+  //
   // A full custom input (as JSON) always wins if the user's actor needs a
-  // specific shape — it can't safely be split per query, so it runs once.
+  // shape this can't cover — it can't safely be split per query, so it runs
+  // once instead of once per query term.
   const runs: Array<{ cacheKey: string; input: unknown }> = customInput
     ? [{ cacheKey: cacheKeyFor(cfg.source, `${actorId}-custom`), input: JSON.parse(customInput) }]
     : queries.map((query) => ({
         cacheKey: cacheKeyFor(cfg.source, `${actorId}-${query}`),
-        input: { title: query, location, rows: 60 },
+        input: {
+          title: query,
+          searchQuery: query,
+          query,
+          keyword: query,
+          location,
+          country,
+          rows: 60,
+          maxJobs: 60,
+          limit: 60,
+          scrapeJobDetails: false,
+        },
       }));
 
   const allItems: unknown[] = [];
@@ -229,6 +271,7 @@ export function fetchLinkedInJobs(opts: { fresh?: boolean } = {}): Promise<Exter
       inputEnvVar: "APIFY_LINKEDIN_JOBS_INPUT",
       queryEnvVar: "APIFY_LINKEDIN_SEARCH_QUERY",
       locationEnvVar: "APIFY_LINKEDIN_SEARCH_LOCATION",
+      countryEnvVar: "APIFY_LINKEDIN_SEARCH_COUNTRY",
       defaultQuery: "software engineering internship",
     },
     opts,
@@ -249,6 +292,7 @@ export function fetchIndeedJobs(opts: { fresh?: boolean } = {}): Promise<Externa
       inputEnvVar: "APIFY_INDEED_JOBS_INPUT",
       queryEnvVar: "APIFY_INDEED_SEARCH_QUERY",
       locationEnvVar: "APIFY_INDEED_SEARCH_LOCATION",
+      countryEnvVar: "APIFY_INDEED_SEARCH_COUNTRY",
       defaultQuery: "software engineering internship",
     },
     opts,

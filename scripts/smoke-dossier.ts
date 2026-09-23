@@ -50,7 +50,6 @@ async function main() {
   const crafted = buildPersonalizedOutreach({
     app,
     dossier,
-    profile: resume?.profile_json ?? null,
     projects,
     fullName: "Ara Ghahramanyan",
     availability: "January 2027",

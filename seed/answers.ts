@@ -40,16 +40,16 @@ const answers: SeedAnswer[] = [
   {
     key: "city",
     category: "green",
-    answer_en: "Montr\u00e9al, Qu\u00e9bec",
-    answer_fr: "Montr\u00e9al, Qu\u00e9bec",
+    answer_en: "Montr\u00e9al, QC",
+    answer_fr: "Montr\u00e9al, QC",
   },
   {
     key: "links",
     category: "green",
     answer_en:
-      "Portfolio: https://aragahramanyan.dev  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan",
+      "Portfolio: https://ara-hall-of-projects.vercel.app  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan",
     answer_fr:
-      "Portfolio : https://aragahramanyan.dev  GitHub : https://github.com/AraGhah  LinkedIn : https://linkedin.com/in/ara-ghahramanyan",
+      "Portfolio : https://ara-hall-of-projects.vercel.app  GitHub : https://github.com/AraGhah  LinkedIn : https://linkedin.com/in/ara-ghahramanyan",
   },
   {
     key: "school_program",

@@ -1,7 +1,7 @@
 import { pool } from "./db";
 import { createDraft } from "./gmail";
+import type { GmailAttachment } from "./gmail";
 import { detectLetterLang, fillOutreachEmail, type LetterLang } from "./letter";
-import type { ResumeProfile } from "./profile";
 import type { CompanyDossier } from "./research";
 import type { ApplicationDetail, Project } from "./types";
 
@@ -49,37 +49,22 @@ export async function hasOpenOutreach(
       WHERE application_id = $1
         AND kind = $2
         AND lower(to_email) = lower($3)
-        AND (gmail_draft_id IS NOT NULL OR sent_detected_at IS NOT NULL)`,
+        AND (gmail_draft_id IS NOT NULL OR sent_detected_at IS NOT NULL OR approved_at IS NOT NULL)`,
     [applicationId, kind, toEmail],
   );
   return Number(rows[0]?.n ?? 0) > 0;
 }
 
-function projectLines(projects: Project[], lang: LetterLang): string {
-  if (!projects.length) return "";
-  const p = projects[0];
-  if (lang === "fr") {
-    return `Récemment, j'ai travaillé sur ${p.name} (${p.tech.slice(0, 3).join(", ")}).`;
-  }
-  return `Recently I shipped ${p.name} (${p.tech.slice(0, 3).join(", ")}).`;
-}
-
-function profileHook(profile: ResumeProfile | null, lang: LetterLang): string {
-  const skills = (profile?.skills ?? []).slice(0, 5).join(", ");
-  if (!skills) return "";
-  if (lang === "fr") {
-    return `Mon profil est centré sur ${skills}.`;
-  }
-  return `My focus is ${skills}.`;
-}
-
 export function buildPersonalizedOutreach(opts: {
   app: ApplicationDetail;
   dossier: CompanyDossier | null;
-  profile: ResumeProfile | null;
   projects: Project[];
   fullName: string;
   availability: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  links?: string[];
   recipientName?: string | null;
   lang?: LetterLang;
   kind?: OutreachKind;
@@ -92,17 +77,17 @@ export function buildPersonalizedOutreach(opts: {
       ? `Votre équipe recrute pour ${opts.app.title}.`
       : `Your team is hiring for ${opts.app.title}.`);
   const signal = opts.dossier?.signals?.[0]?.signal;
-
-  const greeting =
-    lang === "fr"
-      ? opts.recipientName
-        ? `Bonjour ${opts.recipientName},`
-        : "Bonjour,"
-      : opts.recipientName
-        ? `Hello ${opts.recipientName},`
-        : "Hello,";
+  const companyFact = [fact, signal && signal !== fact ? signal : ""].filter(Boolean).join(" ");
 
   if (kind === "followup") {
+    const greeting =
+      lang === "fr"
+        ? opts.recipientName
+          ? `Bonjour ${opts.recipientName},`
+          : "Bonjour,"
+        : opts.recipientName
+          ? `Hello ${opts.recipientName},`
+          : "Hello,";
     const subject =
       lang === "fr" ? `Relance - ${opts.app.title}` : `Following up - ${opts.app.title}`;
     const body =
@@ -132,65 +117,31 @@ export function buildPersonalizedOutreach(opts: {
     return { subject, body, lang, wordCount: body.split(/\s+/).filter(Boolean).length };
   }
 
-  const base = fillOutreachEmail({
+  const mail = fillOutreachEmail({
     fullName: opts.fullName,
     companyName: opts.app.company_name,
     roleTitle: opts.app.title,
-    companyFact: [fact, signal].filter(Boolean).join(" "),
+    companyFact,
     companyFactSource: opts.dossier?.company_fact_source ?? opts.app.company_website ?? "",
     projects: opts.projects,
     availability: opts.availability,
     locationRule: "",
-    links: [],
+    links: opts.links ?? [],
     lang,
+    email: opts.email,
+    phone: opts.phone,
+    city: opts.city,
+    recruiterName: opts.recipientName ?? null,
   });
-
-  // Rebuild body with richer personalization while keeping the 120-word discipline of fillOutreachEmail.
-  const extra = [profileHook(opts.profile, lang), projectLines(opts.projects, lang)].filter(Boolean);
-  const bodyParts =
-    lang === "fr"
-      ? [
-          greeting,
-          "",
-          `Je vous écris au sujet du poste ${opts.app.title} chez ${opts.app.company_name}. ${fact}`,
-          signal && signal !== fact ? signal : "",
-          ...extra,
-          `Je suis disponible à partir de ${opts.availability}.`,
-          "",
-          "Merci de votre temps,",
-          opts.fullName,
-        ]
-      : [
-          greeting,
-          "",
-          `I am reaching out about the ${opts.app.title} role at ${opts.app.company_name}. ${fact}`,
-          signal && signal !== fact ? signal : "",
-          ...extra,
-          `I am available from ${opts.availability}.`,
-          "",
-          "Thank you,",
-          opts.fullName,
-        ];
-
-  let body = bodyParts.filter(Boolean).join("\n");
-  const words = body.trim().split(/\s+/).filter(Boolean);
-  if (words.length > 140) {
-    body = `${words.slice(0, 140).join(" ")}…`;
-  }
 
   const subject =
     kind === "application" || kind === "cover"
       ? lang === "fr"
         ? `Candidature - ${opts.app.title}`
-        : `Application — ${opts.app.title}`
-      : base.subject;
+        : `Application - ${opts.app.title}`
+      : mail.subject;
 
-  return {
-    subject,
-    body,
-    lang,
-    wordCount: body.split(/\s+/).filter(Boolean).length,
-  };
+  return { subject, body: mail.body, lang, wordCount: mail.wordCount };
 }
 
 export async function createOutreachDraft(opts: {
@@ -283,14 +234,79 @@ export async function getOutreachDraft(id: string): Promise<OutreachDraftRow | n
 }
 
 /**
+ * Resume + cover letter for the Gmail attachment, resolved lazily. The resume
+ * is whichever one was active when this draft was written (falls back to the
+ * application's resolved resume). The cover letter should already exist —
+ * prepareOutreachWorkflow builds one for every application up front — but
+ * this is a safety net for applications that reach approval some other way
+ * (a manually drafted outreach, or older data from before that existed).
+ */
+async function resolveAttachments(row: OutreachDraftRow): Promise<GmailAttachment[]> {
+  const { readFile } = await import("node:fs/promises");
+  const { getApplication } = await import("./queries");
+  const { getLatestDossier } = await import("./research");
+  const { buildPackageFromDossier } = await import("./package");
+
+  const attachments: GmailAttachment[] = [];
+  const app = await getApplication(row.application_id);
+  if (!app) return attachments;
+
+  const safeCompany = app.company_name.replace(/[\\/:*?"<>|]+/g, "").trim() || "Application";
+
+  let resumePath = app.resume_path;
+  if (row.resume_id) {
+    const { rows } = await pool.query<{ storage_path: string }>(
+      `SELECT storage_path FROM resumes WHERE id = $1`,
+      [row.resume_id],
+    );
+    if (rows[0]) resumePath = rows[0].storage_path;
+  }
+  if (resumePath) {
+    try {
+      const content = await readFile(resumePath);
+      attachments.push({ filename: "CV - Ara Ghahramanyan.pdf", content, contentType: "application/pdf" });
+    } catch (err) {
+      console.error(`[outreach] resume attach failed for application ${row.application_id}:`, err);
+    }
+  }
+
+  let coverLetterPath = app.cover_letter_path;
+  if (!coverLetterPath) {
+    try {
+      const dossier = await getLatestDossier(app.company_id, app.id);
+      const built = await buildPackageFromDossier({ app, dossier, lang: row.lang });
+      coverLetterPath = built?.pdfPath ?? null;
+    } catch (err) {
+      console.error(`[outreach] cover letter build failed for application ${row.application_id}:`, err);
+    }
+  }
+  if (coverLetterPath) {
+    try {
+      const content = await readFile(coverLetterPath);
+      attachments.push({
+        filename: `Cover Letter - ${safeCompany}.pdf`,
+        content,
+        contentType: "application/pdf",
+      });
+    } catch (err) {
+      console.error(`[outreach] cover letter attach failed for application ${row.application_id}:`, err);
+    }
+  }
+
+  return attachments;
+}
+
+/**
  * Assisted Mode approval.
  * Default: push a Gmail draft (you still press Send in Gmail).
  * If GMAIL_ALLOW_SEND=true and OAuth includes gmail.send, sends immediately after approval.
+ * When Gmail OAuth isn't configured/authorized yet, approval still records locally — sending
+ * a personalized email is never blocked on setting up Gmail first.
  */
 export async function approveOutreachDraft(opts: {
   outreachId: string;
   allowSend?: boolean;
-}): Promise<{ mode: "draft" | "sent"; gmailId: string }> {
+}): Promise<{ mode: "draft" | "sent" | "local"; gmailId: string | null; gmailError?: string }> {
   const { gmailSendAllowed } = await import("./sources");
   const { createDraft, sendMail } = await import("./gmail");
   const { setApplicationStatus } = await import("./queries");
@@ -301,6 +317,8 @@ export async function approveOutreachDraft(opts: {
     throw new Error("This outreach was already sent");
   }
 
+  const attachments = await resolveAttachments(row);
+
   const shouldSend = Boolean(opts.allowSend && gmailSendAllowed());
 
   if (shouldSend) {
@@ -309,6 +327,7 @@ export async function approveOutreachDraft(opts: {
         to: row.to_email,
         subject: row.subject,
         body: row.body,
+        attachments,
       });
       await pool.query(
         `UPDATE outreach_drafts
@@ -329,24 +348,38 @@ export async function approveOutreachDraft(opts: {
     }
   }
 
-  const draftId = row.gmail_draft_id ?? (await createDraft({
-    to: row.to_email,
-    subject: row.subject,
-    body: row.body,
-  }));
+  let draftId = row.gmail_draft_id;
+  let gmailError: string | undefined;
+  if (!draftId) {
+    try {
+      draftId = await createDraft({ to: row.to_email, subject: row.subject, body: row.body, attachments });
+    } catch (err) {
+      gmailError = err instanceof Error ? err.message : String(err);
+    }
+  }
 
   await pool.query(
     `UPDATE outreach_drafts
         SET approved_at = now(),
             approved_by = 'user',
-            gmail_draft_id = $2
+            gmail_draft_id = COALESCE($2, gmail_draft_id)
       WHERE id = $1`,
-    [row.id, draftId],
+    [row.id, draftId ?? null],
   );
+
+  if (draftId) {
+    await setApplicationStatus(
+      row.application_id,
+      "ready",
+      "approved — Gmail draft ready (Assisted Mode; you send)",
+    );
+    return { mode: "draft", gmailId: draftId };
+  }
+
   await setApplicationStatus(
     row.application_id,
     "ready",
-    "approved — Gmail draft ready (Assisted Mode; you send)",
+    `approved locally — Gmail draft not created (${gmailError}). Set up Gmail OAuth to push drafts automatically.`,
   );
-  return { mode: "draft", gmailId: draftId };
+  return { mode: "local", gmailId: null, gmailError };
 }

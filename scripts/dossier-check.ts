@@ -109,7 +109,6 @@ Twilio Stripe MongoDB
   const mail = buildPersonalizedOutreach({
     app,
     dossier,
-    profile,
     projects: [
       {
         id: "p1",
@@ -127,7 +126,7 @@ Twilio Stripe MongoDB
   });
   assert(mail.body.includes("Example Co"), "outreach should mention company");
   assert(mail.body.includes("Dossier") || mail.body.includes("TypeScript"), "outreach should use profile/project");
-  assert(mail.wordCount <= 160, `outreach too long: ${mail.wordCount}`);
+  assert(mail.wordCount <= 260, `outreach too long: ${mail.wordCount}`);
   console.log(`outreach ok · ${mail.wordCount} words · ${mail.subject}`);
 
   console.log("dossier-check passed");

@@ -13,6 +13,12 @@ export type LetterInput = {
   locationRule: string;
   links: string[];
   lang: LetterLang;
+  /** Optional contact block used for the letter header and email signature. */
+  email?: string;
+  phone?: string;
+  city?: string;
+  /** Hiring contact's name, when one has been verified. Falls back to a generic greeting. */
+  recruiterName?: string | null;
 };
 
 export type NounFlag = {
@@ -27,7 +33,7 @@ const STOP = new Set(
   is are was were be been being have has had do does did will would can could
   should may might must shall this that these those it its i me my we our you your
   he she they them their as so not no yes also just only more most other such
-  than too very own same both each few many much some any all
+  than too very own same both each few many much some any all one what who which where how
   je tu il elle on nous vous ils elles le la les un une des du de mon ma mes ton ta tes
   son sa ses notre nos votre vos leur leurs et ou mais donc car ni que qui dont où
   pour avec sans dans sur sous chez par plus moins très bien déjà aussi comme
@@ -50,15 +56,6 @@ export function parseLinks(raw: string | null): string[] {
   return [...raw.matchAll(/https?:\/\/[^\s]+/g)].map((m) => m[0].replace(/[.,;)]+$/, ""));
 }
 
-function projectBlurb(project: Project, lang: LetterLang): string {
-  if (lang === "fr") {
-    const tech = project.tech.slice(0, 4).join(", ");
-    return `${project.name} (${tech}) : ${project.summary}`;
-  }
-  const tech = project.tech.slice(0, 4).join(", ");
-  return `${project.name} (${tech}): ${project.summary}`;
-}
-
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -69,29 +66,100 @@ function trimToWordLimit(text: string, maxWords: number): string {
   return `${words.slice(0, maxWords).join(" ")}…`;
 }
 
-/** Short outreach email (Agent 5), capped at 120 words in the body. */
+function formatLetterDate(lang: LetterLang): string {
+  const now = new Date();
+  return now.toLocaleDateString(lang === "fr" ? "fr-CA" : "en-CA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function splitContactLinks(links: string[]): { portfolio: string; github: string; linkedin: string } {
+  const github = links.find((u) => /github\.com/i.test(u)) ?? "";
+  const linkedin = links.find((u) => /linkedin\.com/i.test(u)) ?? "";
+  const portfolio = links.find((u) => u !== github && u !== linkedin) ?? "";
+  return { portfolio, github, linkedin };
+}
+
+function contactLinkLine(links: string[]): string {
+  const { linkedin, github, portfolio } = splitContactLinks(links);
+  return [linkedin, github, portfolio].filter(Boolean).join(" | ");
+}
+
+function topTechnologies(projects: Project[], max = 4): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  outer: for (const project of projects) {
+    for (const tech of project.tech) {
+      if (seen.has(tech)) continue;
+      seen.add(tech);
+      out.push(tech);
+      if (out.length >= max) break outer;
+    }
+  }
+  return out.join(", ");
+}
+
+/** Prose paragraph(s) covering the top one or two projects, for the cover letter body. */
+function letterProjectParagraph(projects: Project[], lang: LetterLang): string {
+  const [p1, p2] = projects;
+  if (!p1) {
+    return lang === "fr"
+      ? "Mes projets personnels et académiques couvrent le développement full-stack, les systèmes backend et l’infrastructure infonuagique; je serais heureux d’en présenter des exemples précis en entrevue."
+      : "My personal and academic projects span full-stack development, backend systems, and cloud infrastructure; I would be glad to walk through specific examples in an interview.";
+  }
+  const tech1 = p1.tech.slice(0, 4).join(", ");
+  if (lang === "fr") {
+    let text = `Un projet particulièrement pertinent pour cette opportunité est ${p1.name} : ${p1.summary} Je l’ai construit avec ${tech1}.`;
+    if (p2) {
+      const tech2 = p2.tech.slice(0, 4).join(", ");
+      text += ` J’ai aussi développé ${p2.name}, où j’ai travaillé avec ${tech2}. Ces expériences ont renforcé ma capacité à apprendre de nouvelles technologies, à résoudre des problèmes techniques de façon autonome et à livrer des solutions complètes.`;
+    }
+    return text;
+  }
+  let text = `One project that is particularly relevant to this opportunity is ${p1.name}: ${p1.summary} I built it with ${tech1}.`;
+  if (p2) {
+    const tech2 = p2.tech.slice(0, 4).join(", ");
+    text += ` I also developed ${p2.name}, where I worked with ${tech2}. These experiences strengthened my ability to learn unfamiliar technologies, solve technical problems independently, and build complete solutions.`;
+  }
+  return text;
+}
+
+/** Outreach / application email. Capped generously so a long company fact can't run away with it. */
 export function fillOutreachEmail(input: LetterInput): { subject: string; body: string; wordCount: number } {
   const leadProject = input.projects[0];
-  const primaryLink = input.links[0] ?? "";
+  const topTech = topTechnologies(input.projects, 3);
+  const fact = `${input.companyFact}`.replace(/\s+/g, " ").trim();
+  const recruiter = input.recruiterName?.trim() || null;
+  const signOffLinks = contactLinkLine(input.links);
 
   if (input.lang === "fr") {
-    const hook = `${input.companyFact}`.replace(/\s+/g, " ").trim();
-    const projectLine = leadProject
-      ? `Récemment, j'ai travaillé sur ${leadProject.name} (${leadProject.tech.slice(0, 3).join(", ")}).`
-      : "";
-    const bodyParts = [
-      "Bonjour,",
+    const greeting = recruiter ? `Bonjour ${recruiter},` : "Bonjour,";
+    const workLine = leadProject
+      ? `J’ai surtout travaillé avec ${topTech || "plusieurs technologies modernes"} dernièrement, notamment sur ${leadProject.name}, et j’aimerais mettre cette expérience au service de votre équipe.`
+      : `J’ai surtout travaillé avec ${topTech || "le développement full-stack et les systèmes backend"} dernièrement, et j’aimerais mettre cette expérience au service de votre équipe.`;
+
+    const lines = [
+      greeting,
       "",
-      `Je vous écris au sujet du poste ${input.roleTitle} chez ${input.companyName}. ${hook}`,
-      projectLine,
-      `Je suis disponible à partir de ${input.availability}.`,
-      primaryLink ? `Portfolio et liens : ${primaryLink}` : "",
+      `Je m’appelle ${input.fullName}, étudiant en troisième année de Techniques de l’informatique au Collège de Bois-de-Boulogne, à la recherche d’un stage en développement logiciel à partir de ${input.availability}.`,
       "",
-      "Merci de votre temps,",
+      fact,
+      "",
+      `C’est précisément ce qui m’a donné envie de postuler ici. ${workLine}`,
+      "",
+      `Mon CV et ma lettre de motivation sont joints. Mon GitHub et mon portfolio sont liés ci-dessous si vous voulez voir d’autres projets.`,
+      "",
+      `Je serais heureux d’échanger sur ce poste ou sur d’autres opportunités à venir.`,
+      "",
+      "Cordialement,",
       input.fullName,
-    ].filter(Boolean);
-    let body = bodyParts.join("\n");
-    body = trimToWordLimit(body, 120);
+    ];
+    if (input.phone) lines.push(input.phone);
+    if (signOffLinks) lines.push(signOffLinks);
+
+    const body = trimToWordLimit(lines.join("\n"), 260);
     return {
       subject: `Candidature - ${input.roleTitle}`,
       body,
@@ -99,83 +167,97 @@ export function fillOutreachEmail(input: LetterInput): { subject: string; body: 
     };
   }
 
-  const hook = `${input.companyFact}`.replace(/\s+/g, " ").trim();
-  const projectLine = leadProject
-    ? `Recently I shipped ${leadProject.name} (${leadProject.tech.slice(0, 3).join(", ")}).`
-    : "";
-  const bodyParts = [
-    "Hello,",
+  const greeting = recruiter ? `Dear ${recruiter},` : "Dear Hiring Team,";
+  const workLine = leadProject
+    ? `Most of my recent work has been in ${topTech || "several modern technologies"}, including ${leadProject.name}, and I'd like to bring that experience to your team.`
+    : `Most of my recent work has been in ${topTech || "full-stack development and backend systems"}, and I'd like to bring that experience to your team.`;
+
+  const lines = [
+    greeting,
     "",
-    `I am reaching out about the ${input.roleTitle} role at ${input.companyName}. ${hook}`,
-    projectLine,
-    `I am available from ${input.availability}.`,
-    primaryLink ? `Links: ${primaryLink}` : "",
+    `I'm ${input.fullName}, a third-year Computer Science Technology student at Collège de Bois-de-Boulogne, looking for a software development internship starting ${input.availability}.`,
     "",
-    "Thank you,",
+    fact,
+    "",
+    `That's specifically what drew me to apply here. ${workLine}`,
+    "",
+    `My CV and cover letter are attached. My GitHub and portfolio are linked below if you'd like to see more of what I've built.`,
+    "",
+    `I'd welcome the chance to talk about this role or any other upcoming opportunities.`,
+    "",
+    "Best regards,",
     input.fullName,
-  ].filter(Boolean);
-  let body = bodyParts.join("\n");
-  body = trimToWordLimit(body, 120);
+  ];
+  if (input.phone) lines.push(input.phone);
+  if (signOffLinks) lines.push(signOffLinks);
+
+  const body = trimToWordLimit(lines.join("\n"), 260);
   return {
-    subject: `Application — ${input.roleTitle}`,
+    subject: `Application - ${input.roleTitle}`,
     body,
     wordCount: countWords(body),
   };
 }
 
 export function fillLetter(input: LetterInput): string {
-  const projects = input.projects.map((p) => projectBlurb(p, input.lang)).join("\n\n");
-  const links = input.links.join("\n");
+  const date = formatLetterDate(input.lang);
+  const contactLine = [input.phone, input.email].filter(Boolean).join(" | ");
+  const linksLine = contactLinkLine(input.links);
+  const recruiter = input.recruiterName?.trim() || null;
+  const topTech = topTechnologies(input.projects);
+  const projectParagraph = letterProjectParagraph(input.projects, input.lang);
+
+  const header = [input.fullName, input.city || "", contactLine, linksLine].filter(Boolean);
 
   if (input.lang === "fr") {
-    return [
-      `${input.fullName}`,
+    const lines = [...header, "", date, ""];
+    if (recruiter) lines.push(recruiter);
+    lines.push(input.companyName, "");
+    lines.push(recruiter ? `Bonjour ${recruiter},` : "Madame, Monsieur,");
+    lines.push(
       "",
-      `Objet : Candidature — ${input.roleTitle}`,
+      `Je suis étudiant en troisième année de Techniques de l’informatique au Collège de Bois-de-Boulogne, actuellement à la recherche d’un stage en développement logiciel à partir de ${input.availability}. Je postule au poste de ${input.roleTitle} chez ${input.companyName}. ${input.companyFact} Ce type de travail correspond directement à mon intérêt pour ${topTech || "le développement logiciel"}.`,
       "",
-      `Madame, Monsieur,`,
+      `Par mes études et mes projets personnels, j’ai développé une expérience pratique avec ${topTech || "plusieurs technologies modernes"}. J’ai travaillé sur des applications full-stack, des systèmes backend, des API REST, des bases de données, de l’infrastructure infonuagique et de l’automatisation logicielle. Ces projets m’ont permis d’aller au-delà des exercices de cours et de suivre le processus complet de développement, de la conception à la mise en production, en passant par le débogage et les tests.`,
       "",
-      `Je postule au poste de ${input.roleTitle} chez ${input.companyName}. ${input.companyFact} (source : ${input.companyFactSource}).`,
+      projectParagraph,
       "",
-      `Je suis disponible à partir de ${input.availability}. ${input.locationRule}.`,
+      `Ce qui m’intéresse particulièrement dans un stage chez ${input.companyName} est l’occasion de travailler sur des logiciels réels, en production, au sein d’une équipe d’ingénierie. Mon expérience avec ${topTech || "le développement logiciel"} me permettrait de contribuer à votre équipe tout en continuant à apprendre auprès de développeurs expérimentés et à acquérir une expérience professionnelle en développement logiciel.`,
       "",
-      `Voici le travail que je mettrais en avant pour ce poste :`,
+      `Je serais heureux de discuter de la façon dont mon parcours, mes projets et mes compétences techniques pourraient contribuer à ${input.companyName}. Mon CV est joint, et d’autres exemples de mon travail sont disponibles sur mon GitHub et mon portfolio.`,
       "",
-      projects || "(aucun projet sélectionné)",
-      "",
-      `Liens :`,
-      links || "(aucun)",
-      "",
-      `Je reste disponible pour en discuter.`,
+      `Merci de votre temps et de votre considération.`,
       "",
       `Cordialement,`,
+      "",
       input.fullName,
-    ].join("\n");
+    );
+    return lines.join("\n");
   }
 
-  return [
-    `${input.fullName}`,
+  const lines = [...header, "", date, ""];
+  if (recruiter) lines.push(recruiter);
+  lines.push(input.companyName, "");
+  lines.push(recruiter ? `Dear ${recruiter},` : "Dear Hiring Team,");
+  lines.push(
     "",
-    `Re: ${input.roleTitle}`,
+    `I am a third-year Computer Science Technology student at Collège de Bois-de-Boulogne, currently seeking a software development internship starting in ${input.availability}. I am writing to apply for the ${input.roleTitle} position at ${input.companyName}. ${input.companyFact} That kind of work closely matches my interest in ${topTech || "software development"}.`,
     "",
-    `Hello,`,
+    `Through my studies and personal projects, I have developed practical experience with ${topTech || "several modern technologies"}. I have worked on full-stack applications, backend systems, REST APIs, databases, cloud infrastructure, and software automation. These projects have allowed me to go beyond classroom exercises and work through the complete development process, from designing and implementing features to debugging, testing, and deploying applications.`,
     "",
-    `I am applying for the ${input.roleTitle} role at ${input.companyName}. ${input.companyFact} (source: ${input.companyFactSource}).`,
+    projectParagraph,
     "",
-    `I am available from ${input.availability}. ${input.locationRule}.`,
+    `What particularly interests me about an internship at ${input.companyName} is the opportunity to work on real, production software as part of an engineering team. My background in ${topTech || "software development"} would allow me to contribute to your team while continuing to learn from experienced developers and gain professional software development experience.`,
     "",
-    `The work I would put forward for this posting:`,
+    `I would appreciate the opportunity to discuss how my background, projects, and technical skills could contribute to ${input.companyName}. My CV is attached, and additional examples of my work are available through my GitHub and portfolio.`,
     "",
-    projects || "(no projects selected)",
+    `Thank you for your time and consideration.`,
     "",
-    `Links:`,
-    links || "(none)",
+    `Sincerely,`,
     "",
-    `I am happy to talk through any of this.`,
-    "",
-    `Best regards,`,
     input.fullName,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 function tokenizeProper(text: string): string[] {
@@ -200,6 +282,11 @@ export function allowedTokens(input: LetterInput): Set<string> {
     input.companyFactSource,
     input.availability,
     input.locationRule,
+    input.email ?? "",
+    input.phone ?? "",
+    input.city ?? "",
+    input.recruiterName ?? "",
+    formatLetterDate(input.lang),
     ...input.links,
     ...input.projects.flatMap((p) => [p.name, p.summary, ...(p.tech ?? []), p.url ?? ""]),
   ];
@@ -233,6 +320,25 @@ export function allowedTokens(input: LetterInput): Set<string> {
     "Canada",
     "Winter",
     "Hiver",
+    "Dear",
+    "Sincerely",
+    "Hiring",
+    "Team",
+    "Bonjour",
+    "Collège",
+    "Bois-de-Boulogne",
+    "Computer",
+    "Science",
+    "Technology",
+    "Techniques",
+    "Informatique",
+    "REST",
+    "APIs",
+    "GitHub",
+    "LinkedIn",
+    "Thank",
+    "Merci",
+    "CV",
   ]) {
     set.add(word.toLowerCase());
   }

@@ -12,9 +12,9 @@ import {
   startApplication,
   updateApplicationFields,
 } from "../lib/queries";
-import { buildApplicationPackage, projectsForCategories } from "../lib/package";
+import { buildApplicationPackage, loadApplicantContact, projectsForCategories } from "../lib/package";
 import { detectCategories } from "../lib/category";
-import { detectLetterLang } from "../lib/letter";
+import { detectLetterLang, parseLinks } from "../lib/letter";
 import { pool } from "../lib/db";
 import { createOutreachDraft, buildPersonalizedOutreach } from "../lib/outreach";
 import { researchCompanyForApplication } from "../lib/research";
@@ -245,28 +245,26 @@ export async function draftOutreachAction(form: FormData) {
   const categories = detectCategories(app.title, app.description);
   const projects = await projectsForCategories(categories);
 
-  const { rows: nameRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
-    `SELECT answer_en, answer_fr FROM answers WHERE key = 'full_name'`,
+  const applicant = await loadApplicantContact(lang);
+  const { rows: linkRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
+    `SELECT answer_en, answer_fr FROM answers WHERE key = 'links'`,
   );
-  const { rows: availRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
-    `SELECT answer_en, answer_fr FROM answers WHERE key = 'available_from'`,
-  );
-  const fullName =
-    (lang === "fr"
-      ? nameRows[0]?.answer_fr ?? nameRows[0]?.answer_en
-      : nameRows[0]?.answer_en ?? nameRows[0]?.answer_fr) ?? "Ara Ghahramanyan";
-  const availability =
-    (lang === "fr"
-      ? availRows[0]?.answer_fr ?? availRows[0]?.answer_en
-      : availRows[0]?.answer_en ?? availRows[0]?.answer_fr) ?? "January 2027";
+  const linksRaw =
+    lang === "fr"
+      ? linkRows[0]?.answer_fr ?? linkRows[0]?.answer_en
+      : linkRows[0]?.answer_en ?? linkRows[0]?.answer_fr;
+  const links = parseLinks(linksRaw ?? null);
 
   const crafted = buildPersonalizedOutreach({
     app,
     dossier,
-    profile: resume?.profile_json ?? null,
     projects,
-    fullName,
-    availability,
+    fullName: applicant.fullName,
+    availability: applicant.availability,
+    email: applicant.email,
+    phone: applicant.phone,
+    city: applicant.city,
+    links,
     recipientName: contact.name,
     lang,
     kind,
@@ -347,7 +345,8 @@ export async function approveOutreachAction(form: FormData) {
   revalidatePath(`/applications/${applicationId}`);
   revalidatePath("/pipeline");
   revalidatePath("/followups");
-  redirect(`/applications/${applicationId}?approved=${result.mode}`);
+  const errorParam = result.gmailError ? `&gmailError=${encodeURIComponent(result.gmailError)}` : "";
+  redirect(`/applications/${applicationId}?approved=${result.mode}${errorParam}`);
 }
 
 export async function markAppliedAction(form: FormData) {

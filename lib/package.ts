@@ -15,6 +15,9 @@ import {
   type NounFlag,
 } from "./letter";
 import { pool } from "./db";
+import { listContactsForCompany, updateApplicationFields } from "./queries";
+import { pickBestContact } from "./recruiter";
+import type { CompanyDossier } from "./research";
 import type { Answer, ApplicationDetail, Project } from "./types";
 
 export type ChecklistItem = {
@@ -63,6 +66,35 @@ async function answerText(key: string, lang: LetterLang): Promise<string> {
   const text = lang === "fr" ? row.answer_fr ?? row.answer_en : row.answer_en ?? row.answer_fr;
   if (!text) throw new Error(`answer ${key} has no text for ${lang}`);
   return text;
+}
+
+export type ApplicantContact = {
+  fullName: string;
+  email: string;
+  phone: string;
+  city: string;
+  availability: string;
+  locationRule: string;
+};
+
+/** The applicant's own contact block, pulled from the answer bank in one place. */
+export async function loadApplicantContact(lang: LetterLang): Promise<ApplicantContact> {
+  const [fullName, email, phone, city, availability, locationRule] = await Promise.all([
+    answerText("full_name", lang),
+    answerText("email", lang),
+    answerText("phone", lang),
+    answerText("city", lang),
+    answerText("available_from", lang),
+    answerText("location_rule", lang),
+  ]);
+  return { fullName, email, phone, city, availability, locationRule };
+}
+
+/** Best-known hiring contact name for a company, or null when none is verified yet. */
+export async function bestRecruiterName(companyId: string): Promise<string | null> {
+  const contacts = await listContactsForCompany(companyId);
+  const contact = pickBestContact(contacts);
+  return contact?.name ?? null;
 }
 
 export async function projectsForCategories(categories: string[]): Promise<Project[]> {
@@ -194,11 +226,12 @@ export async function runChecklist(opts: {
   letter: string;
   input: LetterInput;
   flags: NounFlag[];
+  /** Live HEAD/GET requests per link, ~10s timeout each, sequential — skip for bulk builds. */
+  checkLinks?: boolean;
 }): Promise<ChecklistItem[]> {
   const { app, letter, input, flags } = opts;
+  const checkLinks = opts.checkLinks ?? true;
   const resumeOk = await fileExists(app.resume_path);
-  const linkChecks = await linkStatuses(input.links);
-  const failedLinks = linkChecks.filter((l) => !l.ok);
 
   const { rows: twins } = await pool.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM applications WHERE job_id = $1`,
@@ -206,7 +239,7 @@ export async function runChecklist(opts: {
   );
   const appCount = Number(twins[0]?.n ?? 0);
 
-  return [
+  const checklist: ChecklistItem[] = [
     {
       id: "company",
       ok: letter.toLowerCase().includes(input.companyName.toLowerCase()),
@@ -231,7 +264,12 @@ export async function runChecklist(opts: {
       label: "Resume file exists on disk",
       detail: app.resume_path ?? "not set",
     },
-    {
+  ];
+
+  if (checkLinks) {
+    const linkChecks = await linkStatuses(input.links);
+    const failedLinks = linkChecks.filter((l) => !l.ok);
+    checklist.push({
       id: "links",
       ok: failedLinks.length === 0 && input.links.length > 0,
       label: "Portfolio / GitHub / LinkedIn links respond",
@@ -241,14 +279,17 @@ export async function runChecklist(opts: {
           : failedLinks.length
             ? failedLinks.map((l) => `${l.url} → ${l.status}`).join("; ")
             : linkChecks.map((l) => `${l.url} → ${l.status}`).join("; "),
-    },
-    {
-      id: "unique",
-      ok: appCount === 1,
-      label: "Only one application row for this job",
-      detail: `${appCount} row(s)`,
-    },
-  ];
+    });
+  }
+
+  checklist.push({
+    id: "unique",
+    ok: appCount === 1,
+    label: "Only one application row for this job",
+    detail: `${appCount} row(s)`,
+  });
+
+  return checklist;
 }
 
 export async function buildApplicationPackage(opts: {
@@ -256,6 +297,8 @@ export async function buildApplicationPackage(opts: {
   companyFact: string;
   companyFactSource: string;
   lang?: LetterLang;
+  /** Skip the live link-reachability check — used for bulk/automated builds. */
+  checkLinks?: boolean;
 }): Promise<PackageResult> {
   const lang = opts.lang ?? detectLetterLang(opts.app.title, opts.app.description);
   const categories = detectCategories(opts.app.title, opts.app.description);
@@ -264,23 +307,26 @@ export async function buildApplicationPackage(opts: {
   const { resolveResumeForJob } = await import("./resumes");
   const resume = await resolveResumeForJob(lang);
 
-  const fullName = await answerText("full_name", lang);
-  const availability = await answerText("available_from", lang);
-  const locationRule = await answerText("location_rule", lang);
+  const contact = await loadApplicantContact(lang);
   const linksRaw = await answerText("links", lang);
   const links = parseLinks(linksRaw);
+  const recruiterName = await bestRecruiterName(opts.app.company_id);
 
   const input: LetterInput = {
-    fullName,
+    fullName: contact.fullName,
     companyName: opts.app.company_name,
     roleTitle: opts.app.title,
     companyFact: opts.companyFact,
     companyFactSource: opts.companyFactSource,
     projects,
-    availability,
-    locationRule,
+    availability: contact.availability,
+    locationRule: contact.locationRule,
     links,
     lang,
+    email: contact.email,
+    phone: contact.phone,
+    city: contact.city,
+    recruiterName,
   };
 
   const letter = fillLetter(input);
@@ -312,6 +358,7 @@ export async function buildApplicationPackage(opts: {
     letter,
     input,
     flags,
+    checkLinks: opts.checkLinks,
   });
 
   await writeFile(
@@ -355,6 +402,49 @@ export async function buildApplicationPackage(opts: {
     resumeId: resume?.id ?? null,
     resumePath: resume?.storage_path ?? opts.app.resume_path ?? null,
   };
+}
+
+/**
+ * Builds (or reuses) the personalized cover letter for one application, from
+ * whatever the company dossier has researched so far. Every application gets
+ * a real, company-specific letter this way — not just the ones a recruiter
+ * contact happened to be found for — without the caller needing to know
+ * anything about company facts or sourcing.
+ */
+export async function buildPackageFromDossier(opts: {
+  app: ApplicationDetail;
+  dossier: CompanyDossier | null;
+  lang: LetterLang;
+  /** Skip the live link-reachability check — on by default for a single, user-facing build. */
+  checkLinks?: boolean;
+  /** Rebuild even if a cover letter already exists for this application. */
+  force?: boolean;
+}): Promise<PackageResult | null> {
+  if (!opts.force && opts.app.cover_letter_path) return null;
+
+  const fact =
+    opts.dossier?.company_fact?.trim() ||
+    (opts.lang === "fr"
+      ? `${opts.app.company_name} recrute pour ${opts.app.title}.`
+      : `${opts.app.company_name} is hiring for ${opts.app.title}.`);
+  const source = opts.dossier?.company_fact_source || opts.app.company_website || opts.app.url;
+
+  const result = await buildApplicationPackage({
+    app: opts.app,
+    companyFact: fact,
+    companyFactSource: source,
+    lang: opts.lang,
+    checkLinks: opts.checkLinks,
+  });
+
+  await updateApplicationFields(opts.app.id, {
+    notes: opts.app.notes,
+    resumePath: result.resumePath ?? opts.app.resume_path,
+    coverLetterPath: result.pdfPath,
+    resumeId: result.resumeId,
+  });
+
+  return result;
 }
 
 export async function loadAnswerBank(lang: LetterLang): Promise<MatchedAnswer[]> {

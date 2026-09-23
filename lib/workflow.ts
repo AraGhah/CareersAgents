@@ -20,9 +20,9 @@ import {
 import { researchCompanyForApplication } from "./research";
 import { researchHiringContacts, pickBestContact, logWorkflow } from "./recruiter";
 import { buildPersonalizedOutreach, createOutreachDraft, hasOpenOutreach } from "./outreach";
-import { projectsForCategories } from "./package";
+import { buildPackageFromDossier, loadApplicantContact, projectsForCategories } from "./package";
 import { detectCategories } from "./category";
-import { detectLetterLang } from "./letter";
+import { detectLetterLang, parseLinks } from "./letter";
 import type { ApplicationStatus } from "./types";
 
 export type DiscoverySummary = {
@@ -337,6 +337,8 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   await logWorkflow(applicationId, "match", true, `status=${app.status}`);
   steps.push("Matched against active CV profile");
 
+  const lang = detectLetterLang(app.title, app.description);
+
   const dossier = await researchCompanyForApplication({
     app,
     companyId: app.company_id,
@@ -344,6 +346,24 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   });
   await logWorkflow(applicationId, "research_company", true, dossier.id);
   steps.push("Company dossier researched");
+
+  // Every prepared application gets its own personalized cover letter built
+  // right here — not only the ones a recruiter contact happens to be found
+  // for below. Skips the live link-reachability check: this runs for every
+  // newly qualified job in a single "Find Internships" batch, and a 10s HEAD
+  // request per link, per application, would make that batch crawl.
+  try {
+    const built = await buildPackageFromDossier({ app, dossier, lang, checkLinks: false });
+    if (built) {
+      const passed = built.checklist.filter((c) => c.ok).length;
+      steps.push(`Personalized cover letter built (${passed}/${built.checklist.length} checks passed)`);
+      await logWorkflow(applicationId, "build_cover_letter", true, built.pdfPath);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    steps.push(`Cover letter build failed: ${message}`);
+    await logWorkflow(applicationId, "build_cover_letter", false, message);
+  }
 
   const hiring = await researchHiringContacts({
     companyId: app.company_id,
@@ -363,24 +383,18 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   );
 
   const contact = pickBestContact(hiring.contacts);
-  const lang = detectLetterLang(app.title, app.description);
   const resume = await resolveResumeForJob(lang);
   const projects = await projectsForCategories(detectCategories(app.title, app.description));
 
-  const { rows: nameRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
-    `SELECT answer_en, answer_fr FROM answers WHERE key = 'full_name'`,
+  const applicant = await loadApplicantContact(lang);
+  const { rows: linkRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
+    `SELECT answer_en, answer_fr FROM answers WHERE key = 'links'`,
   );
-  const { rows: availRows } = await pool.query<{ answer_en: string | null; answer_fr: string | null }>(
-    `SELECT answer_en, answer_fr FROM answers WHERE key = 'available_from'`,
-  );
-  const fullName =
-    (lang === "fr"
-      ? nameRows[0]?.answer_fr ?? nameRows[0]?.answer_en
-      : nameRows[0]?.answer_en ?? nameRows[0]?.answer_fr) ?? "Ara Ghahramanyan";
-  const availability =
-    (lang === "fr"
-      ? availRows[0]?.answer_fr ?? availRows[0]?.answer_en
-      : availRows[0]?.answer_en ?? availRows[0]?.answer_fr) ?? "January 2027";
+  const linksRaw =
+    lang === "fr"
+      ? linkRows[0]?.answer_fr ?? linkRows[0]?.answer_en
+      : linkRows[0]?.answer_en ?? linkRows[0]?.answer_fr;
+  const links = parseLinks(linksRaw ?? null);
 
   let outreachId: string | null = null;
   let subject: string | null = null;
@@ -390,10 +404,13 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     const crafted = buildPersonalizedOutreach({
       app,
       dossier,
-      profile: resume?.profile_json ?? null,
       projects,
-      fullName,
-      availability,
+      fullName: applicant.fullName,
+      availability: applicant.availability,
+      email: applicant.email,
+      phone: applicant.phone,
+      city: applicant.city,
+      links,
       recipientName: contact.name,
       lang,
       kind: "outreach",

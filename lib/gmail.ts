@@ -38,11 +38,13 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export function createOAuthClient() {
+export function createOAuthClient(redirectUriOverride?: string) {
   const clientId = requireEnv("GMAIL_CLIENT_ID");
   const clientSecret = requireEnv("GMAIL_CLIENT_SECRET");
   const redirectUri =
-    process.env.GMAIL_REDIRECT_URI?.trim() || "http://127.0.0.1:53682/oauth2callback";
+    redirectUriOverride ||
+    process.env.GMAIL_REDIRECT_URI?.trim() ||
+    "http://127.0.0.1:53682/oauth2callback";
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
@@ -78,14 +80,38 @@ export async function getGmail(): Promise<gmail_v1.Gmail> {
   return google.gmail({ version: "v1", auth });
 }
 
-/** One-time local OAuth. Opens a tiny HTTP listener on the redirect URI port. */
+/**
+ * One-time local OAuth. Opens a tiny HTTP listener for the redirect callback.
+ *
+ * Without an explicit GMAIL_REDIRECT_URI, this binds to port 0 (OS-assigned)
+ * rather than a fixed port: Windows setups with Hyper-V/WSL2/Docker Desktop
+ * carve out large, shifting TCP port-exclusion ranges, and a hardcoded port
+ * that works today can start failing with EACCES tomorrow once one of those
+ * ranges moves onto it. Google's "Desktop app" OAuth client type supports any
+ * 127.0.0.1 loopback port without pre-registering it, so a dynamic port is
+ * both simpler and immune to that class of failure.
+ */
 export async function runLocalAuth(): Promise<GmailTokens> {
-  const client = createOAuthClient();
-  const redirectUri =
-    process.env.GMAIL_REDIRECT_URI?.trim() || "http://127.0.0.1:53682/oauth2callback";
-  const url = new URL(redirectUri);
-  const port = Number(url.port || 80);
+  const explicitRedirectUri = process.env.GMAIL_REDIRECT_URI?.trim();
+  const host = explicitRedirectUri ? new URL(explicitRedirectUri).hostname : "127.0.0.1";
+  const listenHost = host === "localhost" ? "127.0.0.1" : host;
+  const listenPort = explicitRedirectUri ? Number(new URL(explicitRedirectUri).port || 80) : 0;
 
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(listenPort, listenHost, () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  const actualPort = typeof address === "object" && address ? address.port : listenPort;
+  const redirectUri = explicitRedirectUri || `http://${listenHost}:${actualPort}/oauth2callback`;
+  const callbackPath = new URL(redirectUri).pathname;
+
+  const client = createOAuthClient(redirectUri);
   const authUrl = client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -97,9 +123,9 @@ export async function runLocalAuth(): Promise<GmailTokens> {
   console.log("");
 
   const tokens = await new Promise<GmailTokens>((resolve, reject) => {
-    const server = createServer(async (req, res) => {
+    server.on("request", async (req, res) => {
       try {
-        if (!req.url?.startsWith(url.pathname)) {
+        if (!req.url?.startsWith(callbackPath)) {
           res.writeHead(404);
           res.end("not found");
           return;
@@ -121,7 +147,6 @@ export async function runLocalAuth(): Promise<GmailTokens> {
         reject(e);
       }
     });
-    server.listen(port, url.hostname === "localhost" ? "127.0.0.1" : url.hostname);
   });
 
   await saveTokens(tokens);
@@ -167,26 +192,87 @@ export function domainsMatch(senderDomain: string, companyHost: string): boolean
   return a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
 }
 
-export async function createDraft(opts: {
+export type GmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+};
+
+/**
+ * RFC 2822 header fields are US-ASCII by default — the message's
+ * `charset="UTF-8"` declaration only covers the body, never headers. An
+ * unencoded em dash or accented character in the Subject line renders as
+ * mojibake in most clients unless it's wrapped as an RFC 2047 encoded-word.
+ */
+function encodeHeaderValue(value: string): string {
+  if (!/[^\x00-\x7F]/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+function wrapBase64(value: string): string {
+  return value.replace(/(.{76})/g, "$1\r\n");
+}
+
+function buildRawMessage(opts: {
   to: string;
   subject: string;
   body: string;
-}): Promise<string> {
-  const gmail = await getGmail();
-  const raw = [
-    `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
-    "MIME-Version: 1.0",
+  attachments?: GmailAttachment[];
+}): string {
+  const attachments = opts.attachments ?? [];
+  const headers = [`To: ${opts.to}`, `Subject: ${encodeHeaderValue(opts.subject)}`, "MIME-Version: 1.0"];
+
+  if (attachments.length === 0) {
+    return [
+      ...headers,
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      opts.body,
+    ].join("\r\n");
+  }
+
+  const boundary = `----=_InternshipDesk_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const parts = [
+    `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
     "",
     opts.body,
-  ].join("\r\n");
+    "",
+  ];
+  for (const att of attachments) {
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${att.contentType}; name="${att.filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${att.filename}"`,
+      "",
+      wrapBase64(att.content.toString("base64")),
+      "",
+    );
+  }
+  parts.push(`--${boundary}--`);
 
-  const encoded = Buffer.from(raw)
+  return [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, "", ...parts].join("\r\n");
+}
+
+function encodeForGmail(raw: string): string {
+  return Buffer.from(raw, "utf8")
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+}
+
+export async function createDraft(opts: {
+  to: string;
+  subject: string;
+  body: string;
+  attachments?: GmailAttachment[];
+}): Promise<string> {
+  const gmail = await getGmail();
+  const encoded = encodeForGmail(buildRawMessage(opts));
 
   const draft = await gmail.users.drafts.create({
     userId: "me",
@@ -202,22 +288,10 @@ export async function sendMail(opts: {
   to: string;
   subject: string;
   body: string;
+  attachments?: GmailAttachment[];
 }): Promise<string> {
   const gmail = await getGmail();
-  const raw = [
-    `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "",
-    opts.body,
-  ].join("\r\n");
-
-  const encoded = Buffer.from(raw)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  const encoded = encodeForGmail(buildRawMessage(opts));
 
   const sent = await gmail.users.messages.send({
     userId: "me",

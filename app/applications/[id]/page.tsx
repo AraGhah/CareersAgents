@@ -33,6 +33,7 @@ type Search = {
   prepared?: string;
   outreach?: string;
   approved?: string;
+  gmailError?: string;
   applied?: string;
 };
 
@@ -90,6 +91,8 @@ export default async function ApplicationPage({
   const checklist = stored?.checklist ?? [];
   const allClear = checklist.length > 0 && checklist.every((c) => c.ok);
   const toApprove = outreach.length > 0 && !outreach[0].approved_at && !outreach[0].gmail_draft_id;
+  const approvedLocalOnly =
+    outreach.length > 0 && Boolean(outreach[0].approved_at) && !outreach[0].gmail_draft_id;
   const canMarkApplied = app.status === "ready" || outreach.some((o) => o.approved_at && !o.sent_at);
   const bankWritten = bank.filter((a) => a.mode !== "manual" && a.text).length;
 
@@ -139,6 +142,21 @@ export default async function ApplicationPage({
           <Flash>Approuvé : brouillon créé dans Gmail (ara.ghahramanyan07@gmail.com).</Flash>
         ) : null}
         {sp.approved === "sent" ? <Flash>Approuvé et envoyé via Gmail.</Flash> : null}
+        {sp.approved === "local" ? (
+          <Flash tone="info">
+            Approuvé localement — Gmail n&apos;est pas configuré, donc aucun brouillon n&apos;a été
+            créé. Copie le texte ci-dessous pour l&apos;envoyer toi-même, ou configure Gmail (
+            <code>GMAIL_CLIENT_ID</code>/<code>GMAIL_CLIENT_SECRET</code> dans <code>.env.local</code>
+            , puis <code>npm run gmail:auth</code>) pour que les prochaines approbations créent un
+            brouillon automatiquement.
+            {sp.gmailError ? (
+              <>
+                {" "}
+                <span className="muted">({sp.gmailError})</span>
+              </>
+            ) : null}
+          </Flash>
+        ) : null}
         {sp.applied === "1" ? <Flash>Marqué postulé — relances planifiées.</Flash> : null}
         {sp.drafted ? <Flash tone="info">Brouillon Gmail créé (tu envoies toi-même).</Flash> : null}
         {sp.contact === "1" ? <Flash>Contact enregistré.</Flash> : null}
@@ -188,6 +206,19 @@ export default async function ApplicationPage({
               </p>
             </div>
           </form>
+        ) : null}
+
+        {approvedLocalOnly ? (
+          <div className="panel">
+            <div className="panel-head">
+              <span className="panel-title">Approuvé localement → {outreach[0].to_email}</span>
+              <span className="badge yellow">pas de brouillon Gmail</span>
+            </div>
+            <pre className="code-block">{`Objet : ${outreach[0].subject}\n\n${outreach[0].body}`}</pre>
+            <p className="field-hint" style={{ margin: 0 }}>
+              Copie ce texte pour l&apos;envoyer toi-même depuis n&apos;importe quel client mail.
+            </p>
+          </div>
         ) : null}
 
         {canMarkApplied ? (
