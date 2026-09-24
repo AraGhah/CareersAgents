@@ -1,4 +1,5 @@
 import skillsFile from "../skills.json";
+import type { InternshipCategory } from "./internship-category";
 
 export type ResumeLanguage = "en" | "fr";
 
@@ -41,6 +42,8 @@ export type ResumeProfile = {
 export type ResumeRow = {
   id: string;
   language: ResumeLanguage;
+  /** Null means a general resume, usable as a fallback for any category. */
+  category: InternshipCategory | null;
   label: string;
   filename: string;
   storage_path: string;

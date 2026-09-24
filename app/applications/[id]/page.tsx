@@ -15,6 +15,7 @@ import { Flash, Select, SubmitButton } from "../../components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Section, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
 import { detectCategories } from "../../../lib/category";
+import { detectInternshipCategories } from "../../../lib/internship-category";
 import { detectLetterLang } from "../../../lib/letter";
 import { loadAnswerBank } from "../../../lib/package";
 import { loadStoredPackage } from "../../../lib/package-store";
@@ -77,7 +78,7 @@ export default async function ApplicationPage({
       getLatestDossier(app.company_id, app.id),
       listContactsForCompany(app.company_id),
       listOutreachForApplication(app.id),
-      resolveResumeForJob(lang),
+      resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description)),
     ]);
   } catch (err) {
     return (
@@ -95,6 +96,16 @@ export default async function ApplicationPage({
     outreach.length > 0 && Boolean(outreach[0].approved_at) && !outreach[0].gmail_draft_id;
   const canMarkApplied = app.status === "ready" || outreach.some((o) => o.approved_at && !o.sent_at);
   const bankWritten = bank.filter((a) => a.mode !== "manual" && a.text).length;
+
+  const applied = ["applied", "followup", "interview", "accepted"].includes(app.status);
+  const progress: Array<{ label: string; done: boolean }> = [
+    { label: "Entreprise recherchée", done: Boolean(dossier) },
+    { label: "Contact trouvé", done: contacts.some((c) => c.email) },
+    { label: "Email rédigé", done: outreach.length > 0 },
+    { label: "Email approuvé", done: outreach.some((o) => o.approved_at) },
+    { label: "Candidature envoyée", done: applied },
+  ];
+  const currentStep = progress.findIndex((p) => !p.done);
 
   return (
     <>
@@ -129,81 +140,64 @@ export default async function ApplicationPage({
       />
 
       <div className="stack" style={{ gap: "var(--s-2)", marginBottom: "var(--s-4)" }}>
-        {sp.built === "1" ? (
-          <Flash>Package écrit. Relis la lettre et la checklist avant de soumettre quoi que ce soit.</Flash>
-        ) : null}
+        {sp.built === "1" ? <Flash>Package généré. Relis la lettre avant de l&apos;envoyer.</Flash> : null}
         {sp.researched === "1" ? <Flash>Dossier entreprise mis à jour.</Flash> : null}
         {sp.prepared === "1" ? (
-          <Flash>
-            Workflow assisté prêt (recherche + contact + email). Approuve avant l&apos;envoi Gmail.
-          </Flash>
+          <Flash>Candidature préparée. L&apos;email attend ton approbation.</Flash>
         ) : null}
-        {sp.approved === "draft" ? (
-          <Flash>Approuvé : brouillon créé dans Gmail (ara.ghahramanyan07@gmail.com).</Flash>
-        ) : null}
-        {sp.approved === "sent" ? <Flash>Approuvé et envoyé via Gmail.</Flash> : null}
+        {sp.approved === "draft" ? <Flash>Brouillon créé dans Gmail.</Flash> : null}
+        {sp.approved === "sent" ? <Flash>Email envoyé.</Flash> : null}
         {sp.approved === "local" ? (
           <Flash tone="info">
-            Approuvé localement : Gmail n&apos;est pas configuré, donc aucun brouillon n&apos;a été
-            créé. Copie le texte ci-dessous pour l&apos;envoyer toi-même, ou configure Gmail (
-            <code>GMAIL_CLIENT_ID</code>/<code>GMAIL_CLIENT_SECRET</code> dans <code>.env.local</code>
-            , puis <code>npm run gmail:auth</code>) pour que les prochaines approbations créent un
-            brouillon automatiquement.
-            {sp.gmailError ? (
-              <>
-                {" "}
-                <span className="muted">({sp.gmailError})</span>
-              </>
-            ) : null}
+            Approuvé, mais Gmail n&apos;est pas connecté et aucun brouillon n&apos;a été créé. Copie le
+            texte ci-dessous, ou connecte Gmail avec <code>npm run gmail:auth</code>.
+            {sp.gmailError ? <span className="field-hint">{sp.gmailError}</span> : null}
           </Flash>
         ) : null}
-        {sp.applied === "1" ? <Flash>Marqué postulé, relances planifiées.</Flash> : null}
-        {sp.drafted ? <Flash tone="info">Brouillon Gmail créé (tu envoies toi-même).</Flash> : null}
+        {sp.applied === "1" ? <Flash>Marquée comme postulée. Relances prévues à J+7 et J+14.</Flash> : null}
+        {sp.drafted ? <Flash tone="info">Brouillon créé dans Gmail.</Flash> : null}
         {sp.contact === "1" ? <Flash>Contact enregistré.</Flash> : null}
       </div>
 
-      <Section n="01" title="Workflow assisté" note="Dossier complet" id="workflow">
+      <Section title="Préparation" id="workflow">
         <div className="panel">
-          <ol className="steps" style={{ marginBottom: "var(--s-5)" }}>
-            <li className="step is-done">Find</li>
-            <li className="step is-done">Match CV</li>
-            <li className="step">Research company</li>
-            <li className="step">Recruiter / email public</li>
-            <li className="step">Email personnalisé</li>
-            <li className="step is-current">Ton approbation</li>
-            <li className="step">Gmail → suivi</li>
+          <ol className="steps">
+            {progress.map((p, i) => (
+              <li
+                key={p.label}
+                className={`step${p.done ? " is-done" : ""}${i === currentStep ? " is-current" : ""}`}
+              >
+                {p.label}
+              </li>
+            ))}
           </ol>
 
-          <form action={prepareWorkflowAction} className="form-actions">
-            <input type="hidden" name="applicationId" value={app.id} />
-            <SubmitButton className="primary" pendingLabel="Préparation…">
-              Préparer (recherche + email)
-            </SubmitButton>
-            <span className="small muted grow">
-              Recherche l&apos;entreprise, trouve un contact, rédige l&apos;email. S&apos;arrête
-              avant tout envoi.
-            </span>
-          </form>
+          {!applied ? (
+            <form action={prepareWorkflowAction} className="form-actions">
+              <input type="hidden" name="applicationId" value={app.id} />
+              <SubmitButton className={outreach.length > 0 ? "" : "primary"} pendingLabel="Préparation…">
+                {outreach.length > 0 ? "Refaire la préparation" : "Préparer la candidature"}
+              </SubmitButton>
+            </form>
+          ) : null}
         </div>
 
         {toApprove ? (
-          <form action={approveOutreachAction} className="panel" style={{ borderColor: "var(--amber-line)" }}>
+          <form action={approveOutreachAction} className="panel">
             <input type="hidden" name="applicationId" value={app.id} />
             <input type="hidden" name="outreachId" value={outreach[0].id} />
             <div className="panel-head">
-              <span className="panel-title">À approuver → {outreach[0].to_email}</span>
-              <span className="badge yellow">en attente</span>
+              <div>
+                <span className="panel-title">Email à approuver</span>
+                <span className="cell-sub">Pour {outreach[0].to_email}</span>
+              </div>
+              <span className="badge yellow">En attente</span>
             </div>
-            <pre className="code-block">{`Objet : ${outreach[0].subject}\n\n${outreach[0].body}`}</pre>
+            <pre className="code-block as-text">{`Objet : ${outreach[0].subject}\n\n${outreach[0].body}`}</pre>
             <div className="form-actions">
               <SubmitButton className="primary" pendingLabel="Approbation…">
-                Approuver → brouillon Gmail
+                Approuver et créer le brouillon
               </SubmitButton>
-              <p className="field-hint" style={{ margin: 0 }}>
-                Mode assisté : rien n&apos;est envoyé tant que tu n&apos;as pas approuvé.
-                L&apos;envoi direct nécessite <code>GMAIL_ALLOW_SEND=true</code> + scope{" "}
-                <code>gmail.send</code>.
-              </p>
             </div>
           </form>
         ) : null}
@@ -211,28 +205,27 @@ export default async function ApplicationPage({
         {approvedLocalOnly ? (
           <div className="panel">
             <div className="panel-head">
-              <span className="panel-title">Approuvé localement → {outreach[0].to_email}</span>
-              <span className="badge yellow">pas de brouillon Gmail</span>
+              <div>
+                <span className="panel-title">Email approuvé</span>
+                <span className="cell-sub">Pour {outreach[0].to_email}, sans brouillon Gmail</span>
+              </div>
             </div>
-            <pre className="code-block">{`Objet : ${outreach[0].subject}\n\n${outreach[0].body}`}</pre>
-            <p className="field-hint" style={{ margin: 0 }}>
-              Copie ce texte pour l&apos;envoyer toi-même depuis n&apos;importe quel client mail.
-            </p>
+            <pre className="code-block as-text">{`Objet : ${outreach[0].subject}\n\n${outreach[0].body}`}</pre>
           </div>
         ) : null}
 
         {canMarkApplied ? (
-          <form action={markAppliedAction} className="panel panel-quiet form-actions" style={{ marginBottom: 0 }}>
+          <form action={markAppliedAction} className="panel form-actions">
             <input type="hidden" name="applicationId" value={app.id} />
             <SubmitButton className="primary" pendingLabel="Mise à jour…">
-              J&apos;ai envoyé dans Gmail → marquer postulé
+              Marquer comme postulée
             </SubmitButton>
-            <span className="small muted grow">Déclenche le suivi des relances (jour 7, jour 14).</span>
+            <span className="small muted">Les relances seront prévues à J+7 et J+14.</span>
           </form>
         ) : null}
       </Section>
 
-      <Section n="02" title="Fiche" id="fiche">
+      <Section title="Fiche" id="fiche">
         <div className="panel">
           <dl className="facts rows">
             <dt>Statut</dt>
@@ -291,7 +284,7 @@ export default async function ApplicationPage({
                 </>
               ) : (
                 <span className="empty">
-                  Aucun CV actif : <Link href="/resumes">uploader un CV</Link>
+                  Aucun CV actif. <Link href="/resumes">Ajouter un CV</Link>
                 </span>
               )}
             </dd>
@@ -299,7 +292,7 @@ export default async function ApplicationPage({
         </div>
       </Section>
 
-      <Section n="03" title="Dossier entreprise" note="Preframe" id="dossier">
+      <Section title="Dossier entreprise" id="dossier">
         <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
           Recherche le site et l&apos;offre, produit un fait sourcé et des cibles de contact. Aucun
           email inventé. Claude enrichit si <code>ANTHROPIC_API_KEY</code> est défini.
@@ -370,13 +363,13 @@ export default async function ApplicationPage({
             )}
           </div>
         ) : (
-          <EmptyState mark="Pas de dossier" title="Aucune recherche pour cette candidature">
+          <EmptyState title="Aucune recherche pour cette candidature">
             Clique « Lancer la recherche » ci-dessus pour générer un dossier.
           </EmptyState>
         )}
       </Section>
 
-      <Section n="04" title="Contacts & outreach Gmail" id="contacts">
+      <Section title="Contacts & outreach Gmail" id="contacts">
         <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
           Brouillons seulement (<code>gmail.compose</code>). Les adresses doivent avoir une{" "}
           <code>source_url</code> publique. Les doublons sont bloqués.
@@ -412,7 +405,7 @@ export default async function ApplicationPage({
         </form>
 
         {contacts.length === 0 ? (
-          <EmptyState mark="Aucun contact" title="Aucun contact pour cette entreprise">
+          <EmptyState title="Aucun contact pour cette entreprise">
             Ajoute un contact ci-dessus, ou lance la recherche pour trouver des cibles.
           </EmptyState>
         ) : (
@@ -515,7 +508,7 @@ export default async function ApplicationPage({
         ) : null}
       </Section>
 
-      <Section n="05" title="Candidature" note="Fichiers, notes et envoi manuel" id="candidature">
+      <Section title="Candidature" id="candidature">
         <div className="panel panel-quiet">
           <p className="small muted" style={{ marginBottom: "var(--s-3)" }}>
             L&apos;assist navigateur remplit les champs verts, pré-remplit les jaunes, laisse les
@@ -560,7 +553,7 @@ export default async function ApplicationPage({
         </form>
       </Section>
 
-      <Section n="06" title="Package de candidature" id="package">
+      <Section title="Package de candidature" id="package">
         <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
           La lettre est remplie uniquement à partir de la banque de réponses, des projets
           sélectionnés et d&apos;un fait entreprise que tu écris avec sa source. Le CV actif ({lang})
@@ -699,14 +692,13 @@ export default async function ApplicationPage({
             </div>
           </>
         ) : (
-          <EmptyState mark="Pas encore généré" title="Aucun package pour cette candidature">
+          <EmptyState title="Aucun package pour cette candidature">
             Remplis le fait entreprise ci-dessus et génère la lettre, l&apos;email et la checklist.
           </EmptyState>
         )}
       </Section>
 
       <Section
-        n="07"
         title="Banque de réponses"
         note={`${bankWritten}/${bank.length} prêtes pour ce formulaire`}
         id="banque"
@@ -756,7 +748,7 @@ export default async function ApplicationPage({
         </details>
       </Section>
 
-      <Section n="08" title="Texte de l'offre" id="texte">
+      <Section title="Texte de l'offre" id="texte">
         <div className="panel">
           {app.description ? (
             <pre className="description">{app.description}</pre>

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Serif } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { CommandPaletteProvider } from "./components/command-palette";
@@ -24,13 +24,6 @@ const mono = IBM_Plex_Mono({
   variable: "--font-mono",
 });
 
-const display = Instrument_Serif({
-  subsets: ["latin"],
-  weight: ["400"],
-  display: "swap",
-  variable: "--font-display",
-});
-
 export const metadata: Metadata = {
   title: { default: "Internship Desk", template: "%s · Internship Desk" },
   description: "Suivi de stages hiver 2027 · Montréal / Laval",
@@ -38,8 +31,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#faf9f5" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0e0b" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f7f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f1012" },
   ],
 };
 
@@ -58,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="fr"
-      className={`${sans.variable} ${mono.variable} ${display.variable}`}
+      className={`${sans.variable} ${mono.variable}`}
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
@@ -80,15 +73,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <header className="rail">
                     <Link href="/" className="brand">
                       <span className="brand-mark">Internship Desk</span>
-                      <span className="brand-sub">Hiver 2027 · Ara G.</span>
+                      <span className="brand-sub">Stages hiver 2027</span>
                     </Link>
 
                     <Nav items={NAV_ITEMS} />
-
-                    <div className="rail-foot">
-                      <span>Trouver une page</span>
-                      <kbd>⌘K</kbd>
-                    </div>
                   </header>
 
                   <main className="page" id="main">

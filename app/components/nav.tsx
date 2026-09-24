@@ -19,7 +19,15 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Nav({ items }: { items: NavItem[] }) {
   const pathname = usePathname() ?? "/";
-  const activeIndex = items.findIndex((item) => isActive(pathname, item.href));
+  // Several items can match (/jobs/new is under both "/" and "/jobs/new");
+  // the longest href is the most specific, and only that one is lit.
+  const activeIndex = items.reduce(
+    (best, item, i) =>
+      isActive(pathname, item.href) && (best < 0 || item.href.length > items[best].href.length)
+        ? i
+        : best,
+    -1,
+  );
   const navRef = useRef<HTMLElement>(null);
   const [indicator, setIndicator] = useState<{ y: number; visible: boolean }>({
     y: 0,
@@ -54,13 +62,12 @@ export function Nav({ items }: { items: NavItem[] }) {
     >
       <span className="nav-indicator" aria-hidden="true" />
       {items.map((item, i) => {
-        const active = isActive(pathname, item.href);
+        const active = i === activeIndex;
         return (
           <Link
             key={item.href}
             href={item.href}
             className="nav-link"
-            data-n={String(i + 1).padStart(2, "0")}
             aria-current={active ? "page" : undefined}
           >
             {item.label}

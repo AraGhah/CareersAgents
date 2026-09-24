@@ -117,6 +117,26 @@ const companies: SeedCompany[] = [
     is_target: false,
     notes: "Toronto, kept for the board only.",
   },
+
+  // Priority employers (see lib/priority-companies.ts): declared targets, not
+  // boards. None run Greenhouse/Lever/Workable/Ashby, so board_token stays
+  // null and discovery skips direct fetch — they're boosted/highlighted
+  // instead when the general LinkedIn/Indeed search surfaces them.
+  { name: "Hydro-Québec", city: "Montréal", is_target: true },
+  { name: "Bombardier", city: "Montréal", is_target: true },
+  { name: "Desjardins", city: "Lévis", is_target: true },
+  { name: "RBC", city: "Montréal", is_target: true },
+  { name: "TD", city: "Montréal", is_target: true },
+  { name: "BMO", city: "Montréal", is_target: true },
+  { name: "Scotiabank", city: "Montréal", is_target: true },
+  { name: "National Bank of Canada", city: "Montréal", is_target: true },
+  { name: "CIBC", city: "Montréal", is_target: true },
+  { name: "Bell", city: "Montréal", is_target: true },
+  { name: "CGI", city: "Montréal", is_target: true },
+  { name: "Ericsson", city: "Montréal", is_target: true },
+  { name: "Ubisoft", city: "Montréal", is_target: true },
+  { name: "SAP", city: "Montréal", is_target: true },
+  { name: "Morgan Stanley", city: "Montréal", is_target: true },
 ];
 
 async function main() {

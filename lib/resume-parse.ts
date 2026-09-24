@@ -36,70 +36,171 @@ function firstMatch(text: string, re: RegExp): string | null {
   return m?.[1]?.trim() || m?.[0]?.trim() || null;
 }
 
-function sectionBody(text: string, headings: RegExp): string {
-  const lines = text.split(/\n/);
-  let collecting = false;
-  const out: string[] = [];
+type SectionKey =
+  | "summary"
+  | "education"
+  | "experience"
+  | "projects"
+  | "volunteering"
+  | "skills"
+  | "certifications"
+  | "other";
+
+// Whole-line matches only (after accent/case folding): a partial match is how
+// the "projects.vercel.app" portfolio URL used to be mistaken for a heading.
+const HEADINGS: Record<string, SectionKey> = {
+  profile: "summary",
+  profil: "summary",
+  summary: "summary",
+  objective: "summary",
+  objectif: "summary",
+  about: "summary",
+  "a propos": "summary",
+  education: "education",
+  formation: "education",
+  "work experience": "experience",
+  experience: "experience",
+  experiences: "experience",
+  "experience de travail": "experience",
+  "experience professionnelle": "experience",
+  emploi: "experience",
+  employment: "experience",
+  projects: "projects",
+  projets: "projects",
+  "selected projects": "projects",
+  realisations: "projects",
+  volunteering: "volunteering",
+  "volunteer experience": "volunteering",
+  benevolat: "volunteering",
+  "technical skills": "skills",
+  skills: "skills",
+  "competences techniques": "skills",
+  competences: "skills",
+  certifications: "certifications",
+  languages: "other",
+  langues: "other",
+  interests: "other",
+  "centres d'interet": "other",
+};
+
+function fold(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+const BULLET_RE = /^[-•▪●◦‣∙·*-]\s*/;
+
+function normalizeLines(text: string): string[] {
+  return text
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !/^--\s*\d+\s+of\s+\d+\s*--$/i.test(l) && !/^\d{1,2}$/.test(l))
+    .map((l) => (BULLET_RE.test(l) ? `• ${l.replace(BULLET_RE, "")}` : l));
+}
+
+function splitSections(lines: string[]): Map<SectionKey, string[]> {
+  const sections = new Map<SectionKey, string[]>();
+  let current: SectionKey | null = null;
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      if (collecting) out.push("");
+    const key = HEADINGS[fold(line)];
+    if (key) {
+      current = key;
+      if (!sections.has(key)) sections.set(key, []);
       continue;
     }
-    if (headings.test(trimmed) && trimmed.length < 48) {
-      collecting = true;
-      continue;
-    }
-    if (collecting && /^[A-ZÀ-Ö][A-Za-zÀ-ÖØ-öø-ÿ &/]{2,40}$/.test(trimmed) && !headings.test(trimmed)) {
-      // Likely next section heading
-      if (out.length > 0) break;
-    }
-    if (collecting) out.push(trimmed);
+    if (current) sections.get(current)!.push(line);
   }
-  return out.join("\n").trim();
+  return sections;
 }
 
-function parseEducation(block: string): ResumeProfile["education"] {
-  if (!block) return [];
-  const chunks = block.split(/\n{2,}|\n(?=[A-ZÀ-Ö])/).map((c) => c.trim()).filter(Boolean);
-  return chunks.slice(0, 4).map((chunk) => {
-    const lines = chunk.split(/\n/).map((l) => l.trim()).filter(Boolean);
-    return {
-      school: lines[0] ?? chunk.slice(0, 80),
-      program: lines[1] ?? null,
-      years: firstMatch(chunk, /\b(20\d{2}\s*[-–—to]+\s*20\d{2}|20\d{2})\b/),
-    };
-  });
+// A trailing date on an entry header: "2026", "Sept. 2025 - Nov. 2025",
+// "Summer 2024 and Summer 2025", "Été 2024 et été 2025", "2024 - Present".
+const PERIOD_WORD =
+  "(?:jan|feb|f[eé]v|mar|apr|avr|may|mai|jun|juin|jul|juil|aug|ao[uû]t|sep|oct|nov|dec|d[eé]c|summer|winter|fall|autumn|spring|[eé]t[eé]|hiver|automne|printemps)[a-zéû]*\\.?\\s+";
+const TRAILING_DATE_RE = new RegExp(
+  `\\s((?:${PERIOD_WORD})?20\\d{2}(?:\\s*(?:[-–—]|to|and|et|à)\\s*(?:(?:${PERIOD_WORD})?20\\d{2}|present|présent|actuel|now|today))?)\\s*$`,
+  "i",
+);
+
+type Entry = { header: string; years: string | null; meta: string[]; bullets: string[] };
+
+function parseEntries(lines: string[]): Entry[] {
+  const entries: Entry[] = [];
+  for (const line of lines) {
+    if (line.startsWith("• ")) {
+      const current = entries.at(-1);
+      if (current) current.bullets.push(line.slice(2));
+      continue;
+    }
+    const date = line.match(TRAILING_DATE_RE);
+    if (date || entries.length === 0) {
+      entries.push({
+        header: (date ? line.slice(0, date.index) : line).trim(),
+        years: date ? date[1].trim() : null,
+        meta: [],
+        bullets: [],
+      });
+      continue;
+    }
+    const current = entries.at(-1)!;
+    if (current.bullets.length === 0) {
+      current.meta.push(line);
+    } else {
+      // Wrapped continuation of the previous bullet. A line ending in "-"
+      // mid-word ("AI-" / "controlled") rejoins without a space.
+      const last = current.bullets.length - 1;
+      const joiner = /[A-Za-zÀ-ÿ]-$/.test(current.bullets[last]) ? "" : " ";
+      current.bullets[last] += `${joiner}${line}`;
+    }
+  }
+  return entries;
 }
 
-function parseExperience(block: string): ResumeProfile["experience"] {
-  if (!block) return [];
-  const chunks = block.split(/\n(?=[A-ZÀ-Ö].{0,60}\n)/).map((c) => c.trim()).filter(Boolean);
-  return chunks.slice(0, 6).map((chunk) => {
-    const lines = chunk.split(/\n/).map((l) => l.trim()).filter(Boolean);
-    const bullets = lines.filter((l) => /^[-•*]/.test(l) || /^[A-ZÀ-Ö].{40,}/.test(l)).slice(0, 4);
-    return {
-      title: lines[0] ?? "Role",
-      organization: lines[1] && !/^[-•*]/.test(lines[1]) ? lines[1] : null,
-      years: firstMatch(chunk, /\b(20\d{2}\s*[-–—to]+\s*(?:20\d{2}|[Pp]resent|[Aa]ctuel|now))\b/),
-      bullets: bullets.map((b) => b.replace(/^[-•*]\s*/, "")),
-    };
-  });
+/** "Busser: Restaurant Grillade Nostos" -> ["Busser", "Restaurant Grillade Nostos"] */
+function splitHeader(header: string): [string, string | null] {
+  const cleaned = header
+    .replace(/\s*-?\s*https?:\/\/\S+/g, "")
+    .replace(/\s+-\s*$/, "")
+    .trim();
+  const idx = cleaned.indexOf(":");
+  if (idx <= 0) return [cleaned, null];
+  return [cleaned.slice(0, idx).trim(), cleaned.slice(idx + 1).trim() || null];
 }
 
-function parseProjects(block: string, skills: string[]): ResumeProfile["projects"] {
-  if (!block) return [];
-  const chunks = block.split(/\n(?=[A-ZÀ-Ö])/).map((c) => c.trim()).filter(Boolean);
-  return chunks.slice(0, 6).map((chunk) => {
-    const lines = chunk.split(/\n/).map((l) => l.trim()).filter(Boolean);
-    const name = lines[0]?.replace(/^[-•*]\s*/, "") ?? "Project";
-    const tech = extractSkillsFromText(chunk).filter((s) => skills.includes(s) || true).slice(0, 8);
-    return {
-      name: name.slice(0, 80),
-      tech: [...new Set(tech)].slice(0, 6),
-      summary: lines.slice(1).join(" ").slice(0, 280) || null,
-    };
-  });
+function parseEducation(lines: string[]): ResumeProfile["education"] {
+  return parseEntries(lines)
+    .slice(0, 4)
+    .map((e) => {
+      const [school, program] = splitHeader(e.header);
+      return { school, program, years: e.years };
+    });
+}
+
+function parseExperience(lines: string[]): ResumeProfile["experience"] {
+  return parseEntries(lines)
+    .slice(0, 6)
+    .map((e) => {
+      const [title, organization] = splitHeader(e.header);
+      return { title, organization, years: e.years, bullets: e.bullets.slice(0, 4) };
+    });
+}
+
+function parseProjects(lines: string[]): ResumeProfile["projects"] {
+  return parseEntries(lines)
+    .slice(0, 6)
+    .map((e) => {
+      const techLine = e.meta[0] ?? "";
+      const listed = techLine
+        .split("|")[0]
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t && t.length <= 30);
+      const tech = listed.length > 0 ? listed : extractSkillsFromText(e.bullets.join(" "));
+      return {
+        name: splitHeader(e.header).join(": ").replace(/: $/, "").slice(0, 100),
+        tech: [...new Set(tech)].slice(0, 8),
+        summary: e.bullets[0]?.slice(0, 280) ?? null,
+      };
+    });
 }
 
 function estimateYears(text: string, experience: ResumeProfile["experience"]): number {
@@ -116,6 +217,7 @@ function detectSpokenLanguages(text: string): string[] {
   if (/english|anglais/i.test(text)) out.push("English");
   if (/french|fran[cç]ais/i.test(text)) out.push("French");
   if (/armenian|arm[eé]nien/i.test(text)) out.push("Armenian");
+  if (/russian|russe/i.test(text)) out.push("Russian");
   return out;
 }
 
@@ -129,7 +231,7 @@ export function analyzeResumeText(rawText: string, lang: ResumeLanguage): Resume
   profile.phone = firstMatch(text, /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/);
   profile.location = firstMatch(
     text,
-    /(?:Montr[eé]al|Laval|Qu[eé]bec|Quebec|Canada)[^.\n]{0,40}/i,
+    /(?:Montr[eé]al|Laval|Qu[eé]bec|Quebec|Canada)[^|.\n@]{0,30}/i,
   );
 
   const firstLines = text.split(/\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8);
@@ -142,26 +244,13 @@ export function analyzeResumeText(rawText: string, lang: ResumeLanguage): Resume
   profile.skills = skills;
   profile.languages = detectSpokenLanguages(text);
 
-  const educationBlock = sectionBody(
-    text,
-    /^(education|formation|études|etudes|academic|scolarité)/i,
-  );
-  const experienceBlock = sectionBody(
-    text,
-    /^(experience|expérience|experiences|expériences|work experience|emploi|employment)/i,
-  );
-  const projectsBlock = sectionBody(
-    text,
-    /^(projects?|projets?|selected projects|réalisations)/i,
-  );
-  const summaryBlock =
-    sectionBody(text, /^(summary|profil|profile|objective|objectif|à propos|about)/i) ||
-    firstLines.slice(1, 5).join(" ");
+  const sections = splitSections(normalizeLines(text));
+  const summaryText = (sections.get("summary") ?? []).join(" ").replace(/\s+/g, " ").trim();
 
-  profile.education = parseEducation(educationBlock);
-  profile.experience = parseExperience(experienceBlock);
-  profile.projects = parseProjects(projectsBlock, skills);
-  profile.summary = summaryBlock.slice(0, 600) || null;
+  profile.education = parseEducation(sections.get("education") ?? []);
+  profile.experience = parseExperience(sections.get("experience") ?? []);
+  profile.projects = parseProjects(sections.get("projects") ?? []);
+  profile.summary = summaryText.slice(0, 600) || null;
   profile.estimatedYearsExperience = estimateYears(text, profile.experience);
   profile.analyzedAt = new Date().toISOString();
   profile.sourceLanguage = lang;

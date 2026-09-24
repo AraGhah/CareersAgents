@@ -4,8 +4,12 @@ import { pool } from "./db";
 import { analyzePdfBuffer } from "./resume-parse";
 import type { ResumeLanguage, ResumeProfile, ResumeRow } from "./profile";
 import { fallbackHaveSkills } from "./profile";
+import type { InternshipCategory } from "./internship-category";
 
 export const RESUMES_DIR = path.join("resumes");
+
+const RESUME_COLUMNS = `id, language, category, label, filename, storage_path, mime_type, byte_size,
+            is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error`;
 
 function slug(value: string): string {
   return value
@@ -19,8 +23,7 @@ function slug(value: string): string {
 
 export async function listResumes(): Promise<ResumeRow[]> {
   const { rows } = await pool.query<ResumeRow>(
-    `SELECT id, language, label, filename, storage_path, mime_type, byte_size,
-            is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error
+    `SELECT ${RESUME_COLUMNS}
        FROM resumes
       ORDER BY language, is_active DESC, uploaded_at DESC`,
   );
@@ -29,8 +32,7 @@ export async function listResumes(): Promise<ResumeRow[]> {
 
 export async function getResume(id: string): Promise<ResumeRow | null> {
   const { rows } = await pool.query<ResumeRow>(
-    `SELECT id, language, label, filename, storage_path, mime_type, byte_size,
-            is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error
+    `SELECT ${RESUME_COLUMNS}
        FROM resumes
       WHERE id = $1`,
     [id],
@@ -38,38 +40,76 @@ export async function getResume(id: string): Promise<ResumeRow | null> {
   return rows[0] ?? null;
 }
 
+/** The general (category-less) active resume for a language — the original,
+ *  still-supported "one CV per language" shape. */
 export async function getActiveResume(lang: ResumeLanguage): Promise<ResumeRow | null> {
+  return getActiveResumeFor(lang, null);
+}
+
+/** The active resume for an exact (language, category) slot. category=null
+ *  means the general resume, not "any category." */
+export async function getActiveResumeFor(
+  lang: ResumeLanguage,
+  category: InternshipCategory | null,
+): Promise<ResumeRow | null> {
   const { rows } = await pool.query<ResumeRow>(
-    `SELECT id, language, label, filename, storage_path, mime_type, byte_size,
-            is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error
+    `SELECT ${RESUME_COLUMNS}
        FROM resumes
-      WHERE language = $1 AND is_active = true
+      WHERE language = $1 AND is_active = true AND category IS NOT DISTINCT FROM $2
       LIMIT 1`,
-    [lang],
+    [lang, category],
   );
   return rows[0] ?? null;
 }
 
-/** Prefer posting language; fall back to the other active resume. */
-export async function resolveResumeForJob(lang: ResumeLanguage): Promise<ResumeRow | null> {
-  return (await getActiveResume(lang)) ?? (await getActiveResume(lang === "en" ? "fr" : "en"));
+/** Every active resume for a language, any category — used to aggregate
+ *  skills/profile data across however many category CVs are active. */
+export async function getActiveResumesForLang(lang: ResumeLanguage): Promise<ResumeRow[]> {
+  const { rows } = await pool.query<ResumeRow>(
+    `SELECT ${RESUME_COLUMNS}
+       FROM resumes
+      WHERE language = $1 AND is_active = true
+      ORDER BY category NULLS FIRST`,
+    [lang],
+  );
+  return rows;
+}
+
+/**
+ * Picks the CV for a job: category correctness first (never a Full-Stack CV
+ * for a Back-End role if a better one is active), then posting language,
+ * then the general CV as a last resort. `categories` should be ranked
+ * most-specific-first (see detectInternshipCategories).
+ */
+export async function resolveResumeForJob(
+  lang: ResumeLanguage,
+  categories: InternshipCategory[] = [],
+): Promise<ResumeRow | null> {
+  const otherLang: ResumeLanguage = lang === "en" ? "fr" : "en";
+
+  for (const category of categories) {
+    const exact = await getActiveResumeFor(lang, category);
+    if (exact) return exact;
+  }
+  for (const category of categories) {
+    const crossLang = await getActiveResumeFor(otherLang, category);
+    if (crossLang) return crossLang;
+  }
+  return (await getActiveResumeFor(lang, null)) ?? (await getActiveResumeFor(otherLang, null));
 }
 
 export async function getActiveSkills(): Promise<string[]> {
-  const en = await getActiveResume("en");
-  const fr = await getActiveResume("fr");
-  const fromProfiles = [
-    ...((en?.profile_json?.skills as string[] | undefined) ?? []),
-    ...((fr?.profile_json?.skills as string[] | undefined) ?? []),
-  ];
+  const [en, fr] = await Promise.all([getActiveResumesForLang("en"), getActiveResumesForLang("fr")]);
+  const fromProfiles = [...en, ...fr].flatMap(
+    (r) => (r.profile_json?.skills as string[] | undefined) ?? [],
+  );
   const unique = [...new Set(fromProfiles)];
   return unique.length > 0 ? unique : fallbackHaveSkills();
 }
 
 export async function getMergedActiveProfile(): Promise<ResumeProfile | null> {
-  const en = await getActiveResume("en");
-  const fr = await getActiveResume("fr");
-  const primary = en?.profile_json ?? fr?.profile_json ?? null;
+  const [en, fr] = await Promise.all([getActiveResumesForLang("en"), getActiveResumesForLang("fr")]);
+  const primary = en[0]?.profile_json ?? fr[0]?.profile_json ?? null;
   if (!primary) return null;
   const skills = await getActiveSkills();
   return { ...primary, skills };
@@ -87,8 +127,7 @@ async function persistAnalyzed(
             analyzed_at = now(),
             analysis_error = NULL
       WHERE id = $1
-      RETURNING id, language, label, filename, storage_path, mime_type, byte_size,
-                is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error`,
+      RETURNING ${RESUME_COLUMNS}`,
     [id, text, JSON.stringify(profile)],
   );
   if (!rows[0]) throw new Error(`resume not found: ${id}`);
@@ -116,11 +155,16 @@ export async function setActiveResume(id: string): Promise<ResumeRow> {
   const resume = await getResume(id);
   if (!resume) throw new Error(`resume not found: ${id}`);
 
-  await pool.query(`UPDATE resumes SET is_active = false WHERE language = $1`, [resume.language]);
+  // Only deactivate resumes sharing this exact (language, category) slot —
+  // other categories (or the general slot) can stay active independently.
+  await pool.query(
+    `UPDATE resumes SET is_active = false
+      WHERE language = $1 AND category IS NOT DISTINCT FROM $2`,
+    [resume.language, resume.category],
+  );
   const { rows } = await pool.query<ResumeRow>(
     `UPDATE resumes SET is_active = true WHERE id = $1
-     RETURNING id, language, label, filename, storage_path, mime_type, byte_size,
-               is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error`,
+     RETURNING ${RESUME_COLUMNS}`,
     [id],
   );
   const active = rows[0];
@@ -136,6 +180,8 @@ export async function storeResumeUpload(opts: {
   buffer: Buffer;
   filename: string;
   language: ResumeLanguage;
+  /** Null/omitted = general resume, usable as a fallback for any category. */
+  category?: InternshipCategory | null;
   label?: string;
   mimeType?: string;
   activate?: boolean;
@@ -156,11 +202,10 @@ export async function storeResumeUpload(opts: {
 
   const label = opts.label?.trim() || opts.filename;
   const { rows } = await pool.query<ResumeRow>(
-    `INSERT INTO resumes (language, label, filename, storage_path, mime_type, byte_size, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, false)
-     RETURNING id, language, label, filename, storage_path, mime_type, byte_size,
-               is_active, uploaded_at, analyzed_at, raw_text, profile_json, analysis_error`,
-    [opts.language, label, opts.filename, storagePath, mime, opts.buffer.length],
+    `INSERT INTO resumes (language, category, label, filename, storage_path, mime_type, byte_size, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, false)
+     RETURNING ${RESUME_COLUMNS}`,
+    [opts.language, opts.category ?? null, label, opts.filename, storagePath, mime, opts.buffer.length],
   );
   let resume = rows[0];
   if (!resume) throw new Error("failed to insert resume");

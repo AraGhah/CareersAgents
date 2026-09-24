@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { findInternshipsAction } from "../actions";
-import { Flash, SubmitButton } from "../components/client-ui";
+import { changeStatus, findInternshipsAction, setActiveCategoryAction } from "../actions";
+import { Flash, Select, SubmitButton } from "../components/client-ui";
+import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
 import {
   DbUnavailable,
   EmptyState,
@@ -13,10 +14,12 @@ import {
 } from "../components/ui";
 import { day, place } from "../../lib/format";
 import { listPipelineRows } from "../../lib/queries";
-import { listSourceCapabilities, assistedModeDefault, gmailSendAllowed } from "../../lib/sources";
+import { listSourceCapabilities } from "../../lib/sources";
 import { APPLICATION_STATUS_FR } from "../../lib/status-labels";
 import { PIPELINE_STATUSES } from "../../lib/types";
 import { getActiveResume } from "../../lib/resumes";
+import { getActiveCategory } from "../../lib/settings";
+import { INTERNSHIP_CATEGORIES, INTERNSHIP_CATEGORY_LABEL_FR } from "../../lib/internship-category";
 
 type Search = {
   found?: string;
@@ -24,33 +27,26 @@ type Search = {
   qualified?: string;
   boards?: string;
   prepared?: string;
+  ok?: string;
 };
 
 export const metadata = { title: "Pipeline" };
 
-const FLOW = [
-  "Trouver les offres (ATS réels + LinkedIn si configuré)",
-  "Matcher avec le CV actif et qualifier automatiquement",
-  "Rechercher l'entreprise et un contact public (automatique)",
-  "Rédiger un email personnalisé (automatique)",
-  "Ton approbation : rien ne part sans elle",
-  "Brouillon Gmail, puis suivi des relances",
-];
-
 export default async function PipelinePage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
-  let rows, sources, en, fr;
+  let rows, sources, en, fr, activeCategory;
   try {
-    [rows, sources, en, fr] = await Promise.all([
+    [rows, sources, en, fr, activeCategory] = await Promise.all([
       listPipelineRows(),
       Promise.resolve(listSourceCapabilities()),
       getActiveResume("en"),
       getActiveResume("fr"),
+      getActiveCategory(),
     ]);
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Mode assisté" title="Pipeline" />
+        <PageHeader title="Pipeline" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
@@ -64,32 +60,53 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader
-        eyebrow={assistedModeDefault() ? "Mode assisté · actif" : "Mode assisté"}
         title="Pipeline"
-        lede="Le desk trouve, score, recherche l'entreprise et prépare l'email. Tu gardes la main sur le dernier geste : aucun envoi sans ton approbation."
+        actions={
+          <form action={findInternshipsAction}>
+            <SubmitButton className="primary" pendingLabel="Recherche en cours…">
+              Chercher des stages
+            </SubmitButton>
+          </form>
+        }
       />
 
       {sp.found === "1" ? (
         <Flash>
-          Recherche terminée : <strong>{sp.new ?? "0"}</strong> nouvelles offres,{" "}
-          <strong>{sp.qualified ?? "0"}</strong> qualifiées, <strong>{sp.boards ?? "0"}</strong>{" "}
-          boards ATS consultés.
-          {Number(sp.prepared) > 0 ? (
-            <>
-              {" "}
-              <strong>{sp.prepared}</strong> déjà préparée{Number(sp.prepared) > 1 ? "s" : ""}{" "}
-              (recherche + contact + brouillon d&apos;email), reste à approuver.
-            </>
-          ) : null}
+          Recherche terminée. {sp.new ?? "0"} nouvelles offres, {sp.qualified ?? "0"} qualifiées
+          sur {sp.boards ?? "0"} boards.
+          {Number(sp.prepared) > 0
+            ? ` ${sp.prepared} candidature${Number(sp.prepared) > 1 ? "s" : ""} prête${Number(sp.prepared) > 1 ? "s" : ""} à approuver.`
+            : null}
         </Flash>
       ) : null}
 
       {!en && !fr ? (
         <Flash tone="warn">
-          Aucun CV actif : le matching et les emails ne peuvent pas être personnalisés.{" "}
-          <Link href="/resumes">Uploader un CV</Link>.
+          Aucun CV actif, les scores et les emails ne seront pas personnalisés.{" "}
+          <Link href="/resumes">Ajouter un CV</Link>
         </Flash>
       ) : null}
+
+      {sp.ok === "category" ? <Flash>Catégorie enregistrée.</Flash> : null}
+
+      <form action={setActiveCategoryAction} className="toolbar">
+        <span className="toolbar-label">Catégorie ciblée</span>
+        <Select
+          name="category"
+          ariaLabel="Catégorie ciblée"
+          defaultValue={activeCategory ?? ""}
+          placeholder="Toutes"
+          compact
+          options={[
+            { value: "", label: "Toutes" },
+            ...INTERNSHIP_CATEGORIES.map((c) => ({
+              value: c,
+              label: INTERNSHIP_CATEGORY_LABEL_FR[c],
+            })),
+          ]}
+        />
+        <SubmitButton className="small">Enregistrer</SubmitButton>
+      </form>
 
       <div className="stats">
         <Stat
@@ -109,42 +126,10 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       </div>
 
       <Section
-        n="01"
-        title="Recherche"
-        note={`${availableSources} source${availableSources === 1 ? "" : "s"} sur ${sources.length} disponible${availableSources === 1 ? "" : "s"}`}
-        id="recherche"
+        title="Sources"
+        note={`${availableSources} sur ${sources.length} actives`}
+        id="sources"
       >
-        <div className="panel">
-          <div className="panel-head">
-            <span className="panel-title">Comment ça marche</span>
-            <span className="badge neutral">
-              {gmailSendAllowed() ? "Envoi Gmail autorisé" : "Brouillon Gmail seulement"}
-            </span>
-          </div>
-
-          <ol className="steps" style={{ marginBottom: "var(--s-5)" }}>
-            {FLOW.map((s) => (
-              <li key={s} className="step">
-                {s}
-              </li>
-            ))}
-          </ol>
-
-          <form action={findInternshipsAction} className="form-actions">
-            <SubmitButton className="primary" pendingLabel="Recherche en cours…">
-              Chercher des stages
-            </SubmitButton>
-            <span className="small muted grow">
-              Interroge les ATS réels (Greenhouse, Lever, Workable, Ashby) puis score chaque offre
-              contre ton CV. LinkedIn et Indeed tournent chacun si leur acteur Apify est
-              configuré (Indeed n&apos;a plus d&apos;API officielle depuis 2023, seul Apify
-              fonctionne). Chaque offre qualifiée est automatiquement suivie, recherchée et son
-              email préparé. Il ne reste que ton approbation. Programme
-              <code> npm run automate</code> pour que ça tourne tout seul, sans revenir ici.
-            </span>
-          </form>
-        </div>
-
         <TableWrap>
           <table>
             <caption className="visually-hidden">Disponibilité de chaque source d&apos;offres</caption>
@@ -163,8 +148,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                   </td>
                   <td data-label="Disponible">
                     <span className={`badge ${s.available ? "green" : "neutral"}`}>
-                      <span className="dot" aria-hidden="true" />
-                      {s.available ? "oui" : "non"}
+                      {s.available ? "Active" : "Inactive"}
                     </span>
                   </td>
                   <td data-label="Détail" className="muted">
@@ -177,60 +161,33 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         </TableWrap>
       </Section>
 
-      <Section n="02" title="Kanban" note={`${rows.length} candidature${rows.length === 1 ? "" : "s"}`} id="kanban">
-        <div className="board">
-          {columns.map((status) => {
-            const column = rows.filter((r) => r.status === status);
-            return (
-              <section key={status} className={`board-col${column.length === 0 ? " is-empty" : ""}`}>
-                <h3>
-                  {APPLICATION_STATUS_FR[status]}
-                  <span className="count">{column.length}</span>
-                </h3>
-                {column.length === 0 ? (
-                  <p className="board-empty">—</p>
-                ) : (
-                  <ul>
-                    {column.map((r) => (
-                      <li key={r.application_id}>
-                        <Link href={`/applications/${r.application_id}`} className="board-card">
-                          {r.title}
-                          <span className="co">
-                            {r.company_name}
-                            {r.score != null ? (
-                              <span className="mono">{Math.round(Number(r.score) * 100)}</span>
-                            ) : null}
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
-        </div>
+      <Section title="Kanban" note={`${rows.length} candidature${rows.length === 1 ? "" : "s"}`} id="kanban">
+        <KanbanBoard
+          cards={rows.map(
+            (r): KanbanCard => ({
+              id: r.application_id,
+              title: r.title,
+              companyName: r.company_name,
+              status: r.status,
+              meta: r.score != null ? String(Math.round(Number(r.score) * 100)) : null,
+            }),
+          )}
+          statuses={columns}
+          statusLabels={APPLICATION_STATUS_FR}
+          changeStatusAction={changeStatus}
+        />
       </Section>
 
-      <Section n="03" title="Tableau de bord" id="tableau">
+      <Section title="Candidatures" id="candidatures">
         {rows.length === 0 ? (
           <EmptyState
-            mark="Aucune candidature"
-            title="Le pipeline est vide"
+            title="Aucune candidature suivie"
             actions={
-              <>
-                <Link href="#recherche" className="btn primary">
-                  Lancer une recherche
-                </Link>
-                <Link href="/jobs/new" className="btn">
-                  Ajouter une offre
-                </Link>
-              </>
+              <Link href="/jobs/new" className="btn">
+                Ajouter une offre
+              </Link>
             }
-          >
-            Dès qu&apos;une offre est suivie, elle apparaît ici avec son score, son contact et sa
-            prochaine relance.
-          </EmptyState>
+          />
         ) : (
           <TableWrap>
             <table>

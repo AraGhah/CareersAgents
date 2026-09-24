@@ -57,7 +57,7 @@ export default async function FollowupsPage() {
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Suivi" title="Relances" />
+        <PageHeader title="Relances" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
@@ -71,9 +71,8 @@ export default async function FollowupsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Suivi"
         title="Relances"
-        lede="Les relances se planifient toutes seules au jour 7 et au jour 14 après l'envoi. Le desk prépare le brouillon dans Gmail, c'est toi qui appuies sur envoyer."
+        lede="Prévues à J+7 et J+14 après chaque envoi. Le brouillon est créé dans Gmail, tu l'envoies toi-même."
         actions={
           <Link href="/board" className="btn">
             Voir le board
@@ -88,19 +87,27 @@ export default async function FollowupsPage() {
         <Stat value={recent.length} label="Messages synchronisés" />
       </div>
 
-      <Section n="01" title="Relances ouvertes" id="ouvertes">
+      <Section title="Relances ouvertes" id="ouvertes">
         {followups.length === 0 ? (
           <EmptyState
-            mark="Rien à relancer"
             title="Aucune relance ouverte"
             actions={
-              <Link href="/pipeline" className="btn">
-                Ouvrir le pipeline
-              </Link>
+              <>
+                <Link href="/" className="btn primary">
+                  Voir les offres
+                </Link>
+                <Link href="/board" className="btn">
+                  Voir le board
+                </Link>
+                <Link href="/pipeline" className="btn">
+                  Ouvrir le pipeline
+                </Link>
+              </>
             }
           >
-            Elles apparaissent dès qu&apos;une candidature passe à « postulé » : une au jour 7, une
-            au jour 14.
+            Une relance se planifie automatiquement au jour 7 et au jour 14 après chaque
+            candidature envoyée. Postule à une offre pour en déclencher une, ou consulte tes
+            candidatures déjà en cours sur le board.
           </EmptyState>
         ) : (
           <TableWrap>
@@ -152,9 +159,9 @@ export default async function FollowupsPage() {
         )}
       </Section>
 
-      <Section n="02" title="Boîte de réception" note="25 derniers messages appariés" id="inbox">
+      <Section title="Boîte de réception" note="25 derniers messages appariés" id="inbox">
         {recent.length === 0 ? (
-          <EmptyState mark="Pas de synchro" title="Aucun message synchronisé">
+          <EmptyState title="Aucun message synchronisé">
             Authentifie Gmail puis lance la synchronisation :{" "}
             <code>npm run gmail:auth</code> puis <code>npm run sync:inbox</code>.
           </EmptyState>

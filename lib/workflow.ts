@@ -22,6 +22,7 @@ import { researchHiringContacts, pickBestContact, logWorkflow } from "./recruite
 import { buildPersonalizedOutreach, createOutreachDraft, hasOpenOutreach } from "./outreach";
 import { buildPackageFromDossier, loadApplicantContact, projectsForCategories } from "./package";
 import { detectCategories } from "./category";
+import { detectInternshipCategories } from "./internship-category";
 import { detectLetterLang, parseLinks } from "./letter";
 import type { ApplicationStatus } from "./types";
 
@@ -383,7 +384,7 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   );
 
   const contact = pickBestContact(hiring.contacts);
-  const resume = await resolveResumeForJob(lang);
+  const resume = await resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description));
   const projects = await projectsForCategories(detectCategories(app.title, app.description));
 
   const applicant = await loadApplicantContact(lang);

@@ -80,7 +80,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <div className="split">
         <div className="stack">
           {scored ? (
-            <Section n="01" title="Composantes du score" id="composantes">
+            <Section title="Composantes du score" id="composantes">
               <div className="table-wrap stackable">
                 <table>
                   <caption className="visually-hidden">
@@ -130,7 +130,6 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           )}
 
           <Section
-            n="02"
             title="Mots-clés dans l'offre"
             note={found.length ? `${haveCount}/${found.length} présents dans ton CV` : undefined}
             id="mots-cles"
@@ -152,7 +151,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             )}
           </Section>
 
-          <Section n="03" title="Texte de l'offre" id="texte">
+          <Section title="Texte de l'offre" id="texte">
             <div className="panel">
               {job.description ? (
                 <pre className="description">{job.description}</pre>

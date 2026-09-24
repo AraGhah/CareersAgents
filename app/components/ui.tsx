@@ -31,14 +31,11 @@ export function PageHeader({
 }
 
 export function Section({
-  n,
   title,
   note,
   children,
   id,
 }: {
-  /** Two-digit ordinal shown in the rule, e.g. "01". */
-  n: string;
   title: string;
   note?: React.ReactNode;
   children: React.ReactNode;
@@ -47,10 +44,7 @@ export function Section({
   return (
     <section className="section" id={id} aria-labelledby={id ? `${id}-h` : undefined}>
       <div className="section-head">
-        <h2 data-n={n} id={id ? `${id}-h` : undefined}>
-          {title}
-        </h2>
-        <span className="rule" aria-hidden="true" />
+        <h2 id={id ? `${id}-h` : undefined}>{title}</h2>
         {note ? <span className="section-note">{note}</span> : null}
       </div>
       {children}
@@ -70,7 +64,7 @@ export function Section({
  */
 export function DbUnavailable({ detail }: { detail?: string }) {
   return (
-    <EmptyState mark="Hors ligne" title="La base de données ne répond pas">
+    <EmptyState title="La base de données ne répond pas">
       Démarre Postgres (<code>docker compose up -d db</code>), puis recharge cette page.
       {detail ? <span className="field-hint">{detail}</span> : null}
     </EmptyState>
@@ -78,19 +72,16 @@ export function DbUnavailable({ detail }: { detail?: string }) {
 }
 
 export function EmptyState({
-  mark,
   title,
   children,
   actions,
 }: {
-  mark?: string;
   title: string;
   children?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   return (
     <div className="empty-state">
-      <span className="empty-mark">{mark ?? "Vide"}</span>
       <h3>{title}</h3>
       {children ? <p>{children}</p> : null}
       {actions ? <div className="cluster">{actions}</div> : null}
@@ -116,8 +107,8 @@ export function Stat({
   const className = `stat${tone === "good" ? " stat-good" : ""}${tone === "alert" ? " stat-alert" : ""}`;
   const body = (
     <>
-      <span className="stat-value">{value}</span>
       <span className="stat-label">{label}</span>
+      <span className="stat-value">{value}</span>
     </>
   );
 

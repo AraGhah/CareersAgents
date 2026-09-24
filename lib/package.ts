@@ -305,7 +305,11 @@ export async function buildApplicationPackage(opts: {
   const projects = await projectsForCategories(categories);
 
   const { resolveResumeForJob } = await import("./resumes");
-  const resume = await resolveResumeForJob(lang);
+  const { detectInternshipCategories } = await import("./internship-category");
+  const resume = await resolveResumeForJob(
+    lang,
+    detectInternshipCategories(opts.app.title, opts.app.description),
+  );
 
   const contact = await loadApplicantContact(lang);
   const linksRaw = await answerText("links", lang);

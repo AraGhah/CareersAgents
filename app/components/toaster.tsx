@@ -24,13 +24,6 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const TONE_MARK: Record<ToastTone, string> = {
-  success: "✓",
-  info: "→",
-  warn: "!",
-  error: "×",
-};
-
 const TONE_CLASS: Record<ToastTone, string> = {
   success: "",
   info: "info",
@@ -76,9 +69,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             data-leaving={t.leaving ? "true" : undefined}
             role="status"
           >
-            <span className="toast-icon mono" aria-hidden="true">
-              {TONE_MARK[t.tone]}
-            </span>
             <div className="toast-body">{t.message}</div>
             <button
               type="button"

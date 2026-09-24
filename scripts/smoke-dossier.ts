@@ -1,4 +1,5 @@
 import { detectCategories } from "../lib/category";
+import { detectInternshipCategories } from "../lib/internship-category";
 import { pool } from "../lib/db";
 import { detectLetterLang } from "../lib/letter";
 import { projectsForCategories } from "../lib/package";
@@ -45,7 +46,7 @@ async function main() {
   );
 
   const lang = detectLetterLang(app.title, app.description);
-  const resume = await resolveResumeForJob(lang);
+  const resume = await resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description));
   const projects = await projectsForCategories(detectCategories(app.title, app.description));
   const crafted = buildPersonalizedOutreach({
     app,

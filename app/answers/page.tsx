@@ -16,7 +16,7 @@ export default async function AnswersPage() {
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Référence" title="Banque de réponses" />
+        <PageHeader title="Banque de réponses" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
@@ -27,9 +27,8 @@ export default async function AnswersPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Référence"
         title="Banque de réponses"
-        lede="Vert se colle sans y toucher. Jaune est un point de départ à reformuler pour l'offre. Rouge te rappelle le sujet : tu tapes la réponse toi-même."
+        lede="En vert, à coller tel quel. En jaune, à adapter à l'offre. En rouge, à écrire toi-même."
       />
 
       <div className="stats">
@@ -39,9 +38,9 @@ export default async function AnswersPage() {
         <Stat value={projects.length} label="Projets référencés" />
       </div>
 
-      <Section n="01" title="Réponses" id="reponses">
+      <Section title="Réponses" id="reponses">
         {answers.length === 0 ? (
-          <EmptyState mark="Rien de seedé" title="Aucune réponse enregistrée">
+          <EmptyState title="Aucune réponse enregistrée">
             Lance <code>npx tsx seed/answers.ts</code> pour importer la banque de départ.
           </EmptyState>
         ) : (
@@ -81,9 +80,9 @@ export default async function AnswersPage() {
         )}
       </Section>
 
-      <Section n="02" title="Projets" id="projets">
+      <Section title="Projets" id="projets">
         {projects.length === 0 ? (
-          <EmptyState mark="Rien de seedé" title="Aucun projet enregistré">
+          <EmptyState title="Aucun projet enregistré">
             Lance <code>npx tsx seed/projects.ts</code> pour importer les projets de départ.
           </EmptyState>
         ) : (

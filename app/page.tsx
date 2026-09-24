@@ -1,17 +1,16 @@
 import Link from "next/link";
-import { trackJob } from "./actions";
-import { SubmitButton } from "./components/client-ui";
-import {
-  DbUnavailable,
-  EmptyState,
-  PageHeader,
-  ScoreMeter,
-  Stat,
-  StatusPill,
-  TableWrap,
-} from "./components/ui";
-import { day, place } from "../lib/format";
+import { Select, SubmitButton } from "./components/client-ui";
+import { DbUnavailable, EmptyState, PageHeader, Stat, TableWrap } from "./components/ui";
+import { JobsTable } from "./components/jobs-table";
 import { deskSummary, listJobs } from "../lib/queries";
+import { getActiveCategory } from "../lib/settings";
+import {
+  detectInternshipCategories,
+  INTERNSHIP_CATEGORIES,
+  INTERNSHIP_CATEGORY_LABEL_FR,
+  isInternshipCategory,
+} from "../lib/internship-category";
+import { isPriorityCompany } from "../lib/priority-companies";
 
 type Search = {
   q?: string;
@@ -19,6 +18,7 @@ type Search = {
   untracked?: string;
   low?: string;
   skipped?: string;
+  category?: string;
 };
 
 export const metadata = { title: "Offres" };
@@ -31,23 +31,45 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const includeLow = sp.low === "1";
   const includeSkipped = sp.skipped === "1";
 
-  let jobs, summary;
+  let jobs, summary, defaultCategory;
   try {
-    [jobs, summary] = await Promise.all([
+    [jobs, summary, defaultCategory] = await Promise.all([
       listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped }),
       deskSummary(),
+      getActiveCategory(),
     ]);
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Découverte" title="Offres" />
+        <PageHeader title="Offres" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
   }
 
+  // Category is a bias, not a hard exclusion: pre-select the globally
+  // "targeted" category on first load, but once the filter form is
+  // submitted the URL always carries the explicit (possibly cleared) choice.
+  const categoryParamGiven = sp.category !== undefined;
+  const categoryFilter = categoryParamGiven
+    ? isInternshipCategory(sp.category)
+      ? sp.category
+      : null
+    : defaultCategory;
+
+  // listJobs() intentionally omits the (often large) description column for
+  // list-page performance, so category detection here works off the title
+  // only — titles for these roles almost always name the category directly.
+  const visibleJobs = categoryFilter
+    ? jobs.filter((job) => detectInternshipCategories(job.title, null).includes(categoryFilter))
+    : jobs;
+  const sortedJobs = [...visibleJobs].sort(
+    (a, b) => Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name)),
+  );
+
   const activeFilters = [
     search ? `« ${search} »` : null,
+    categoryFilter ? INTERNSHIP_CATEGORY_LABEL_FR[categoryFilter] : null,
     untrackedOnly ? "non suivies" : null,
     includeClosed ? "fermées incluses" : null,
     includeLow ? "sous 60 incluses" : null,
@@ -59,9 +81,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   return (
     <>
       <PageHeader
-        eyebrow="Découverte"
         title="Offres"
-        lede="Tout ce que le desk a trouvé ou que tu as ajouté à la main. Le score compare l'offre à ton CV actif : 85 et plus passe en priorité."
         actions={
           <>
             <Link href="/jobs/new" className="btn">
@@ -78,7 +98,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <Stat value={summary.openJobs} label="Offres ouvertes" />
         <Stat
           value={summary.priorityOpen}
-          label="Priorité · score 85+"
+          label="Score 85 et plus"
           tone={summary.priorityOpen > 0 ? "good" : undefined}
         />
         <Stat value={summary.tracked} label="Candidatures suivies" href="/board" />
@@ -103,6 +123,18 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             defaultValue={search ?? ""}
           />
         </div>
+
+        <Select
+          name="category"
+          ariaLabel="Catégorie"
+          defaultValue={categoryFilter ?? ""}
+          placeholder="Toutes catégories"
+          compact
+          options={[
+            { value: "", label: "Toutes catégories" },
+            ...INTERNSHIP_CATEGORIES.map((c) => ({ value: c, label: INTERNSHIP_CATEGORY_LABEL_FR[c] })),
+          ]}
+        />
 
         <label className="check">
           <input type="checkbox" name="untracked" value="1" defaultChecked={untrackedOnly} />
@@ -129,93 +161,36 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         ) : null}
       </form>
 
-      <p className="small muted" aria-live="polite" style={{ marginBottom: "var(--s-4)" }}>
-        <strong className="mono">{jobs.length}</strong>{" "}
-        {jobs.length === 1 ? "offre affichée" : "offres affichées"}
-        {filtered ? ` · filtres : ${activeFilters.join(", ")}` : " · ouvertes uniquement"}
+      <p className="result-count" aria-live="polite">
+        {sortedJobs.length} {sortedJobs.length === 1 ? "offre" : "offres"}
+        {filtered ? `, filtrées par ${activeFilters.join(", ")}` : null}
       </p>
 
-      {jobs.length === 0 ? (
+      {sortedJobs.length === 0 ? (
         <EmptyState
-          mark={filtered ? "Aucun résultat" : "Vide"}
-          title={filtered ? "Aucune offre ne correspond" : "Aucune offre pour l'instant"}
+          title={filtered ? "Aucune offre ne correspond à ces filtres" : "Aucune offre pour le moment"}
           actions={
-            <>
-              {filtered ? (
-                <Link href="/" className="btn">
-                  Effacer les filtres
+            filtered ? (
+              <Link href="/" className="btn">
+                Effacer les filtres
+              </Link>
+            ) : (
+              <>
+                <Link href="/pipeline" className="btn primary">
+                  Lancer une recherche
                 </Link>
-              ) : null}
-              <Link href="/jobs/new" className="btn primary">
-                Ajouter une offre
-              </Link>
-              <Link href="/pipeline" className="btn">
-                Lancer la recherche ATS
-              </Link>
-            </>
+                <Link href="/jobs/new" className="btn">
+                  Ajouter une offre
+                </Link>
+              </>
+            )
           }
         >
-          {filtered
-            ? "Élargis la recherche : coche « Sous 60 » ou « Fermées » pour voir ce qui a été écarté."
-            : "Lance une recherche depuis le pipeline, ou colle toi-même une offre trouvée ailleurs."}
+          {filtered ? "Coche « Sous 60 » ou « Fermées » pour voir les offres écartées." : null}
         </EmptyState>
       ) : (
         <TableWrap>
-          <table>
-            <caption className="visually-hidden">
-              Offres trouvées, avec leur score de correspondance et l&apos;état de la candidature
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Poste</th>
-                <th scope="col">Entreprise</th>
-                <th scope="col">Lieu</th>
-                <th scope="col">Score</th>
-                <th scope="col" className="tight">
-                  Vue le
-                </th>
-                <th scope="col">Candidature</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((job) => (
-                <tr key={job.id}>
-                  <td data-label="Poste">
-                    <Link href={`/jobs/${job.id}`} className="cell-main">
-                      {job.title}
-                    </Link>
-                    {job.closed_at ? (
-                      <span className="cell-sub">
-                        <span className="badge neutral">fermée</span>
-                      </span>
-                    ) : null}
-                  </td>
-                  <td data-label="Entreprise">{job.company_name}</td>
-                  <td data-label="Lieu" className="muted">
-                    {place(job.location, job.workplace_type)}
-                  </td>
-                  <td data-label="Score">
-                    <ScoreMeter score={job.score} gated={job.gated} />
-                  </td>
-                  <td data-label="Vue le" className="tight num muted">
-                    {day(job.first_seen_at)}
-                  </td>
-                  <td data-label="Candidature">
-                    {job.application_id ? (
-                      <Link href={`/applications/${job.application_id}`}>
-                        <StatusPill status={job.status} />
-                      </Link>
-                    ) : (
-                      <form action={trackJob}>
-                        <input type="hidden" name="jobId" value={job.id} />
-                        <SubmitButton className="small">Suivre</SubmitButton>
-                      </form>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <JobsTable jobs={sortedJobs} />
         </TableWrap>
       )}
     </>

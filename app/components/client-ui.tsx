@@ -52,13 +52,11 @@ const TONE_CLASS: Record<FlashTone, string> = {
   error: "flash-error",
 };
 
-const TONE_MARK: Record<FlashTone, string> = {
-  success: "✓",
-  info: "→",
-  warn: "!",
-  error: "×",
-};
-
+/**
+ * One feedback channel per message: a confirmation ("success") becomes a
+ * toast and clears the query string that triggered it, so a reload doesn't
+ * repeat it; anything else is a standing notice and stays as a banner.
+ */
 export function Flash({
   children,
   tone = "success",
@@ -71,23 +69,21 @@ export function Flash({
   const pathname = usePathname();
   const { push } = useToast();
   const announced = useRef(false);
+  const asToast = tone === "success";
 
-  // Fires once per real mount (StrictMode's dev double-invoke is guarded by
-  // the ref) — a toast is a one-time event, unlike the persistent banner.
+  // The ref guards StrictMode's dev double-invoke so the toast fires once.
   useEffect(() => {
-    if (announced.current) return;
+    if (!asToast || announced.current) return;
     announced.current = true;
     push(children, tone as ToastTone);
+    if (pathname) router.replace(pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!open) return null;
+  if (asToast || !open) return null;
 
   return (
     <div className={`flash ${TONE_CLASS[tone]}`} role="status" aria-live="polite">
-      <span aria-hidden="true" className="mono">
-        {TONE_MARK[tone]}
-      </span>
       <div className="flash-body">{children}</div>
       <button
         type="button"

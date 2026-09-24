@@ -7,6 +7,7 @@ import {
   createCompany,
   createManualJob,
   getApplication,
+  getJob,
   listContactsForCompany,
   setApplicationStatus,
   startApplication,
@@ -14,6 +15,8 @@ import {
 } from "../lib/queries";
 import { buildApplicationPackage, loadApplicantContact, projectsForCategories } from "../lib/package";
 import { detectCategories } from "../lib/category";
+import { detectInternshipCategories, isInternshipCategory } from "../lib/internship-category";
+import type { InternshipCategory } from "../lib/internship-category";
 import { detectLetterLang, parseLinks } from "../lib/letter";
 import { pool } from "../lib/db";
 import { createOutreachDraft, buildPersonalizedOutreach } from "../lib/outreach";
@@ -25,6 +28,7 @@ import {
   setActiveResume,
   storeResumeUpload,
 } from "../lib/resumes";
+import { setActiveCategory } from "../lib/settings";
 import type { ResumeLanguage } from "../lib/profile";
 import {
   APPLICATION_STATUSES,
@@ -49,6 +53,12 @@ function required(form: FormData, key: string): string {
 function asLanguage(raw: string | null): ResumeLanguage {
   if (raw === "fr" || raw === "en") return raw;
   throw new Error("language must be en or fr");
+}
+
+function asCategory(raw: string | null): InternshipCategory | null {
+  if (!raw) return null;
+  if (!isInternshipCategory(raw)) throw new Error(`unknown internship category: ${raw}`);
+  return raw;
 }
 
 export async function trackJob(form: FormData) {
@@ -228,6 +238,32 @@ export async function previewJobMatch(input: {
   return { percent: result.percent, gated: result.gated, band: result.band, skills: result.found };
 }
 
+export type JobRowDetail = {
+  description: string | null;
+  companyCity: string | null;
+  explanationFr: string | null;
+};
+
+/** Lazily loads the fields the Offers table's expandable row needs (description,
+ *  a plain-language score explanation, ...) that listJobs() deliberately omits
+ *  for list-page performance. */
+export async function getJobDetailAction(jobId: string): Promise<JobRowDetail | null> {
+  const job = await getJob(jobId);
+  if (!job) return null;
+
+  const { COMPONENT_NAMES, explainFr } = await import("../lib/score");
+  const components = {} as Record<(typeof COMPONENT_NAMES)[number], number>;
+  for (const name of COMPONENT_NAMES) {
+    const row = job.components.find((c) => c.component === name);
+    components[name] = row ? Number(row.raw_value) : 0;
+  }
+  const pct = job.components.length > 0 ? Math.round(Number(job.score) * 100) : 0;
+  const explanationFr =
+    job.components.length > 0 ? explainFr(components, pct, Boolean(job.gated)) : null;
+
+  return { description: job.description, companyCity: job.company_city, explanationFr };
+}
+
 export async function changeStatus(form: FormData) {
   const id = required(form, "applicationId");
   const status = required(form, "status");
@@ -238,6 +274,7 @@ export async function changeStatus(form: FormData) {
   await setApplicationStatus(id, status as ApplicationStatus);
   revalidatePath(`/applications/${id}`);
   revalidatePath("/board");
+  revalidatePath("/pipeline");
   revalidatePath("/followups");
   revalidatePath("/");
 }
@@ -282,6 +319,7 @@ export async function buildPackage(form: FormData) {
 
 export async function uploadResumeAction(form: FormData) {
   const language = asLanguage(required(form, "language"));
+  const category = asCategory(text(form, "category"));
   const label = text(form, "label") ?? undefined;
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("file is required");
@@ -292,6 +330,7 @@ export async function uploadResumeAction(form: FormData) {
     buffer,
     filename: file.name || `resume-${language}.pdf`,
     language,
+    category,
     label,
     mimeType: file.type || "application/pdf",
     activate: form.get("activate") === "on",
@@ -300,6 +339,14 @@ export async function uploadResumeAction(form: FormData) {
   revalidatePath("/resumes");
   revalidatePath("/");
   redirect(`/resumes?ok=uploaded&id=${resume.id}`);
+}
+
+export async function setActiveCategoryAction(form: FormData) {
+  const category = asCategory(text(form, "category"));
+  await setActiveCategory(category);
+  revalidatePath("/pipeline");
+  revalidatePath("/");
+  redirect("/pipeline?ok=category");
 }
 
 export async function activateResumeAction(form: FormData) {
@@ -379,7 +426,7 @@ export async function draftOutreachAction(form: FormData) {
   }
 
   const lang = detectLetterLang(app.title, app.description);
-  const resume = await resolveResumeForJob(lang);
+  const resume = await resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description));
   const categories = detectCategories(app.title, app.description);
   const projects = await projectsForCategories(categories);
 

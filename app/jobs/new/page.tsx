@@ -13,7 +13,7 @@ export default async function NewJobPage() {
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Ajout manuel" title="Ajouter une offre" />
+        <PageHeader title="Ajouter une offre" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
@@ -22,9 +22,7 @@ export default async function NewJobPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Ajout manuel"
         title="Ajouter une offre"
-        lede="Pour les postings que tu as trouvés toi-même, afin que le tracker couvre tout, pas seulement ce que la découverte automatique ramasse."
       />
 
       <JobComposer companies={companies} workplaceTypes={WORKPLACE_TYPES} addManualJob={addManualJob} />

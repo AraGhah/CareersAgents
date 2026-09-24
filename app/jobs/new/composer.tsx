@@ -15,7 +15,7 @@ const WORKPLACE_LABEL: Record<string, string> = {
 };
 
 const BAND_RING: Record<string, string> = {
-  high: "var(--accent)",
+  high: "var(--good)",
   mid: "var(--slate)",
   ok: "var(--amber)",
   low: "var(--ink-3)",
@@ -311,13 +311,9 @@ export function JobComposer({
           </div>
 
           {!title.trim() && !companyName ? (
-            <div className="empty-state" style={{ padding: "var(--s-6) var(--s-4)" }}>
-              <span className="empty-mark">Vide pour l&apos;instant</span>
-              <h3 style={{ fontSize: "1.05rem" }}>Rien à montrer encore</h3>
-              <p>Choisis une entreprise et un titre : l&apos;aperçu se construit au fur et à mesure.</p>
-            </div>
+            <p className="preview-empty">Choisis une entreprise ou saisis un titre pour voir l&apos;aperçu.</p>
           ) : (
-            <div className="stack" style={{ gap: "var(--s-4)" }}>
+            <div className="stack reveal-in" style={{ gap: "var(--s-4)" }}>
               <div className="cluster" style={{ gap: "var(--s-3)", alignItems: "flex-start" }}>
                 <CompanyLogo name={companyName || "?"} domain={logoDomain} size="lg" />
                 <div style={{ minWidth: 0 }}>
@@ -333,7 +329,8 @@ export function JobComposer({
               </div>
 
               <div
-                className="cluster"
+                key={match ? "match" : "no-match"}
+                className="cluster reveal-in"
                 style={{ justifyContent: "space-between", padding: "var(--s-3) 0", borderTop: "1px solid var(--line)" }}
               >
                 <div>
@@ -359,7 +356,7 @@ export function JobComposer({
                 </div>
               </div>
 
-              <div>
+              <div key={match && match.skills.length > 0 ? "skills" : "no-skills"} className="reveal-in">
                 <div className="small muted" style={{ marginBottom: "var(--s-2)" }}>
                   Compétences détectées
                 </div>

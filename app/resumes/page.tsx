@@ -7,15 +7,18 @@ import {
 } from "../actions";
 import { Flash, Select, SubmitButton } from "../components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Section, Stat, TableWrap } from "../components/ui";
+import { Disclosure } from "../components/disclosure";
+import { ResumeProfilePreview } from "../components/resume-profile";
 import { day } from "../../lib/format";
 import { listResumes } from "../../lib/resumes";
+import { INTERNSHIP_CATEGORIES, INTERNSHIP_CATEGORY_LABEL_FR } from "../../lib/internship-category";
 
 type Search = { ok?: string; id?: string };
 
 export const metadata = { title: "CV" };
 
 const OK_MESSAGE: Record<string, string> = {
-  uploaded: "CV enregistré et analysé.",
+  uploaded: "CV importé.",
   activated: "CV actif mis à jour.",
   analyzed: "Profil réanalysé.",
   replaced: "CV remplacé et réanalysé.",
@@ -29,21 +32,21 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Profil" title="CV" />
+        <PageHeader title="CV" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
   }
   const activeEn = resumes.find((r) => r.language === "en" && r.is_active);
   const activeFr = resumes.find((r) => r.language === "fr" && r.is_active);
-  const activeSkills = activeEn?.profile_json?.skills ?? activeFr?.profile_json?.skills ?? [];
+  const activeProfile = activeEn?.profile_json ?? activeFr?.profile_json ?? null;
+  const activeSkills = activeProfile?.skills ?? [];
 
   return (
     <>
       <PageHeader
-        eyebrow="Profil"
         title="CV"
-        lede="Les CV actifs pilotent le matching, le package de candidature et la langue des emails. Rien n'est codé en dur : uploade, active, remplace. Le profil est réanalysé automatiquement."
+        lede="Un CV actif par langue et par catégorie. Chaque offre reçoit celui qui lui correspond le mieux."
       />
 
       {sp.ok && OK_MESSAGE[sp.ok] ? <Flash>{OK_MESSAGE[sp.ok]}</Flash> : null}
@@ -63,7 +66,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
         <Stat value={resumes.length} label="CV dans la bibliothèque" />
       </div>
 
-      <Section n="01" title="Uploader un CV" id="upload">
+      <Section title="Importer un CV" id="upload">
         <form action={uploadResumeAction} className="panel">
           <div className="row">
             <div className="field">
@@ -85,26 +88,40 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
           </div>
 
           <div className="field">
+            <label htmlFor="category">Catégorie</label>
+            <Select
+              name="category"
+              ariaLabel="Catégorie"
+              defaultValue=""
+              placeholder="Générale (toutes catégories)"
+              options={[
+                { value: "", label: "Générale (toutes catégories)" },
+                ...INTERNSHIP_CATEGORIES.map((c) => ({ value: c, label: INTERNSHIP_CATEGORY_LABEL_FR[c] })),
+              ]}
+            />
+          </div>
+
+          <div className="field">
             <label htmlFor="file">Fichier PDF</label>
             <input id="file" name="file" type="file" accept="application/pdf,.pdf" required />
           </div>
 
           <label className="check-plain">
             <input type="checkbox" name="activate" value="on" defaultChecked />
-            Activer pour les candidatures de cette langue
+            Utiliser ce CV dès maintenant
           </label>
 
           <div className="form-actions">
-            <SubmitButton className="primary" pendingLabel="Analyse en cours…">
-              Uploader et analyser
+            <SubmitButton className="primary" pendingLabel="Import en cours…">
+              Importer
             </SubmitButton>
           </div>
         </form>
       </Section>
 
-      <Section n="02" title="Bibliothèque" note={`${resumes.length} CV`} id="bibliotheque">
+      <Section title="Bibliothèque" note={`${resumes.length} CV`} id="bibliotheque">
         {resumes.length === 0 ? (
-          <EmptyState mark="Vide" title="Aucun CV importé">
+          <EmptyState title="Aucun CV importé">
             Importe d&apos;abord tes PDF, ou lance <code>npm run resumes:import</code>.
           </EmptyState>
         ) : (
@@ -116,6 +133,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
               <thead>
                 <tr>
                   <th scope="col">Langue</th>
+                  <th scope="col">Catégorie</th>
                   <th scope="col">Libellé</th>
                   <th scope="col">Actif</th>
                   <th scope="col">Analyse</th>
@@ -130,6 +148,9 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                     <tr key={r.id}>
                       <td data-label="Langue" className="mono">
                         {r.language.toUpperCase()}
+                      </td>
+                      <td data-label="Catégorie" className="muted">
+                        {r.category ? INTERNSHIP_CATEGORY_LABEL_FR[r.category] : "Générale"}
                       </td>
                       <td data-label="Libellé">
                         <span className="cell-main">{r.label}</span>
@@ -199,12 +220,17 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
         )}
       </Section>
 
-      {activeEn?.profile_json || activeFr?.profile_json ? (
-        <Section n="03" title="Profil actif" note="aperçu JSON" id="profil">
+      {activeProfile ? (
+        <Section title="Profil actif" id="profil">
           <div className="panel panel-quiet">
-            <pre className="code-block">
-              {JSON.stringify(activeEn?.profile_json ?? activeFr?.profile_json, null, 2)}
-            </pre>
+            <ResumeProfilePreview profile={activeProfile} />
+            <div style={{ marginTop: "var(--s-5)" }}>
+              <Disclosure label="Voir les données brutes" openLabel="Masquer les données brutes">
+                <pre className="code-block" style={{ marginTop: "var(--s-3)" }}>
+                  {JSON.stringify(activeProfile, null, 2)}
+                </pre>
+              </Disclosure>
+            </div>
           </div>
         </Section>
       ) : null}

@@ -68,6 +68,7 @@ npm run demo:record   # writes demos/internship-desk-demo.webm at 1080p
 docker compose up -d
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v8.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v10.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import
@@ -85,6 +86,20 @@ npm run seed:projects
 npm run seed:companies
 npm run seed:contacts
 ```
+
+## Internship categories & CVs per category (V10)
+
+`/resumes` can hold more than one CV per language now: tag an upload with a category
+(Software Developer, Software Engineer, Full-Stack Developer, Back-End Developer) and it stays
+active alongside your other active CVs — one active resume per (language, category) slot, plus
+an optional untagged "general" CV used as the fallback. When a job is found, the category is
+detected from its title/description and the matching CV is attached automatically; category
+correctness wins over language, language wins over nothing. `/pipeline` has a "Catégorie ciblée"
+selector that biases the jobs list and default search — it never hides other categories.
+`lib/priority-companies.ts` lists major employers (banks, aerospace, telecom) that get
+highlighted in the jobs list when the regular LinkedIn/Indeed search surfaces them; they're seeded
+into `companies` as declared targets (`npm run seed:companies`) but aren't fetched directly, since
+none run the ATS boards this app queries.
 
 ## Discovery
 

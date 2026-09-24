@@ -2,12 +2,25 @@
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { ThemeToggle } from "./client-ui";
 import { useCommandPalette } from "./command-palette";
 import { IconSearch } from "./icons";
 
+const noopSubscribe = () => () => {};
+
+/** "⌘K" on Apple devices, "Ctrl K" everywhere else. */
+function useShortcutLabel(): string {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"),
+    () => "Ctrl K",
+  );
+}
+
 export function TopBar({ assistedMode }: { assistedMode: boolean }) {
   const palette = useCommandPalette();
+  const shortcut = useShortcutLabel();
 
   return (
     <header className="topbar">
@@ -17,17 +30,14 @@ export function TopBar({ assistedMode }: { assistedMode: boolean }) {
 
       <button type="button" className="topbar-search" onClick={palette.open}>
         <IconSearch />
-        <span className="topbar-search-label">Rechercher ou aller à…</span>
-        <kbd>⌘K</kbd>
+        <span className="topbar-search-label">Rechercher</span>
+        <kbd>{shortcut}</kbd>
       </button>
 
       <span className="topbar-spacer" />
 
       <div className="topbar-actions">
-        <span className="topbar-env">
-          <span className="dot" aria-hidden="true" />
-          {assistedMode ? "Mode assisté" : "Mode manuel"}
-        </span>
+        <span className="topbar-env">{assistedMode ? "Mode assisté" : "Mode manuel"}</span>
         <ThemeToggle />
         <AccountMenu />
       </div>
@@ -43,10 +53,7 @@ function AccountMenu() {
           <span className="avatar" aria-hidden="true">
             AG
           </span>
-          <span className="account-trigger-name">
-            <strong>Ara G.</strong>
-            <span>Compte</span>
-          </span>
+          <span className="account-trigger-name">Ara G.</span>
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -65,16 +72,8 @@ function AccountMenu() {
               <Link href="/answers">Banque de réponses</Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item className="ctl-item plain" asChild>
-              <Link href="/resumes">CV actifs</Link>
+              <Link href="/resumes">CV</Link>
             </DropdownMenu.Item>
-            <div className="ctl-sep" />
-            <div
-              className="ctl-item plain"
-              style={{ cursor: "default", color: "var(--ink-3)", fontSize: "0.76rem" }}
-              aria-hidden="true"
-            >
-              Rien n&apos;est envoyé sans ton approbation.
-            </div>
           </div>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

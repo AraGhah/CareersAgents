@@ -20,30 +20,30 @@ export function listSourceCapabilities(): SourceCapability[] {
   return [
     {
       id: "ats",
-      label: "ATS boards (Greenhouse / Lever / Workable / Ashby)",
+      label: "Greenhouse, Lever, Workable",
       available: true,
-      reason: "Public board JSON endpoints for seeded companies.",
+      reason: "Offres publiques des entreprises enregistrées.",
     },
     {
       id: "careers",
-      label: "Company careers pages",
+      label: "Pages carrières",
       available: true,
-      reason: "Used during dossier research to extract published contacts and facts.",
+      reason: "Lues pendant la recherche entreprise, pour les contacts et les faits publiés.",
     },
     {
       id: "ashby",
-      label: "Ashby job boards",
+      label: "Ashby",
       available: true,
-      reason: "Public posting-api job-board endpoint when ats=ashby + board_token.",
+      reason: "Offres publiques des entreprises qui utilisent Ashby.",
     },
     {
       id: "linkedin",
-      label: "LinkedIn Jobs",
+      label: "LinkedIn",
       available: Boolean(apifyToken && linkedinActor),
       reason:
         apifyToken && linkedinActor
-          ? "Runs your configured Apify actor (public listings only, no LinkedIn login used)."
-          : "Not configured. Set APIFY_TOKEN and APIFY_LINKEDIN_JOBS_ACTOR to your own Apify account and actor. No fake results.",
+          ? "Via ton acteur Apify. Annonces publiques seulement, sans connexion LinkedIn."
+          : "Non configuré. Renseigne APIFY_TOKEN et APIFY_LINKEDIN_JOBS_ACTOR.",
     },
     {
       id: "indeed",
@@ -51,8 +51,8 @@ export function listSourceCapabilities(): SourceCapability[] {
       available: Boolean(apifyToken && indeedActor),
       reason:
         apifyToken && indeedActor
-          ? "Runs your configured Apify actor (public listings only, no Indeed login used)."
-          : "Not configured. Indeed's own Publisher API was retired in 2023, so this only works via your own Apify actor: set APIFY_TOKEN and APIFY_INDEED_JOBS_ACTOR. No fake results.",
+          ? "Via ton acteur Apify. Annonces publiques seulement, sans connexion Indeed."
+          : "Non configuré. Indeed n'a plus d'API publique, renseigne APIFY_TOKEN et APIFY_INDEED_JOBS_ACTOR.",
     },
   ];
 }

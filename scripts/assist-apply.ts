@@ -170,7 +170,8 @@ async function main() {
 
   if (!resumePath) {
     const { resolveResumeForJob } = await import("../lib/resumes");
-    const resume = await resolveResumeForJob(lang);
+    const { detectInternshipCategories } = await import("../lib/internship-category");
+    const resume = await resolveResumeForJob(lang, detectInternshipCategories(title, description));
     if (resume) resumePath = resume.storage_path;
   }
 

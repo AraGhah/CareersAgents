@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { changeStatus } from "../actions";
+import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
 import { day } from "../../lib/format";
 import { listApplications } from "../../lib/queries";
 import { APPLICATION_STATUSES } from "../../lib/types";
@@ -16,11 +18,19 @@ export default async function BoardPage() {
   } catch (err) {
     return (
       <>
-        <PageHeader eyebrow="Vue d'ensemble" title="Board" />
+        <PageHeader title="Board" />
         <DbUnavailable detail={(err as Error).message} />
       </>
     );
   }
+
+  const cards: KanbanCard[] = applications.map((a) => ({
+    id: a.id,
+    title: a.title,
+    companyName: a.company_name,
+    status: a.status,
+    meta: a.submitted_at ? day(a.submitted_at) : null,
+  }));
 
   const live = applications.filter((a) => !CLOSED.includes(a.status)).length;
   const applied = applications.filter((a) =>
@@ -31,9 +41,7 @@ export default async function BoardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Vue d'ensemble"
         title="Board"
-        lede="Chaque candidature suivie, rangée par étape. Clique une carte pour ouvrir son dossier complet."
         actions={
           <Link href="/pipeline" className="btn">
             Ouvrir le pipeline
@@ -43,7 +51,6 @@ export default async function BoardPage() {
 
       {applications.length === 0 ? (
         <EmptyState
-          mark="Aucune candidature"
           title="Rien à suivre pour l'instant"
           actions={
             <>
@@ -71,42 +78,12 @@ export default async function BoardPage() {
             />
           </div>
 
-          <div className="board">
-            {APPLICATION_STATUSES.map((status) => {
-              const column = applications.filter((a) => a.status === status);
-              return (
-                <section
-                  key={status}
-                  className={`board-col${column.length === 0 ? " is-empty" : ""}`}
-                  aria-label={`${APPLICATION_STATUS_FR[status]} : ${column.length}`}
-                >
-                  <h3>
-                    {APPLICATION_STATUS_FR[status]}
-                    <span className="count">{column.length}</span>
-                  </h3>
-                  {column.length === 0 ? (
-                    <p className="board-empty">—</p>
-                  ) : (
-                    <ul>
-                      {column.map((a) => (
-                        <li key={a.id}>
-                          <Link href={`/applications/${a.id}`} className="board-card">
-                            {a.title}
-                            <span className="co">
-                              {a.company_name}
-                              {a.submitted_at ? (
-                                <span className="mono">{day(a.submitted_at)}</span>
-                              ) : null}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              );
-            })}
-          </div>
+          <KanbanBoard
+            cards={cards}
+            statuses={[...APPLICATION_STATUSES]}
+            statusLabels={APPLICATION_STATUS_FR}
+            changeStatusAction={changeStatus}
+          />
         </>
       )}
     </>
