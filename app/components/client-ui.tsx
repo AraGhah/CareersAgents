@@ -4,7 +4,7 @@ import * as RadixSelect from "@radix-ui/react-select";
 import * as RadixSwitch from "@radix-ui/react-switch";
 import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { IconCheck, IconChevronDown, IconMoon, IconSun } from "./icons";
 import { useToast, type ToastTone } from "./toaster";
@@ -161,6 +161,7 @@ export function CopyButton({
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const { push } = useToast();
 
   useEffect(() => {
     if (!copied) return;
@@ -179,6 +180,7 @@ export function CopyButton({
           setCopied(true);
         } catch {
           setCopied(false);
+          push("Impossible de copier dans le presse-papiers.", "error");
         }
       }}
     >
@@ -195,17 +197,20 @@ export function CopyButton({
 
 type Theme = "light" | "dark";
 
+function readDocumentTheme(): Theme {
+  const applied = document.documentElement.dataset.theme;
+  if (applied === "light" || applied === "dark") return applied;
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme | null>(null);
+  // Dark is the SSR/default snapshot; useLayoutEffect aligns with the
+  // no-flash script before paint so the icon matches the painted theme.
+  const [theme, setTheme] = useState<Theme>("dark");
 
   /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    const applied = document.documentElement.dataset.theme;
-    if (applied === "light" || applied === "dark") {
-      setTheme(applied);
-      return;
-    }
-    setTheme(window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  useLayoutEffect(() => {
+    setTheme(readDocumentTheme());
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -227,6 +232,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre"}
       title={theme === "dark" ? "Thème clair" : "Thème sombre"}
+      suppressHydrationWarning
     >
       {theme === "dark" ? <IconSun /> : <IconMoon />}
     </button>
@@ -243,6 +249,7 @@ const EMPTY_VALUE = "__none__";
 
 export function Select({
   name,
+  id,
   defaultValue = "",
   placeholder = "Choisir…",
   options,
@@ -252,6 +259,7 @@ export function Select({
   autoSubmit = false,
 }: {
   name: string;
+  id?: string;
   defaultValue?: string;
   placeholder?: string;
   options: Array<{ value: string; label: string }>;
@@ -264,6 +272,12 @@ export function Select({
   autoSubmit?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue);
+  const [prevDefault, setPrevDefault] = useState(defaultValue);
+  // Sync when the URL / server default changes (soft nav, back) without an effect.
+  if (defaultValue !== prevDefault) {
+    setPrevDefault(defaultValue);
+    setValue(defaultValue);
+  }
   const selected = options.find((o) => o.value === value);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const submitPending = useRef(false);
@@ -289,6 +303,7 @@ export function Select({
       <input type="hidden" name={name} value={value} />
       <RadixSelect.Trigger
         ref={triggerRef}
+        id={id}
         className={`ctl-trigger${compact ? " compact" : ""}`}
         aria-label={ariaLabel}
       >
@@ -366,14 +381,10 @@ export function Switch({
   return (
     <div className="switch-row">
       <div>
-        <label className="switch-text" htmlFor={id} style={{ display: "block", cursor: "pointer" }}>
+        <label className="switch-text" htmlFor={id}>
           {label}
         </label>
-        {hint ? (
-          <span className="field-hint" style={{ marginTop: "0.2rem" }}>
-            {hint}
-          </span>
-        ) : null}
+        {hint ? <span className="field-hint switch-hint">{hint}</span> : null}
       </div>
       <RadixSwitch.Root
         id={id}

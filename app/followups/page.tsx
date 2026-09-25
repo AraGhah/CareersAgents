@@ -11,6 +11,8 @@ import {
   StatusPill,
   TableWrap,
 } from "../components/ui";
+import { MESSAGE_CLASSIFICATION_FR } from "../../lib/status-labels";
+import type { MessageClassification } from "../../lib/classify";
 
 export const metadata = { title: "Relances" };
 
@@ -22,10 +24,12 @@ const STATE_LABEL: Record<string, string> = {
 };
 
 const CLASSIFICATION_TONE: Record<string, string> = {
+  confirmation: "neutral",
   rejection: "red",
   interview: "green",
+  assessment: "yellow",
   offer: "green",
-  acknowledgement: "neutral",
+  other: "neutral",
 };
 
 export default async function FollowupsPage() {
@@ -114,7 +118,7 @@ export default async function FollowupsPage() {
                   return (
                     <tr key={f.id}>
                       <td data-label="Échéance" className="tight num">
-                        {f.due_on}
+                        {day(f.due_on)}
                         {late ? (
                           <span className="cell-sub">
                             <span className="badge red">à faire</span>
@@ -175,7 +179,8 @@ export default async function FollowupsPage() {
                         <span
                           className={`badge ${CLASSIFICATION_TONE[m.classification] ?? "neutral"}`}
                         >
-                          {m.classification}
+                          {MESSAGE_CLASSIFICATION_FR[m.classification as MessageClassification] ??
+                            m.classification}
                         </span>
                       ) : (
                         <span className="empty">non classé</span>

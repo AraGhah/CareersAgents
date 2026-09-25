@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { IconCheck, IconWarn } from "./icons";
 
 export type ToastTone = "success" | "info" | "warn" | "error";
 
@@ -29,6 +30,13 @@ const TONE_CLASS: Record<ToastTone, string> = {
   info: "info",
   warn: "warn",
   error: "error",
+};
+
+const TONE_ICON: Record<ToastTone, React.ReactNode | null> = {
+  success: <IconCheck className="toast-icon" />,
+  info: null,
+  warn: <IconWarn className="toast-icon" />,
+  error: <IconWarn className="toast-icon" />,
 };
 
 const LIFETIME_MS = 5000;
@@ -69,6 +77,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             data-leaving={t.leaving ? "true" : undefined}
             role="status"
           >
+            {TONE_ICON[t.tone]}
             <div className="toast-body">{t.message}</div>
             <button
               type="button"

@@ -62,7 +62,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       <PageHeader
         title="Pipeline"
         actions={
-          <form action={findInternshipsAction}>
+          <form action={findInternshipsAction} id="recherche">
             <SubmitButton className="primary" pendingLabel="Recherche en cours…">
               Chercher des stages
             </SubmitButton>
@@ -162,20 +162,33 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       </Section>
 
       <Section title="Kanban" note={`${rows.length} candidature${rows.length === 1 ? "" : "s"}`} id="kanban">
-        <KanbanBoard
-          cards={rows.map(
-            (r): KanbanCard => ({
-              id: r.application_id,
-              title: r.title,
-              companyName: r.company_name,
-              status: r.status,
-              meta: r.score != null ? String(Math.round(Number(r.score) * 100)) : null,
-            }),
-          )}
-          statuses={columns}
-          statusLabels={APPLICATION_STATUS_FR}
-          changeStatusAction={changeStatus}
-        />
+        {rows.length === 0 ? (
+          <EmptyState
+            title="Aucune candidature à afficher"
+            actions={
+              <Link href="/jobs/new" className="btn">
+                Ajouter une offre
+              </Link>
+            }
+          >
+            Suis une offre depuis la liste pour la voir ici, colonne par colonne.
+          </EmptyState>
+        ) : (
+          <KanbanBoard
+            cards={rows.map(
+              (r): KanbanCard => ({
+                id: r.application_id,
+                title: r.title,
+                companyName: r.company_name,
+                status: r.status,
+                meta: r.score != null ? String(Math.round(Number(r.score) * 100)) : null,
+              }),
+            )}
+            statuses={columns}
+            statusLabels={APPLICATION_STATUS_FR}
+            changeStatusAction={changeStatus}
+          />
+        )}
       </Section>
 
       <Section title="Candidatures" id="candidatures">
@@ -252,7 +265,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                       {day(r.submitted_at)}
                     </td>
                     <td data-label="Relance" className="tight num muted">
-                      {r.next_followup ?? "n/d"}
+                      {r.next_followup ? day(r.next_followup) : "n/d"}
                     </td>
                   </tr>
                 ))}

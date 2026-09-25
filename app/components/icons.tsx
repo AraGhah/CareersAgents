@@ -106,20 +106,6 @@ export function IconLink({ className, style }: IconProps) {
   );
 }
 
-export function IconSpark({ className, style }: IconProps) {
-  return (
-    <svg className={className} style={style} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M8 2.5c.4 2.1 1.4 3.1 3.5 3.5-2.1.4-3.1 1.4-3.5 3.5-.4-2.1-1.4-3.1-3.5-3.5 2.1-.4 3.1-1.4 3.5-3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M12.5 10.5c.2 1 .7 1.5 1.7 1.7-1 .2-1.5.7-1.7 1.7-.2-1-.7-1.5-1.7-1.7 1-.2 1.5-.7 1.7-1.7Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 /* Navigation set: 1.4px stroke on a 16px grid, drawn to match each other. */
 
 export function IconOffers({ className, style }: IconProps) {
@@ -187,6 +173,20 @@ export function IconQuote({ className, style }: IconProps) {
         strokeWidth="1.4"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+export function IconWarn({ className, style }: IconProps) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 2.5 14 13.5H2L8 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M8 6.5v3.2M8 11.6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

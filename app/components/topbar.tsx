@@ -6,6 +6,7 @@ import { useSyncExternalStore } from "react";
 import { ThemeToggle } from "./client-ui";
 import { useCommandPalette } from "./command-palette";
 import { IconBrand, IconSearch } from "./icons";
+import type { DeskOwner } from "../../lib/desk-owner";
 
 const noopSubscribe = () => () => {};
 
@@ -13,12 +14,18 @@ const noopSubscribe = () => () => {};
 function useShortcutLabel(): string {
   return useSyncExternalStore(
     noopSubscribe,
-    () => (/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"),
+    () => (/Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? "⌘K" : "Ctrl K"),
     () => "Ctrl K",
   );
 }
 
-export function TopBar({ assistedMode }: { assistedMode: boolean }) {
+export function TopBar({
+  assistedMode,
+  owner,
+}: {
+  assistedMode: boolean;
+  owner: DeskOwner;
+}) {
   const palette = useCommandPalette();
   const shortcut = useShortcutLabel();
 
@@ -31,10 +38,17 @@ export function TopBar({ assistedMode }: { assistedMode: boolean }) {
         <span className="topbar-brand-mark">Internship Desk</span>
       </Link>
 
-      <button type="button" className="topbar-search" onClick={palette.open}>
+      <button
+        type="button"
+        className="topbar-search"
+        onClick={palette.open}
+        aria-label={`Rechercher (${shortcut})`}
+      >
         <IconSearch />
-        <span className="topbar-search-label">Rechercher</span>
-        <kbd>{shortcut}</kbd>
+        <span className="topbar-search-label" aria-hidden="true">
+          Rechercher
+        </span>
+        <kbd aria-hidden="true">{shortcut}</kbd>
       </button>
 
       <span className="topbar-spacer" />
@@ -44,33 +58,29 @@ export function TopBar({ assistedMode }: { assistedMode: boolean }) {
           {assistedMode ? "Mode assisté" : "Mode manuel"}
         </span>
         <ThemeToggle />
-        <AccountMenu />
+        <AccountMenu owner={owner} />
       </div>
     </header>
   );
 }
 
-function AccountMenu() {
+function AccountMenu({ owner }: { owner: DeskOwner }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" className="account-trigger" aria-label="Compte">
           <span className="avatar" aria-hidden="true">
-            AG
+            {owner.initials}
           </span>
-          <span className="account-trigger-name">Ara G.</span>
+          <span className="account-trigger-name">{owner.shortName}</span>
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="ctl-content" align="end" sideOffset={8}>
           <div className="ctl-viewport">
-            <div style={{ padding: "var(--s-2) var(--s-3) var(--s-3)" }}>
-              <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--ink-0)" }}>
-                Ara Ghahramanyan
-              </div>
-              <div style={{ fontSize: "0.76rem", color: "var(--ink-3)" }}>
-                ara.ghahramanyan07@gmail.com
-              </div>
+            <div className="account-menu-identity">
+              <div className="account-menu-name">{owner.fullName}</div>
+              <div className="account-menu-email">{owner.email}</div>
             </div>
             <div className="ctl-sep" />
             <DropdownMenu.Item className="ctl-item plain" asChild>

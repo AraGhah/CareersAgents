@@ -72,6 +72,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
             <div className="field">
               <label htmlFor="language">Langue</label>
               <Select
+                id="language"
                 name="language"
                 ariaLabel="Langue"
                 defaultValue="en"
@@ -90,6 +91,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
           <div className="field">
             <label htmlFor="category">Catégorie</label>
             <Select
+              id="category"
               name="category"
               ariaLabel="Catégorie"
               defaultValue=""

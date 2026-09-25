@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { analyzeJobUrl, previewJobMatch, type JobMatchPreview } from "../../actions";
 import { Select, Switch } from "../../components/client-ui";
 import { Combobox } from "../../components/combobox";
-import { IconBuilding, IconLink, IconSpark } from "../../components/icons";
+import { IconBuilding, IconLink } from "../../components/icons";
 import { SubmitButton } from "../../components/client-ui";
 import type { Company } from "../../../lib/types";
 
@@ -165,6 +165,7 @@ export function JobComposer({
         <div className="field">
           <label htmlFor="company-combobox">Entreprise</label>
           <Combobox
+            id="company-combobox"
             options={options}
             value={companyId}
             onChange={(id) => {
@@ -223,10 +224,7 @@ export function JobComposer({
               Analyse de la page en cours…
             </span>
           ) : analysisNote ? (
-            <span className="field-hint">
-              <IconSpark className="mono" style={{ width: 12, height: 12, verticalAlign: "-1px" }} />{" "}
-              {analysisNote}
-            </span>
+            <span className="field-hint">{analysisNote}</span>
           ) : (
             <span className="field-hint">Le titre et la description sont repris de la page quand c&apos;est possible.</span>
           )}
@@ -258,6 +256,7 @@ export function JobComposer({
           <div className="field">
             <label htmlFor="workplaceType">Sur place / à distance</label>
             <Select
+              id="workplaceType"
               name="workplaceType"
               ariaLabel="Sur place ou à distance"
               placeholder="Inconnu"

@@ -10,6 +10,7 @@ import { TooltipProvider } from "./components/client-ui";
 import { TopBar } from "./components/topbar";
 import { IconBrand } from "./components/icons";
 import { assistedModeDefault } from "../lib/sources";
+import { getDeskOwner } from "../lib/desk-owner";
 
 const sans = Hanken_Grotesk({
   subsets: ["latin"],
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // Postgres outage (see the NAV_ITEMS comment in nav-items.ts for why
   // anything DB-backed stays out of this file).
   const assistedMode = assistedModeDefault();
+  const owner = getDeskOwner();
 
   return (
     <html
@@ -80,9 +82,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   top bar beside it on desktop; stacked top bar, nav strip,
                   page below 1040px. DOM order stays the tab order. */}
               <div className="shell">
-                <TopBar assistedMode={assistedMode} />
+                <TopBar assistedMode={assistedMode} owner={owner} />
 
-                <header className="rail">
+                <aside className="rail" aria-label="Navigation principale">
                   <Link href="/" className="brand">
                     <span className="brand-logo">
                       <IconBrand />
@@ -96,7 +98,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </Link>
 
                   <Nav items={NAV_ITEMS} />
-                </header>
+                </aside>
 
                 <main className="page" id="main">
                   {children}

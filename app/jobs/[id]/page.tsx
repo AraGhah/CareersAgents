@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { trackJob } from "../../actions";
 import { SubmitButton } from "../../components/client-ui";
-import { DbUnavailable, PageHeader, ScoreMeter, Section, StatusPill } from "../../components/ui";
+import { DbUnavailable, ExtLink, PageHeader, ScoreMeter, Section, StatusPill } from "../../components/ui";
 import { day, percent, place } from "../../../lib/format";
 import { getJob } from "../../../lib/queries";
 import {
@@ -53,9 +53,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           <>
             {place(job.location, job.workplace_type)}
             {" · "}
-            <a href={job.url} target="_blank" rel="noreferrer">
-              voir l&apos;offre
-            </a>
+            <ExtLink href={job.url}>voir l&apos;offre</ExtLink>
             {job.closed_at ? <> · fermée le {day(job.closed_at)}</> : null}
           </>
         }

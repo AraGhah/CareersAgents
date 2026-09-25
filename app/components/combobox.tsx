@@ -15,6 +15,7 @@ export type ComboboxOption = { value: string; label: string; hint?: string };
  * value gets submitted.
  */
 export function Combobox({
+  id,
   options,
   value,
   onChange,
@@ -25,6 +26,7 @@ export function Combobox({
   onCreate,
   renderTrigger,
 }: {
+  id?: string;
   options: ComboboxOption[];
   value: string;
   onChange: (value: string) => void;
@@ -48,7 +50,12 @@ export function Combobox({
       }}
     >
       <Popover.Trigger asChild>
-        <button type="button" className="ctl-trigger" data-state={open ? "open" : "closed"}>
+        <button
+          type="button"
+          id={id}
+          className="ctl-trigger"
+          data-state={open ? "open" : "closed"}
+        >
           <span className="ctl-trigger-value">
             {selected ? (
               (renderTrigger?.(selected) ?? selected.label)

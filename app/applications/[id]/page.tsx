@@ -12,7 +12,7 @@ import {
   saveApplication,
 } from "../../actions";
 import { Flash, Select, SubmitButton } from "../../components/client-ui";
-import { DbUnavailable, EmptyState, PageHeader, Section, StatusPill } from "../../components/ui";
+import { DbUnavailable, EmptyState, ExtLink, PageHeader, Section, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
 import { detectCategories } from "../../../lib/category";
 import { detectInternshipCategories } from "../../../lib/internship-category";
@@ -24,7 +24,7 @@ import { listOutreachForApplication } from "../../../lib/outreach";
 import { getLatestDossier } from "../../../lib/research";
 import { resolveResumeForJob } from "../../../lib/resumes";
 import { APPLICATION_STATUSES } from "../../../lib/types";
-import { APPLICATION_STATUS_FR } from "../../../lib/status-labels";
+import { APPLICATION_STATUS_FR, ROLE_CATEGORY_LABEL_FR } from "../../../lib/status-labels";
 
 type Search = {
   built?: string;
@@ -116,15 +116,11 @@ export default async function ApplicationPage({
           <>
             {place(app.location, app.workplace_type)}
             {" · "}
-            <a href={app.url} target="_blank" rel="noreferrer">
-              voir l&apos;offre
-            </a>
+            <ExtLink href={app.url}>voir l&apos;offre</ExtLink>
             {app.company_website ? (
               <>
                 {" · "}
-                <a href={app.company_website} target="_blank" rel="noreferrer">
-                  site de l&apos;entreprise
-                </a>
+                <ExtLink href={app.company_website}>site de l&apos;entreprise</ExtLink>
               </>
             ) : null}
           </>
@@ -261,7 +257,7 @@ export default async function ApplicationPage({
                 <span className="tag-list">
                   {categories.map((c) => (
                     <span key={c} className="tag">
-                      {c}
+                      {ROLE_CATEGORY_LABEL_FR[c] ?? c}
                     </span>
                   ))}
                 </span>
@@ -427,9 +423,7 @@ export default async function ApplicationPage({
                       {c.email ?? "n/d"}
                     </td>
                     <td data-label="Source">
-                      <a href={c.source_url} target="_blank" rel="noreferrer">
-                        source
-                      </a>
+                      <ExtLink href={c.source_url}>source</ExtLink>
                     </td>
                     <td data-label="Brouillon Gmail">
                       {c.email ? (

@@ -83,7 +83,7 @@ export function EmptyState({
   return (
     <div className="empty-state">
       <h3>{title}</h3>
-      {children ? <p>{children}</p> : null}
+      {children ? <div className="empty-state-body">{children}</div> : null}
       {actions ? <div className="cluster">{actions}</div> : null}
     </div>
   );
@@ -157,13 +157,13 @@ export function ScoreMeter({
   }
 
   return (
-    <span className={`meter meter-${band}`} title={`${label} : ${pct}/100`}>
+    <span className={`meter meter-${band}`} title={`${label} : ${gated ? "non disponible" : `${pct}/100`}`}>
       <span className="meter-num">{gated ? "n/d" : pct}</span>
       <span className="meter-track">
-        <span className="meter-fill" style={{ width: `${gated ? 100 : pct}%` }} />
+        <span className="meter-fill" style={{ width: `${gated ? 0 : pct}%` }} />
       </span>
       <span className="visually-hidden">
-        {label}, {pct} sur 100
+        {gated ? "Score non disponible (offre rejetée)" : `${label}, ${pct} sur 100`}
       </span>
     </span>
   );
@@ -195,3 +195,21 @@ export function TableWrap({
 }
 
 export { CompanyTile } from "./company-tile";
+
+/** External link that announces the new-tab context to assistive tech. */
+export function ExtLink({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className={className}>
+      {children}
+      <span className="visually-hidden"> (nouvel onglet)</span>
+    </a>
+  );
+}

@@ -1,3 +1,5 @@
+import type { MessageClassification } from "./classify";
+import type { RoleCategory } from "./category";
 import type { ApplicationStatus } from "./types";
 import type { Band } from "./score";
 
@@ -11,6 +13,23 @@ export const APPLICATION_STATUS_FR: Record<ApplicationStatus, string> = {
   accepted: "Accepté",
   rejected: "Refusé",
   withdrawn: "Abandonné",
+};
+
+export const MESSAGE_CLASSIFICATION_FR: Record<MessageClassification, string> = {
+  confirmation: "Confirmation",
+  rejection: "Refus",
+  interview: "Entrevue",
+  assessment: "Évaluation",
+  offer: "Offre",
+  other: "Autre",
+};
+
+export const ROLE_CATEGORY_LABEL_FR: Record<RoleCategory, string> = {
+  backend: "Back-end",
+  fullstack: "Full-stack",
+  cloud: "Cloud",
+  ai: "IA / ML",
+  gamedev: "Jeux vidéo",
 };
 
 export const BAND_LABEL_FR: Record<Band, string> = {

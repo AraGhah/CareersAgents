@@ -1,5 +1,5 @@
 import { listAnswers, listProjects } from "../../lib/queries";
-import { DbUnavailable, EmptyState, PageHeader, Section, Stat, TableWrap } from "../components/ui";
+import { DbUnavailable, EmptyState, ExtLink, PageHeader, Section, Stat, TableWrap } from "../components/ui";
 
 export const metadata = { title: "Banque de réponses" };
 
@@ -101,13 +101,7 @@ export default async function AnswersPage() {
                 {projects.map((p) => (
                   <tr key={p.id}>
                     <td data-label="Nom" className="cell-main">
-                      {p.url ? (
-                        <a href={p.url} target="_blank" rel="noreferrer">
-                          {p.name}
-                        </a>
-                      ) : (
-                        p.name
-                      )}
+                      {p.url ? <ExtLink href={p.url}>{p.name}</ExtLink> : p.name}
                     </td>
                     <td data-label="Résumé">
                       {p.summary || <span className="empty">à écrire</span>}

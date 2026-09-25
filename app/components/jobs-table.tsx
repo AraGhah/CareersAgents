@@ -19,9 +19,13 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
     const next = expandedId === jobId ? null : jobId;
     setExpandedId(next);
     if (next && !(next in details)) {
-      getJobDetailAction(next).then((detail) => {
-        setDetails((d) => ({ ...d, [next]: detail }));
-      });
+      getJobDetailAction(next)
+        .then((detail) => {
+          setDetails((d) => ({ ...d, [next]: detail }));
+        })
+        .catch(() => {
+          setDetails((d) => ({ ...d, [next]: null }));
+        });
     }
   }
 
@@ -45,6 +49,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
         {jobs.map((job) => {
           const open = expandedId === job.id;
           const detail = details[job.id];
+          const panelId = `job-detail-${job.id}`;
           return (
             <Fragment key={job.id}>
               <tr>
@@ -53,6 +58,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                     type="button"
                     className="row-expand-btn"
                     aria-expanded={open}
+                    aria-controls={panelId}
                     aria-label={open ? "Masquer les détails" : "Afficher les détails"}
                     onClick={() => toggle(job.id)}
                   >
@@ -98,10 +104,10 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                   )}
                 </td>
               </tr>
-              <tr className="row-detail">
+              <tr className={`row-detail${open ? " is-open" : ""}`}>
                 <td className="row-detail-cell" colSpan={5}>
                   <Collapse open={open}>
-                    <div className="row-detail-inner">
+                    <div className="row-detail-inner" id={panelId} role="region">
                       {open && detail === undefined ? (
                         <p className="small muted">Chargement…</p>
                       ) : null}
