@@ -61,7 +61,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         <Command.List>
           <Command.Empty>Aucun résultat.</Command.Empty>
           <Command.Group heading="Aller à">
-            {NAV_ITEMS.map((item) => (
+            {NAV_ITEMS.filter((item) => !item.action).map((item) => (
               <Command.Item key={item.href} value={item.label} onSelect={() => go(item.href)}>
                 <IconArrowRight />
                 {item.label}

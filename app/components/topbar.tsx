@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { ThemeToggle } from "./client-ui";
 import { useCommandPalette } from "./command-palette";
-import { IconSearch } from "./icons";
+import { IconBrand, IconSearch } from "./icons";
 
 const noopSubscribe = () => () => {};
 
@@ -25,6 +25,9 @@ export function TopBar({ assistedMode }: { assistedMode: boolean }) {
   return (
     <header className="topbar">
       <Link href="/" className="topbar-brand">
+        <span className="brand-logo">
+          <IconBrand />
+        </span>
         <span className="topbar-brand-mark">Internship Desk</span>
       </Link>
 
@@ -37,7 +40,9 @@ export function TopBar({ assistedMode }: { assistedMode: boolean }) {
       <span className="topbar-spacer" />
 
       <div className="topbar-actions">
-        <span className="topbar-env">{assistedMode ? "Mode assisté" : "Mode manuel"}</span>
+        <span className="topbar-env" data-mode={assistedMode ? "assisted" : "manual"}>
+          {assistedMode ? "Mode assisté" : "Mode manuel"}
+        </span>
         <ThemeToggle />
         <AccountMenu />
       </div>

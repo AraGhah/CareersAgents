@@ -1,5 +1,6 @@
+import Form from "next/form";
 import Link from "next/link";
-import { Select, SubmitButton } from "./components/client-ui";
+import { AutoSubmit, Select, SubmitButton } from "./components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Stat, TableWrap } from "./components/ui";
 import { JobsTable } from "./components/jobs-table";
 import { deskSummary, listJobs } from "../lib/queries";
@@ -11,6 +12,7 @@ import {
   isInternshipCategory,
 } from "../lib/internship-category";
 import { isPriorityCompany } from "../lib/priority-companies";
+import { today } from "../lib/format";
 
 type Search = {
   q?: string;
@@ -81,6 +83,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   return (
     <>
       <PageHeader
+        eyebrow={today()}
         title="Offres"
         actions={
           <>
@@ -110,7 +113,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         />
       </div>
 
-      <form className="filters" method="get" role="search">
+      {/* Client-side GET navigation: filtering keeps the shell and the scroll
+          position instead of reloading the page. */}
+      <Form action="" scroll={false} className="filters" role="search">
+        <AutoSubmit />
         <div className="search">
           <label htmlFor="q" className="visually-hidden">
             Chercher un poste ou une entreprise
@@ -130,6 +136,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           defaultValue={categoryFilter ?? ""}
           placeholder="Toutes catégories"
           compact
+          autoSubmit
           options={[
             { value: "", label: "Toutes catégories" },
             ...INTERNSHIP_CATEGORIES.map((c) => ({ value: c, label: INTERNSHIP_CATEGORY_LABEL_FR[c] })),
@@ -159,7 +166,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             Réinitialiser
           </Link>
         ) : null}
-      </form>
+      </Form>
 
       <p className="result-count" aria-live="polite">
         {sortedJobs.length} {sortedJobs.length === 1 ? "offre" : "offres"}

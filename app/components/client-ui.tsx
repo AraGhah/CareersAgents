@@ -37,6 +37,54 @@ export function SubmitButton({
 }
 
 /* --------------------------------------------------------------------------
+   File picker — replaces the browser's own (English, unstyleable) control.
+   With autoSubmit, picking a file submits the surrounding form right away.
+   -------------------------------------------------------------------------- */
+
+export function FileInput({
+  name,
+  accept,
+  required,
+  buttonLabel = "Choisir un fichier",
+  ariaLabel,
+  autoSubmit = false,
+}: {
+  name: string;
+  accept?: string;
+  required?: boolean;
+  buttonLabel?: string;
+  ariaLabel?: string;
+  autoSubmit?: boolean;
+}) {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const { pending } = useFormStatus();
+
+  return (
+    <label className="file-input" data-pending={pending && autoSubmit ? "true" : undefined}>
+      <input
+        type="file"
+        name={name}
+        accept={accept}
+        required={required}
+        aria-label={ariaLabel ?? buttonLabel}
+        className="visually-hidden"
+        onChange={(e) => {
+          const file = e.currentTarget.files?.[0] ?? null;
+          setFileName(file?.name ?? null);
+          if (autoSubmit && file) e.currentTarget.form?.requestSubmit();
+        }}
+      />
+      <span className="btn small" aria-hidden="true">
+        {pending && autoSubmit ? "Envoi…" : buttonLabel}
+      </span>
+      {autoSubmit ? null : (
+        <span className="file-input-name">{fileName ?? "Aucun fichier choisi"}</span>
+      )}
+    </label>
+  );
+}
+
+/* --------------------------------------------------------------------------
    Flash — a dismissible result banner that also clears its own query string
    (so a refresh does not replay a stale "done" message) and echoes itself
    into a toast, so a result that happened after a redirect still feels like
@@ -201,6 +249,7 @@ export function Select({
   ariaLabel,
   onValueChange,
   compact = false,
+  autoSubmit = false,
 }: {
   name: string;
   defaultValue?: string;
@@ -211,21 +260,35 @@ export function Select({
   /** Shrinks the trigger to its content instead of filling the row — for a
    *  select that shares a line with a button (e.g. a status changer). */
   compact?: boolean;
+  /** Submit the enclosing form as soon as a new value is picked (filters). */
+  autoSubmit?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue);
   const selected = options.find((o) => o.value === value);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const submitPending = useRef(false);
+
+  // The hidden input only carries the new value after this render commits,
+  // so the submit waits for the effect rather than firing in the handler.
+  useEffect(() => {
+    if (!submitPending.current) return;
+    submitPending.current = false;
+    triggerRef.current?.closest("form")?.requestSubmit();
+  }, [value]);
 
   return (
     <RadixSelect.Root
       value={value === "" ? EMPTY_VALUE : value}
       onValueChange={(v) => {
         const next = v === EMPTY_VALUE ? "" : v;
+        if (autoSubmit && next !== value) submitPending.current = true;
         setValue(next);
         onValueChange?.(next);
       }}
     >
       <input type="hidden" name={name} value={value} />
       <RadixSelect.Trigger
+        ref={triggerRef}
         className={`ctl-trigger${compact ? " compact" : ""}`}
         aria-label={ariaLabel}
       >
@@ -256,6 +319,29 @@ export function Select({
       </RadixSelect.Portal>
     </RadixSelect.Root>
   );
+}
+
+/* --------------------------------------------------------------------------
+   AutoSubmit — drop inside a filter form: ticking any checkbox in it applies
+   the filters at once. Text fields still wait for Enter or the submit button.
+   -------------------------------------------------------------------------- */
+
+export function AutoSubmit() {
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const form = ref.current?.closest("form");
+    if (!form) return;
+    const onChange = (e: Event) => {
+      if (e.target instanceof HTMLInputElement && e.target.type === "checkbox") {
+        form.requestSubmit();
+      }
+    };
+    form.addEventListener("change", onChange);
+    return () => form.removeEventListener("change", onChange);
+  }, []);
+
+  return <span ref={ref} hidden />;
 }
 
 /* --------------------------------------------------------------------------

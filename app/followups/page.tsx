@@ -73,11 +73,6 @@ export default async function FollowupsPage() {
       <PageHeader
         title="Relances"
         lede="Prévues à J+7 et J+14 après chaque envoi. Le brouillon est créé dans Gmail, tu l'envoies toi-même."
-        actions={
-          <Link href="/board" className="btn">
-            Voir le board
-          </Link>
-        }
       />
 
       <div className="stats">
@@ -90,24 +85,14 @@ export default async function FollowupsPage() {
       <Section title="Relances ouvertes" id="ouvertes">
         {followups.length === 0 ? (
           <EmptyState
-            title="Aucune relance ouverte"
+            title="Aucune relance prévue"
             actions={
-              <>
-                <Link href="/" className="btn primary">
-                  Voir les offres
-                </Link>
-                <Link href="/board" className="btn">
-                  Voir le board
-                </Link>
-                <Link href="/pipeline" className="btn">
-                  Ouvrir le pipeline
-                </Link>
-              </>
+              <Link href="/board" className="btn">
+                Voir les candidatures
+              </Link>
             }
           >
-            Une relance se planifie automatiquement au jour 7 et au jour 14 après chaque
-            candidature envoyée. Postule à une offre pour en déclencher une, ou consulte tes
-            candidatures déjà en cours sur le board.
+            Elles apparaissent ici dès qu&apos;une candidature est marquée comme envoyée.
           </EmptyState>
         ) : (
           <TableWrap>

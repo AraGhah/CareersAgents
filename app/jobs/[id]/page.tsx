@@ -7,7 +7,6 @@ import { day, percent, place } from "../../../lib/format";
 import { getJob } from "../../../lib/queries";
 import {
   COMPONENT_NAMES,
-  explain,
   explainFr,
   findSkills,
   type Components,
@@ -37,7 +36,6 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const scored = job.components.length > 0;
   const pct = scored ? Math.round(Number(job.score) * 100) : null;
   const gated = Boolean(job.gated);
-  const explanation = scored ? explain(components, pct ?? 0, gated) : null;
   const explanationFr = scored ? explainFr(components, pct ?? 0, gated) : null;
   const found = findSkills(
     [job.title, job.location, job.workplace_type, job.company_city, job.description]
@@ -101,8 +99,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                       return (
                         <tr key={name}>
                           <td data-label="Composante">
-                            <span className="cell-main">{name}</span>
-                            <span className="cell-sub">{COMPONENT_LABEL_FR[name] ?? name}</span>
+                            <span className="cell-main">{COMPONENT_LABEL_FR[name] ?? name}</span>
                           </td>
                           <td data-label="Valeur">{percent(row?.raw_value ?? null)}</td>
                           <td data-label="Poids" className="tight num muted">
@@ -114,12 +111,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   </tbody>
                 </table>
               </div>
-              {explanation || explanationFr ? (
-                <div className="two-col-explain" style={{ marginTop: "var(--s-4)" }}>
-                  {explanation ? <p className="lede">{explanation}</p> : null}
-                  {explanationFr ? <p className="lede">{explanationFr}</p> : null}
-                </div>
-              ) : null}
+              {explanationFr ? <p className="lede" style={{ marginTop: "var(--s-3)" }}>{explanationFr}</p> : null}
             </Section>
           ) : (
             <div className="panel panel-quiet">
@@ -142,7 +134,6 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
               <p className="tag-list">
                 {found.map((s) => (
                   <span key={s.name} className={`badge ${s.have ? "green" : "neutral"}`}>
-                    {s.have ? <span className="dot" aria-hidden="true" /> : null}
                     {s.name}
                     {s.have ? "" : " (manquant)"}
                   </span>

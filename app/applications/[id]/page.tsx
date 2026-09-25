@@ -274,8 +274,8 @@ export default async function ApplicationPage({
             <dd>
               {resume ? (
                 <>
-                  <span className="badge green">{resume.label}</span>{" "}
-                  <Link href="/resumes">{resume.storage_path}</Link>
+                  <Link href="/resumes">{resume.label}</Link>
+                  <span className="cell-sub">{resume.filename}</span>
                   {resume.profile_json?.skills?.length ? (
                     <span className="field-hint">
                       {(resume.profile_json.skills as string[]).slice(0, 12).join(", ")}
@@ -293,10 +293,6 @@ export default async function ApplicationPage({
       </Section>
 
       <Section title="Dossier entreprise" id="dossier">
-        <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
-          Recherche le site et l&apos;offre, produit un fait sourcé et des cibles de contact. Aucun
-          email inventé. Claude enrichit si <code>ANTHROPIC_API_KEY</code> est défini.
-        </p>
 
         <form action={researchApplicationAction} className="panel form-actions" style={{ marginBottom: "var(--s-5)" }}>
           <input type="hidden" name="applicationId" value={app.id} />

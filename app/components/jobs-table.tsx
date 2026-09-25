@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { getJobDetailAction, trackJob, type JobRowDetail } from "../actions";
 import { SubmitButton } from "./client-ui";
-import { ScoreMeter, StatusPill } from "./ui";
+import { CompanyTile, ScoreMeter, StatusPill } from "./ui";
 import { Collapse } from "./disclosure";
 import { IconChevronDown } from "./icons";
 import { day, place } from "../../lib/format";
@@ -26,7 +26,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
   }
 
   return (
-    <table>
+    <table className="table-roomy">
       <caption className="visually-hidden">
         Offres trouvées, avec leur score de correspondance et l&apos;état de la candidature
       </caption>
@@ -34,8 +34,6 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
         <tr>
           <th scope="col" className="tight" aria-hidden="true" />
           <th scope="col">Poste</th>
-          <th scope="col">Entreprise</th>
-          <th scope="col">Lieu</th>
           <th scope="col">Score</th>
           <th scope="col" className="tight">
             Vue le
@@ -50,7 +48,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
           return (
             <Fragment key={job.id}>
               <tr>
-                <td className="tight">
+                <td className="tight row-expand-cell">
                   <button
                     type="button"
                     className="row-expand-btn"
@@ -62,25 +60,24 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                   </button>
                 </td>
                 <td data-label="Poste">
-                  <Link href={`/jobs/${job.id}`} className="cell-main">
-                    {job.title}
-                  </Link>
-                  {job.closed_at ? (
-                    <span className="cell-sub">
-                      <span className="badge neutral">fermée</span>
-                    </span>
-                  ) : null}
-                </td>
-                <td data-label="Entreprise">
-                  {job.company_name}
-                  {isPriorityCompany(job.company_name) ? (
-                    <span className="cell-sub">
-                      <span className="badge accent">prioritaire</span>
-                    </span>
-                  ) : null}
-                </td>
-                <td data-label="Lieu" className="muted">
-                  {place(job.location, job.workplace_type)}
+                  <div className="job-cell">
+                    <CompanyTile name={job.company_name} />
+                    <div className="job-cell-text">
+                      <Link href={`/jobs/${job.id}`} className="job-title">
+                        {job.title}
+                      </Link>
+                      <span className="job-meta">
+                        {job.company_name}
+                        {job.location || job.workplace_type
+                          ? ` · ${place(job.location, job.workplace_type)}`
+                          : ""}
+                        {isPriorityCompany(job.company_name) ? (
+                          <span className="tag-priority">Prioritaire</span>
+                        ) : null}
+                        {job.closed_at ? <span className="tag-closed">Fermée</span> : null}
+                      </span>
+                    </div>
+                  </div>
                 </td>
                 <td data-label="Score">
                   <ScoreMeter score={job.score} gated={job.gated} />
@@ -102,7 +99,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                 </td>
               </tr>
               <tr className="row-detail">
-                <td className="row-detail-cell" colSpan={7}>
+                <td className="row-detail-cell" colSpan={5}>
                   <Collapse open={open}>
                     <div className="row-detail-inner">
                       {open && detail === undefined ? (

@@ -108,7 +108,7 @@ export function Stat({
   const body = (
     <>
       <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
+      <span className={`stat-value${typeof value === "number" ? "" : " is-text"}`}>{value}</span>
     </>
   );
 
@@ -193,3 +193,5 @@ export function TableWrap({
 }) {
   return <div className={`table-wrap${stackable ? " stackable" : ""}`}>{children}</div>;
 }
+
+export { CompanyTile } from "./company-tile";

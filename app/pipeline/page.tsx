@@ -110,16 +110,16 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
 
       <div className="stats">
         <Stat
-          value={en ? "EN" : "—"}
-          label={en?.label ?? "Pas de CV anglais actif"}
+          value={en?.label ?? "Aucun"}
+          label="CV anglais"
           href="/resumes"
-          tone={en ? "good" : undefined}
+          tone={en ? undefined : "alert"}
         />
         <Stat
-          value={fr ? "FR" : "—"}
-          label={fr?.label ?? "Pas de CV français actif"}
+          value={fr?.label ?? "Aucun"}
+          label="CV français"
           href="/resumes"
-          tone={fr ? "good" : undefined}
+          tone={fr ? undefined : "alert"}
         />
         <Stat value={toPrepare} label="À préparer ou prêtes" />
         <Stat value={inFlight} label="Postulées ou en relance" href="/followups" />
@@ -136,7 +136,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
             <thead>
               <tr>
                 <th scope="col">Source</th>
-                <th scope="col">Disponible</th>
+                <th scope="col">État</th>
                 <th scope="col">Détail</th>
               </tr>
             </thead>
@@ -146,7 +146,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                   <td data-label="Source" className="cell-main">
                     {s.label}
                   </td>
-                  <td data-label="Disponible">
+                  <td data-label="État">
                     <span className={`badge ${s.available ? "green" : "neutral"}`}>
                       {s.available ? "Active" : "Inactive"}
                     </span>

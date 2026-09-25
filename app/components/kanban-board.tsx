@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { startTransition, useOptimistic, useState } from "react";
+import { CompanyTile } from "./company-tile";
 
 export type KanbanCard = {
   id: string;
@@ -59,6 +60,7 @@ export function KanbanBoard({
         return (
           <section
             key={status}
+            data-status={status}
             className={`board-col${column.length === 0 ? " is-empty" : ""}${
               dropTarget === status ? " is-drop-target" : ""
             }`}
@@ -98,6 +100,7 @@ export function KanbanBoard({
                     >
                       {card.title}
                       <span className="co">
+                        <CompanyTile name={card.companyName} size="sm" />
                         {card.companyName}
                         {card.meta ? <span className="mono">{card.meta}</span> : null}
                       </span>

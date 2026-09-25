@@ -5,7 +5,7 @@ import {
   replaceResumeAction,
   uploadResumeAction,
 } from "../actions";
-import { Flash, Select, SubmitButton } from "../components/client-ui";
+import { FileInput, Flash, Select, SubmitButton } from "../components/client-ui";
 import { DbUnavailable, EmptyState, PageHeader, Section, Stat, TableWrap } from "../components/ui";
 import { Disclosure } from "../components/disclosure";
 import { ResumeProfilePreview } from "../components/resume-profile";
@@ -53,14 +53,14 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
 
       <div className="stats">
         <Stat
-          value={activeEn ? "EN" : "—"}
-          label={activeEn?.label ?? "Aucun CV anglais actif"}
-          tone={activeEn ? "good" : "alert"}
+          value={activeEn?.label ?? "Aucun"}
+          label="CV anglais actif"
+          tone={activeEn ? undefined : "alert"}
         />
         <Stat
-          value={activeFr ? "FR" : "—"}
-          label={activeFr?.label ?? "Aucun CV français actif"}
-          tone={activeFr ? "good" : "alert"}
+          value={activeFr?.label ?? "Aucun"}
+          label="CV français actif"
+          tone={activeFr ? undefined : "alert"}
         />
         <Stat value={activeSkills.length} label="Compétences extraites" />
         <Stat value={resumes.length} label="CV dans la bibliothèque" />
@@ -102,8 +102,8 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
           </div>
 
           <div className="field">
-            <label htmlFor="file">Fichier PDF</label>
-            <input id="file" name="file" type="file" accept="application/pdf,.pdf" required />
+            <span className="field-label">Fichier PDF</span>
+            <FileInput name="file" accept="application/pdf,.pdf" required buttonLabel="Choisir un PDF" />
           </div>
 
           <label className="check-plain">
@@ -146,7 +146,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                   const skills = r.profile_json?.skills ?? [];
                   return (
                     <tr key={r.id}>
-                      <td data-label="Langue" className="mono">
+                      <td data-label="Langue">
                         {r.language.toUpperCase()}
                       </td>
                       <td data-label="Catégorie" className="muted">
@@ -160,21 +160,18 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                       </td>
                       <td data-label="Actif">
                         {r.is_active ? (
-                          <span className="badge green">
-                            <span className="dot" aria-hidden="true" />
-                            actif
-                          </span>
+                          <span className="badge green">Actif</span>
                         ) : (
-                          <span className="badge neutral">—</span>
+                          <span className="empty">Non</span>
                         )}
                       </td>
                       <td data-label="Analyse">
                         {r.analysis_error ? (
-                          <span className="badge red">erreur</span>
+                          <span className="badge red">Erreur</span>
                         ) : r.analyzed_at ? (
-                          <span className="badge green">ok</span>
+                          <span className="muted">Analysé</span>
                         ) : (
-                          <span className="badge yellow">en attente</span>
+                          <span className="badge yellow">En attente</span>
                         )}
                         {r.analysis_error ? (
                           <span className="cell-sub">{r.analysis_error}</span>
@@ -197,17 +194,15 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                               Réanalyser
                             </SubmitButton>
                           </form>
-                          <form action={replaceResumeAction} className="cluster">
+                          <form action={replaceResumeAction}>
                             <input type="hidden" name="resumeId" value={r.id} />
-                            <input
-                              type="file"
+                            <FileInput
                               name="file"
                               accept="application/pdf,.pdf"
-                              required
-                              aria-label={`Remplacer le fichier pour ${r.label}`}
-                              style={{ maxWidth: "11rem" }}
+                              buttonLabel="Remplacer"
+                              ariaLabel={`Remplacer le PDF de ${r.label}`}
+                              autoSubmit
                             />
-                            <SubmitButton className="small">Remplacer</SubmitButton>
                           </form>
                         </div>
                       </td>

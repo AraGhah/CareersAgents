@@ -228,7 +228,7 @@ export function JobComposer({
               {analysisNote}
             </span>
           ) : (
-            <span className="field-hint">Colle le lien : le titre et la description se pré-remplissent quand c&apos;est possible.</span>
+            <span className="field-hint">Le titre et la description sont repris de la page quand c&apos;est possible.</span>
           )}
         </div>
 
@@ -277,7 +277,7 @@ export function JobComposer({
 
         <div className="field">
           <label htmlFor="description">
-            Description <span className="optional">(un extrait suffit, le score la relira au complet plus tard)</span>
+            Description <span className="optional">(un extrait suffit)</span>
           </label>
           <textarea
             id="description"
@@ -364,7 +364,6 @@ export function JobComposer({
                   <p className="tag-list" style={{ margin: 0 }}>
                     {match.skills.slice(0, 14).map((s) => (
                       <span key={s.name} className={`badge ${s.have ? "green" : "neutral"}`}>
-                        {s.have ? <span className="dot" aria-hidden="true" /> : null}
                         {s.name}
                       </span>
                     ))}
