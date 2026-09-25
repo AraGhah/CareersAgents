@@ -5,14 +5,12 @@ import { analyzeJobUrl, previewJobMatch, type JobMatchPreview } from "../../acti
 import { Select, Switch } from "../../components/client-ui";
 import { Combobox } from "../../components/combobox";
 import { IconBuilding, IconLink } from "../../components/icons";
+import { CompanyTile } from "../../components/company-tile";
 import { SubmitButton } from "../../components/client-ui";
+import { WORKPLACE_LABEL_FR } from "../../../lib/format";
+import { BAND_LABEL_FR } from "../../../lib/status-labels";
+import type { Band } from "../../../lib/score";
 import type { Company } from "../../../lib/types";
-
-const WORKPLACE_LABEL: Record<string, string> = {
-  onsite: "Sur place",
-  hybrid: "Hybride",
-  remote: "À distance",
-};
 
 const BAND_RING: Record<string, string> = {
   high: "var(--good)",
@@ -21,39 +19,6 @@ const BAND_RING: Record<string, string> = {
   low: "var(--ink-3)",
   skip: "var(--clay)",
 };
-
-function domainOf(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value.includes("://") ? value : `https://${value}`);
-    return url.hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
-}
-
-function CompanyLogo({ name, domain, size = "" }: { name: string; domain: string | null; size?: "lg" | "" }) {
-  const [failed, setFailed] = useState(false);
-  const src = domain ? `https://logo.clearbit.com/${domain}?size=128` : null;
-
-  return (
-    <span className={`company-logo ${size}`.trim()}>
-      {src && !failed ? (
-        // Third-party favicon service, not project-owned assets — a plain <img> is correct here.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" onError={() => setFailed(true)} />
-      ) : (
-        <span aria-hidden="true">{initialsOf(name || "?")}</span>
-      )}
-    </span>
-  );
-}
 
 export function JobComposer({
   companies,
@@ -88,7 +53,6 @@ export function JobComposer({
   const selectedCompany = companies.find((c) => c.id === companyId) ?? null;
   const isNewCompany = !companyId && newCompanyName.length > 0;
   const companyName = selectedCompany?.name ?? newCompanyName;
-  const logoDomain = domainOf(selectedCompany?.website) ?? analyzedHost;
 
   async function runAnalysis(candidate: string) {
     if (!candidate || candidate === lastAnalyzedUrl.current) return;
@@ -153,11 +117,11 @@ export function JobComposer({
   }, [title, location, workplaceType, description]);
 
   const band = match ? (match.gated ? "skip" : match.band) : null;
-  const ringPct = match ? (match.gated ? 100 : match.percent) : 0;
+  const ringPct = match ? (match.gated ? 0 : match.percent) : 0;
 
   return (
     <div className="split">
-      <form action={addManualJob} className="panel stack" style={{ gap: 0 }}>
+      <form action={addManualJob} className="panel stack form-tight">
         <input type="hidden" name="companyId" value={companyId} />
         <input type="hidden" name="newCompany" value={isNewCompany ? newCompanyName : ""} />
         <input type="hidden" name="newCompanyCity" value={isNewCompany ? newCompanyCity : ""} />
@@ -183,7 +147,7 @@ export function JobComposer({
             renderTrigger={() =>
               companyName ? (
                 <>
-                  <CompanyLogo name={companyName} domain={logoDomain} />
+                  <CompanyTile name={companyName} size="sm" />
                   {companyName}
                   {isNewCompany ? <span className="badge neutral">nouvelle</span> : null}
                 </>
@@ -264,7 +228,7 @@ export function JobComposer({
               onValueChange={setWorkplaceType}
               options={[
                 { value: "", label: "Inconnu" },
-                ...workplaceTypes.map((t) => ({ value: t, label: WORKPLACE_LABEL[t] ?? t })),
+                ...workplaceTypes.map((t) => ({ value: t, label: WORKPLACE_LABEL_FR[t] ?? t })),
               ]}
             />
           </div>
@@ -303,7 +267,7 @@ export function JobComposer({
             <span className="panel-title">Aperçu</span>
             {analyzedHost ? (
               <span className="badge neutral">
-                <IconLink style={{ width: 11, height: 11 }} />
+                <IconLink className="icon-inline" />
                 {analyzedHost}
               </span>
             ) : null}
@@ -312,38 +276,37 @@ export function JobComposer({
           {!title.trim() && !companyName ? (
             <p className="preview-empty">Choisis une entreprise ou saisis un titre pour voir l&apos;aperçu.</p>
           ) : (
-            <div className="stack reveal-in" style={{ gap: "var(--s-4)" }}>
-              <div className="cluster" style={{ gap: "var(--s-3)", alignItems: "flex-start" }}>
-                <CompanyLogo name={companyName || "?"} domain={logoDomain} size="lg" />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: "var(--ink-0)", fontSize: "1.02rem", lineHeight: 1.3 }}>
+            <div className="stack reveal-in preview-body">
+              <div className="cluster preview-head">
+                <CompanyTile name={companyName || "?"} />
+                <div className="preview-title-block">
+                  <div className="preview-title">
                     {title.trim() || <span className="empty">Titre du poste…</span>}
                   </div>
-                  <div className="small muted" style={{ marginTop: "0.2rem" }}>
+                  <div className="small muted preview-meta">
                     {companyName || "Entreprise à préciser"}
                     {location ? ` · ${location}` : ""}
-                    {workplaceType ? ` · ${WORKPLACE_LABEL[workplaceType] ?? workplaceType}` : ""}
+                    {workplaceType ? ` · ${WORKPLACE_LABEL_FR[workplaceType] ?? workplaceType}` : ""}
                   </div>
                 </div>
               </div>
 
               <div
                 key={match ? "match" : "no-match"}
-                className="cluster reveal-in"
-                style={{ justifyContent: "space-between", padding: "var(--s-3) 0", borderTop: "1px solid var(--line)" }}
+                className="cluster reveal-in preview-match"
               >
                 <div>
                   <div className="small muted">Correspondance CV</div>
-                  <div style={{ fontSize: "0.78rem", color: "var(--ink-3)", marginTop: "0.15rem" }}>
+                  <div className="preview-match-note">
                     {match
                       ? match.gated
                         ? "Écartée (lieu ou période)"
-                        : `Bande ${match.band}`
+                        : BAND_LABEL_FR[(match.band as Band) ?? "low"] ?? match.band
                       : "Ajoute un titre pour estimer"}
                   </div>
                 </div>
                 <div
-                  className={`match-ring`}
+                  className="match-ring"
                   style={
                     {
                       "--pct": ringPct,
@@ -356,11 +319,9 @@ export function JobComposer({
               </div>
 
               <div key={match && match.skills.length > 0 ? "skills" : "no-skills"} className="reveal-in">
-                <div className="small muted" style={{ marginBottom: "var(--s-2)" }}>
-                  Compétences détectées
-                </div>
+                <div className="small muted preview-skills-label">Compétences détectées</div>
                 {match && match.skills.length > 0 ? (
-                  <p className="tag-list" style={{ margin: 0 }}>
+                  <p className="tag-list flush">
                     {match.skills.slice(0, 14).map((s) => (
                       <span key={s.name} className={`badge ${s.have ? "green" : "neutral"}`}>
                         {s.name}
@@ -368,7 +329,7 @@ export function JobComposer({
                     ))}
                   </p>
                 ) : (
-                  <p className="small muted" style={{ margin: 0 }}>
+                  <p className="small muted flush">
                     {title.trim() || description.trim()
                       ? "Aucune compétence du dictionnaire détectée."
                       : "Apparaissent une fois le titre ou la description remplis."}
@@ -377,9 +338,9 @@ export function JobComposer({
               </div>
 
               {!selectedCompany && !isNewCompany ? (
-                <p className="field-hint" style={{ margin: 0 }}>
-                  <IconBuilding style={{ width: 12, height: 12, verticalAlign: "-1px" }} /> Choisis une
-                  entreprise existante ou tape un nom pour en créer une.
+                <p className="field-hint flush">
+                  <IconBuilding className="icon-inline" /> Choisis une entreprise existante ou tape un
+                  nom pour en créer une.
                 </p>
               ) : null}
             </div>

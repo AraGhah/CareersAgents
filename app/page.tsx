@@ -1,7 +1,8 @@
 import Form from "next/form";
 import Link from "next/link";
 import { AutoSubmit, Select, SubmitButton } from "./components/client-ui";
-import { DbUnavailable, EmptyState, PageHeader, Stat, TableWrap } from "./components/ui";
+import { FlowStrip } from "./components/flow-strip";
+import { DbUnavailable, EmptyState, HeroMetric, PageHeader, TableWrap } from "./components/ui";
 import { JobsTable } from "./components/jobs-table";
 import { deskSummary, listJobs } from "../lib/queries";
 import { getActiveCategory } from "../lib/settings";
@@ -59,11 +60,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       : null
     : defaultCategory;
 
-  // listJobs() intentionally omits the (often large) description column for
-  // list-page performance, so category detection here works off the title
-  // only — titles for these roles almost always name the category directly.
+  // Category detection uses title + a short description excerpt so roles that
+  // only name the track in the body still match, without loading full text.
   const visibleJobs = categoryFilter
-    ? jobs.filter((job) => detectInternshipCategories(job.title, null).includes(categoryFilter))
+    ? jobs.filter((job) =>
+        detectInternshipCategories(job.title, job.description_preview ?? null).includes(categoryFilter),
+      )
     : jobs;
   const sortedJobs = [...visibleJobs].sort(
     (a, b) => Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name)),
@@ -85,6 +87,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       <PageHeader
         eyebrow={today()}
         title="Offres"
+        lede="Les offres découvertes, classées par score de correspondance."
         actions={
           <>
             <Link href="/jobs/new" className="btn">
@@ -97,21 +100,26 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
       />
 
-      <div className="stats">
-        <Stat value={summary.openJobs} label="Offres ouvertes" />
-        <Stat
-          value={summary.priorityOpen}
-          label="Score 85 et plus"
-          tone={summary.priorityOpen > 0 ? "good" : undefined}
-        />
-        <Stat value={summary.tracked} label="Candidatures suivies" href="/board" />
-        <Stat
-          value={summary.followupsDue}
-          label="Relances dues"
-          href="/followups"
-          tone={summary.followupsDue > 0 ? "alert" : undefined}
-        />
-      </div>
+      <FlowStrip current="offers" />
+
+      <HeroMetric
+        value={summary.priorityOpen}
+        label="Score 85 et plus"
+        tone={summary.priorityOpen > 0 ? "good" : undefined}
+        aside={
+          <>
+            <span>{summary.openJobs} ouvertes</span>
+            <Link href="/board">{summary.tracked} suivies</Link>
+            {summary.followupsDue > 0 ? (
+              <Link href="/followups" className="is-alert">
+                {summary.followupsDue} relance{summary.followupsDue > 1 ? "s" : ""}
+              </Link>
+            ) : (
+              <Link href="/followups">Relances</Link>
+            )}
+          </>
+        }
+      />
 
       {/* Client-side GET navigation: filtering keeps the shell and the scroll
           position instead of reloading the page. */}

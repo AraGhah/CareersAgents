@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { changeStatus, findInternshipsAction, setActiveCategoryAction } from "../actions";
 import { Flash, Select, SubmitButton } from "../components/client-ui";
+import { FlowStrip } from "../components/flow-strip";
 import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
 import {
   DbUnavailable,
   EmptyState,
+  HeroMetric,
   PageHeader,
   ScoreMeter,
   Section,
-  Stat,
   StatusPill,
   TableWrap,
 } from "../components/ui";
@@ -61,6 +62,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
     <>
       <PageHeader
         title="Pipeline"
+        lede="Prépare les candidatures prêtes à envoyer."
         actions={
           <form action={findInternshipsAction} id="recherche">
             <SubmitButton className="primary" pendingLabel="Recherche en cours…">
@@ -69,6 +71,8 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
           </form>
         }
       />
+
+      <FlowStrip current="prepare" />
 
       {sp.found === "1" ? (
         <Flash>
@@ -108,22 +112,20 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         <SubmitButton className="small">Enregistrer</SubmitButton>
       </form>
 
-      <div className="stats">
-        <Stat
-          value={en?.label ?? "Aucun"}
-          label="CV anglais"
-          href="/resumes"
-          tone={en ? undefined : "alert"}
-        />
-        <Stat
-          value={fr?.label ?? "Aucun"}
-          label="CV français"
-          href="/resumes"
-          tone={fr ? undefined : "alert"}
-        />
-        <Stat value={toPrepare} label="À préparer ou prêtes" />
-        <Stat value={inFlight} label="Postulées ou en relance" href="/followups" />
-      </div>
+      <HeroMetric
+        value={toPrepare}
+        label="À préparer ou prêtes"
+        tone={toPrepare > 0 ? "good" : undefined}
+        aside={
+          <>
+            <Link href="/resumes">{en || fr ? "CV actifs" : "Ajouter un CV"}</Link>
+            <Link href="/followups">{inFlight} en cours</Link>
+            <span>
+              {availableSources}/{sources.length} sources
+            </span>
+          </>
+        }
+      />
 
       <Section
         title="Sources"

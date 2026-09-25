@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { day } from "../../lib/format";
+import { day, todayIso } from "../../lib/format";
 import { listOpenFollowups } from "../../lib/followups";
 import { pool } from "../../lib/db";
 import {
   DbUnavailable,
   EmptyState,
+  HeroMetric,
   PageHeader,
   Section,
-  Stat,
   StatusPill,
   TableWrap,
 } from "../components/ui";
+import { FlowStrip } from "../components/flow-strip";
 import { MESSAGE_CLASSIFICATION_FR } from "../../lib/status-labels";
 import type { MessageClassification } from "../../lib/classify";
 
@@ -67,7 +68,7 @@ export default async function FollowupsPage() {
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const pending = followups.filter((f) => f.state === "pending").length;
   const drafted = followups.filter((f) => f.state === "drafted").length;
   const overdue = followups.filter((f) => f.due_on <= today).length;
@@ -76,15 +77,25 @@ export default async function FollowupsPage() {
     <>
       <PageHeader
         title="Relances"
-        lede="Prévues à J+7 et J+14 après chaque envoi. Le brouillon est créé dans Gmail, tu l'envoies toi-même."
+        lede="Après l’envoi : brouillons Gmail à J+7 et J+14, tu envoies toi-même."
       />
 
-      <div className="stats">
-        <Stat value={overdue} label="Dues aujourd'hui ou en retard" tone={overdue > 0 ? "alert" : undefined} />
-        <Stat value={pending} label="À préparer" />
-        <Stat value={drafted} label="Brouillons prêts dans Gmail" tone={drafted > 0 ? "good" : undefined} />
-        <Stat value={recent.length} label="Messages synchronisés" />
-      </div>
+      <FlowStrip current="send" />
+
+      <HeroMetric
+        value={overdue}
+        label="Dues aujourd'hui ou en retard"
+        tone={overdue > 0 ? "alert" : undefined}
+        aside={
+          <>
+            <span>{pending} à préparer</span>
+            <span className={drafted > 0 ? "is-good" : undefined}>
+              {drafted} brouillon{drafted > 1 ? "s" : ""}
+            </span>
+            <span>{recent.length} messages sync</span>
+          </>
+        }
+      />
 
       <Section title="Relances ouvertes" id="ouvertes">
         {followups.length === 0 ? (

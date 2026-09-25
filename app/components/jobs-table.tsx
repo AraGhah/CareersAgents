@@ -107,7 +107,12 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
               <tr className={`row-detail${open ? " is-open" : ""}`}>
                 <td className="row-detail-cell" colSpan={5}>
                   <Collapse open={open}>
-                    <div className="row-detail-inner" id={panelId} role="region">
+                    <div
+                      className="row-detail-inner"
+                      id={panelId}
+                      role="region"
+                      aria-label={`Détails — ${job.title}`}
+                    >
                       {open && detail === undefined ? (
                         <p className="small muted">Chargement…</p>
                       ) : null}

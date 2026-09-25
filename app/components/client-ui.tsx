@@ -17,17 +17,20 @@ export function SubmitButton({
   children,
   className = "",
   pendingLabel,
+  disabled,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { pendingLabel?: string }) {
   const { pending } = useFormStatus();
+  const isDisabled = Boolean(disabled || pending);
 
   return (
     <button
       {...rest}
       type="submit"
       className={className}
+      disabled={isDisabled}
       data-pending={pending ? "true" : undefined}
-      aria-disabled={pending || undefined}
+      aria-disabled={isDisabled || undefined}
       aria-live="polite"
     >
       {pending ? (pendingLabel ?? children) : children}

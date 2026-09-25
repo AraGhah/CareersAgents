@@ -122,6 +122,28 @@ export function Stat({
   return <article className={className}>{body}</article>;
 }
 
+/** One primary metric + optional quiet secondary links — avoids the 4-stat strip. */
+export function HeroMetric({
+  value,
+  label,
+  href,
+  tone,
+  aside,
+}: {
+  value: React.ReactNode;
+  label: string;
+  href?: string;
+  tone?: "good" | "alert";
+  aside?: React.ReactNode;
+}) {
+  return (
+    <div className="hero-metric">
+      <Stat value={value} label={label} href={href} tone={tone} />
+      {aside ? <div className="hero-metric-aside">{aside}</div> : null}
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------------------
    Score meter — the number plus the bar it earned. Used everywhere a score
    appears so the same value always reads the same way.
@@ -151,7 +173,7 @@ export function ScoreMeter({
   if (compact) {
     return (
       <span className={`badge ${band}`} title={label}>
-        {gated ? "skip" : pct}
+        {gated ? "n/d" : pct}
       </span>
     );
   }

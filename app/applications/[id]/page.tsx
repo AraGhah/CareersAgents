@@ -12,6 +12,8 @@ import {
   saveApplication,
 } from "../../actions";
 import { Flash, Select, SubmitButton } from "../../components/client-ui";
+import { Disclosure } from "../../components/disclosure";
+import { FlowStrip } from "../../components/flow-strip";
 import { DbUnavailable, EmptyState, ExtLink, PageHeader, Section, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
 import { detectCategories } from "../../../lib/category";
@@ -24,7 +26,7 @@ import { listOutreachForApplication } from "../../../lib/outreach";
 import { getLatestDossier } from "../../../lib/research";
 import { resolveResumeForJob } from "../../../lib/resumes";
 import { APPLICATION_STATUSES } from "../../../lib/types";
-import { APPLICATION_STATUS_FR, ROLE_CATEGORY_LABEL_FR } from "../../../lib/status-labels";
+import { APPLICATION_STATUS_FR, LANG_LABEL_FR, ROLE_CATEGORY_LABEL_FR } from "../../../lib/status-labels";
 
 type Search = {
   built?: string;
@@ -55,7 +57,7 @@ export default async function ApplicationPage({
   const { id } = await params;
   const sp = await searchParams;
 
-  let app, lang, categories, bank, stored, dossier, contacts, outreach, resume;
+  let app;
   try {
     app = await getApplication(id);
   } catch (err) {
@@ -68,12 +70,20 @@ export default async function ApplicationPage({
   }
   if (!app) notFound();
 
+  const lang = detectLetterLang(app.title, app.description);
+  const categories = detectCategories(app.title, app.description);
+
+  let bank = [] as Awaited<ReturnType<typeof loadAnswerBank>>;
+  let stored = null as Awaited<ReturnType<typeof loadStoredPackage>>;
+  let dossier = null as Awaited<ReturnType<typeof getLatestDossier>>;
+  let contacts = [] as Awaited<ReturnType<typeof listContactsForCompany>>;
+  let outreach = [] as Awaited<ReturnType<typeof listOutreachForApplication>>;
+  let resume = null as Awaited<ReturnType<typeof resolveResumeForJob>>;
+  let extrasError: string | null = null;
+
   try {
-    lang = detectLetterLang(app.title, app.description);
-    categories = detectCategories(app.title, app.description);
     bank = await loadAnswerBank(lang);
     stored = await loadStoredPackage(app.cover_letter_path);
-
     [dossier, contacts, outreach, resume] = await Promise.all([
       getLatestDossier(app.company_id, app.id),
       listContactsForCompany(app.company_id),
@@ -81,12 +91,7 @@ export default async function ApplicationPage({
       resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description)),
     ]);
   } catch (err) {
-    return (
-      <>
-        <PageHeader eyebrow="Candidature" title="Dossier de candidature" />
-        <DbUnavailable detail={(err as Error).message} />
-      </>
-    );
+    extrasError = (err as Error).message;
   }
 
   const checklist = stored?.checklist ?? [];
@@ -98,14 +103,80 @@ export default async function ApplicationPage({
   const bankWritten = bank.filter((a) => a.mode !== "manual" && a.text).length;
 
   const applied = ["applied", "followup", "interview", "accepted"].includes(app.status);
+  const hasContactEmail = contacts.some((c) => c.email);
   const progress: Array<{ label: string; done: boolean }> = [
     { label: "Entreprise recherchée", done: Boolean(dossier) },
-    { label: "Contact trouvé", done: contacts.some((c) => c.email) },
+    { label: "Contact trouvé", done: hasContactEmail },
     { label: "Email rédigé", done: outreach.length > 0 },
     { label: "Email approuvé", done: outreach.some((o) => o.approved_at) },
     { label: "Candidature envoyée", done: applied },
   ];
   const currentStep = progress.findIndex((p) => !p.done);
+
+  const nextAction = (() => {
+    if (applied) {
+      return {
+        title: "Candidature envoyée",
+        body: "Les relances sont gérées depuis Relances. Tu peux encore mettre à jour notes et package.",
+        href: "/followups",
+        hrefLabel: "Voir les relances",
+      };
+    }
+    if (toApprove) {
+      return {
+        title: "Approuver l’email",
+        body: `Relis le message pour ${outreach[0].to_email}, puis crée le brouillon Gmail.`,
+        href: "#workflow",
+        hrefLabel: "Voir l’email",
+      };
+    }
+    if (canMarkApplied) {
+      return {
+        title: "Marquer comme postulée",
+        body: "Quand tu as soumis le formulaire toi-même, enregistre l’envoi pour planifier les relances.",
+        href: "#workflow",
+        hrefLabel: "Confirmer l’envoi",
+      };
+    }
+    if (!dossier) {
+      return {
+        title: "Rechercher l’entreprise",
+        body: "Génère un dossier (fait email, signaux, cibles de contact) avant d’écrire.",
+        href: "#dossier",
+        hrefLabel: "Aller au dossier",
+      };
+    }
+    if (!hasContactEmail) {
+      return {
+        title: "Ajouter un contact",
+        body: "Il te faut une adresse avec URL source publique pour le brouillon Gmail.",
+        href: "#contacts",
+        hrefLabel: "Ajouter un contact",
+      };
+    }
+    if (outreach.length === 0) {
+      return {
+        title: "Préparer la candidature",
+        body: "Une passe prépare l’email et le package à partir du CV et de la banque.",
+        href: "#workflow",
+        hrefLabel: "Préparer",
+      };
+    }
+    if (!stored?.letter) {
+      return {
+        title: "Générer le package",
+        body: "Lettre, email et checklist à partir d’un fait entreprise que tu formules.",
+        href: "#package",
+        hrefLabel: "Générer",
+      };
+    }
+    return {
+      title: "Prêt à envoyer",
+      body: "Package et email sont là. Envoie le formulaire à la main, puis marque comme postulée.",
+      href: "#workflow",
+      hrefLabel: "Finaliser",
+    };
+  })();
 
   return (
     <>
@@ -135,7 +206,15 @@ export default async function ApplicationPage({
         }
       />
 
-      <div className="stack" style={{ gap: "var(--s-2)", marginBottom: "var(--s-4)" }}>
+      <FlowStrip current="prepare" />
+
+      <div className="stack stack-tight flash-stack">
+        {extrasError ? (
+          <Flash tone="warn">
+            Une partie du dossier n&apos;a pas pu être chargée ({extrasError}). La candidature reste
+            visible.
+          </Flash>
+        ) : null}
         {sp.built === "1" ? <Flash>Package généré. Relis la lettre avant de l&apos;envoyer.</Flash> : null}
         {sp.researched === "1" ? <Flash>Dossier entreprise mis à jour.</Flash> : null}
         {sp.prepared === "1" ? (
@@ -155,9 +234,15 @@ export default async function ApplicationPage({
         {sp.contact === "1" ? <Flash>Contact enregistré.</Flash> : null}
       </div>
 
-      <Section title="Préparation" id="workflow">
-        <div className="panel">
-          <ol className="steps">
+      <section className="next-action" aria-labelledby="next-action-title">
+        <p className="next-action-kicker">Prochaine étape</p>
+        <h2 id="next-action-title">{nextAction.title}</h2>
+        <p className="next-action-body">{nextAction.body}</p>
+        <div className="next-action-bar">
+          <a href={nextAction.href} className="btn primary">
+            {nextAction.hrefLabel}
+          </a>
+          <ol className="steps next-action-steps">
             {progress.map((p, i) => (
               <li
                 key={p.label}
@@ -167,7 +252,11 @@ export default async function ApplicationPage({
               </li>
             ))}
           </ol>
+        </div>
+      </section>
 
+      <Section title="Préparation" id="workflow">
+        <div className="panel">
           {!applied ? (
             <form action={prepareWorkflowAction} className="form-actions">
               <input type="hidden" name="applicationId" value={app.id} />
@@ -175,7 +264,9 @@ export default async function ApplicationPage({
                 {outreach.length > 0 ? "Refaire la préparation" : "Préparer la candidature"}
               </SubmitButton>
             </form>
-          ) : null}
+          ) : (
+            <p className="small muted flush">Préparation terminée pour cette candidature.</p>
+          )}
         </div>
 
         {toApprove ? (
@@ -266,7 +357,7 @@ export default async function ApplicationPage({
               )}
             </dd>
 
-            <dt>CV pour cette offre ({lang})</dt>
+            <dt>CV pour cette offre ({LANG_LABEL_FR[lang]})</dt>
             <dd>
               {resume ? (
                 <>
@@ -290,7 +381,7 @@ export default async function ApplicationPage({
 
       <Section title="Dossier entreprise" id="dossier">
 
-        <form action={researchApplicationAction} className="panel form-actions" style={{ marginBottom: "var(--s-5)" }}>
+        <form action={researchApplicationAction} className="panel form-actions panel-spaced">
           <input type="hidden" name="applicationId" value={app.id} />
           <label className="check">
             <input type="checkbox" name="force" value="1" />
@@ -312,18 +403,16 @@ export default async function ApplicationPage({
               </span>
             </div>
             <p>{dossier.summary}</p>
-            <div className="kv" style={{ display: "block", border: 0, padding: 0 }}>
-              <p style={{ margin: 0 }}>
+            <div className="dossier-fact">
+              <p className="flush">
                 <strong>Fait email :</strong> {dossier.company_fact}
               </p>
-              <p className="field-hint" style={{ marginTop: "0.2rem" }}>
-                Source : {dossier.company_fact_source}
-              </p>
+              <p className="field-hint fact-source">Source : {dossier.company_fact_source}</p>
             </div>
 
-            <h3 style={{ marginTop: "var(--s-5)", marginBottom: "var(--s-2)" }}>Signaux</h3>
+            <h3 className="subhead">Signaux</h3>
             {Array.isArray(dossier.signals) && dossier.signals.length > 0 ? (
-              <ul className="stack" style={{ gap: "var(--s-1)", margin: 0, paddingLeft: "1.1rem" }}>
+              <ul className="stack stack-tight list-pad flush">
                 {dossier.signals.map((s, i) => (
                   <li key={`${s.signal}-${i}`} className="small">
                     {s.signal} <span className="muted">({s.source})</span>
@@ -331,16 +420,12 @@ export default async function ApplicationPage({
                 ))}
               </ul>
             ) : (
-              <p className="empty" style={{ margin: 0 }}>
-                Aucun signal trouvé.
-              </p>
+              <p className="empty flush">Aucun signal trouvé.</p>
             )}
 
-            <h3 style={{ marginTop: "var(--s-5)", marginBottom: "var(--s-2)" }}>
-              Cibles de contact à chercher
-            </h3>
+            <h3 className="subhead">Cibles de contact à chercher</h3>
             {Array.isArray(dossier.contact_targets) && dossier.contact_targets.length > 0 ? (
-              <ul className="stack" style={{ gap: "var(--s-3)", margin: 0, paddingLeft: "1.1rem" }}>
+              <ul className="stack stack-snug list-pad flush">
                 {dossier.contact_targets.map((t, i) => (
                   <li key={`${t.role}-${i}`} className="small">
                     <strong>{t.role}</strong> : {t.why}
@@ -349,9 +434,7 @@ export default async function ApplicationPage({
                 ))}
               </ul>
             ) : (
-              <p className="empty" style={{ margin: 0 }}>
-                Aucune cible identifiée.
-              </p>
+              <p className="empty flush">Aucune cible identifiée.</p>
             )}
           </div>
         ) : (
@@ -362,7 +445,7 @@ export default async function ApplicationPage({
       </Section>
 
       <Section title="Contacts & outreach Gmail" id="contacts">
-        <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
+        <p className="section-note section-note-pull">
           Brouillons seulement (<code>gmail.compose</code>). Les adresses doivent avoir une{" "}
           <code>source_url</code> publique. Les doublons sont bloqués.
         </p>
@@ -458,7 +541,7 @@ export default async function ApplicationPage({
         )}
 
         {outreach.length > 0 ? (
-          <div className="table-wrap stackable" style={{ marginTop: "var(--s-4)" }}>
+          <div className="table-wrap stackable block-spaced">
             <table>
               <caption>Historique outreach</caption>
               <thead>
@@ -500,7 +583,7 @@ export default async function ApplicationPage({
 
       <Section title="Candidature" id="candidature">
         <div className="panel panel-quiet">
-          <p className="small muted" style={{ marginBottom: "var(--s-3)" }}>
+          <p className="small muted block-title-lg">
             L&apos;assist navigateur remplit les champs verts, pré-remplit les jaunes, laisse les
             rouges vides et ne clique jamais sur Envoyer. Marque « postulé » ici une fois le
             formulaire envoyé toi-même.
@@ -544,9 +627,9 @@ export default async function ApplicationPage({
       </Section>
 
       <Section title="Package de candidature" id="package">
-        <p className="section-note" style={{ marginTop: "calc(var(--s-4) * -1)", marginBottom: "var(--s-4)" }}>
+        <p className="section-note section-note-pull">
           La lettre est remplie uniquement à partir de la banque de réponses, des projets
-          sélectionnés et d&apos;un fait entreprise que tu écris avec sa source. Le CV actif ({lang})
+          sélectionnés et d&apos;un fait entreprise que tu écris avec sa source. Le CV actif ({LANG_LABEL_FR[lang]})
           est joint automatiquement.
         </p>
 
@@ -578,12 +661,13 @@ export default async function ApplicationPage({
           <div className="field">
             <label htmlFor="lang">Langue de la lettre</label>
             <Select
+              id="lang"
               name="lang"
               ariaLabel="Langue de la lettre"
               defaultValue={stored?.lang ?? lang}
               options={[
-                { value: "en", label: "English" },
-                { value: "fr", label: "French" },
+                { value: "en", label: LANG_LABEL_FR.en },
+                { value: "fr", label: LANG_LABEL_FR.fr },
               ]}
             />
           </div>
@@ -599,11 +683,13 @@ export default async function ApplicationPage({
             {stored.emailBody ? (
               <div className="panel">
                 <div className="panel-head">
-                  <span className="panel-title">Email d&apos;outreach ({stored.lang})</span>
+                  <span className="panel-title">
+                    Email d&apos;outreach ({LANG_LABEL_FR[stored.lang as "en" | "fr"] ?? stored.lang})
+                  </span>
                   <span className="badge neutral">{stored.emailWordCount ?? "?"} mots</span>
                 </div>
                 <p className="small muted">Brouillon court (Agent 5). Tu envoies toi-même.</p>
-                <p style={{ marginBottom: "0.4rem" }}>
+                <p className="email-subject">
                   <strong>Objet :</strong> {stored.emailSubject}
                 </p>
                 <pre className="code-block">{stored.emailBody}</pre>
@@ -612,7 +698,9 @@ export default async function ApplicationPage({
 
             <div className="panel">
               <div className="panel-head">
-                <span className="panel-title">Brouillon de lettre ({stored.lang})</span>
+                <span className="panel-title">
+                  Brouillon de lettre ({LANG_LABEL_FR[stored.lang as "en" | "fr"] ?? stored.lang})
+                </span>
               </div>
               <p className="small muted">
                 Projets utilisés : {(stored.projects ?? []).join(", ") || "aucun"}. Fichiers sous{" "}
@@ -626,11 +714,11 @@ export default async function ApplicationPage({
                 <span className="panel-title">Vérification des noms propres</span>
               </div>
               {(stored.flags ?? []).length === 0 ? (
-                <p className="empty" style={{ margin: 0 }}>
+                <p className="empty flush">
                   Aucun nom propre hors du texte d&apos;entrée de la lettre.
                 </p>
               ) : (
-                <ul className="stack" style={{ gap: "var(--s-2)", margin: 0, padding: 0, listStyle: "none" }}>
+                <ul className="stack stack-tight flush list-plain">
                   {(stored.flags ?? []).map((f) => (
                     <li key={f.word}>
                       <span className="badge red">{f.word}</span> {f.reason}
@@ -640,7 +728,7 @@ export default async function ApplicationPage({
               )}
             </div>
 
-            <div className="panel" style={{ marginBottom: 0 }}>
+            <div className="panel panel-last">
               <div className="panel-head">
                 <span className="panel-title">Checklist avant envoi</span>
                 <span className={`badge ${allClear ? "green" : "red"}`}>
@@ -693,21 +781,15 @@ export default async function ApplicationPage({
         note={`${bankWritten}/${bank.length} prêtes pour ce formulaire`}
         id="banque"
       >
-        <details className="panel" style={{ padding: 0 }}>
-          <summary
-            className="small"
-            style={{ cursor: "pointer", padding: "var(--s-4) var(--s-5)", fontWeight: 500 }}
-          >
-            Afficher les {bank.length} réponses ({lang})
-          </summary>
-          <div className="table-wrap" style={{ border: 0, borderTop: "1px solid var(--line)", borderRadius: 0 }}>
+        <Disclosure label={`Afficher les ${bank.length} réponses (${LANG_LABEL_FR[lang]})`}>
+          <div className="table-wrap disclosure-table">
             <table>
               <caption className="visually-hidden">Réponses types disponibles pour ce formulaire</caption>
               <thead>
                 <tr>
                   <th scope="col">Clé</th>
                   <th scope="col">Comment</th>
-                  <th scope="col">Texte ({lang})</th>
+                  <th scope="col">Texte ({LANG_LABEL_FR[lang]})</th>
                 </tr>
               </thead>
               <tbody>
@@ -735,19 +817,19 @@ export default async function ApplicationPage({
               </tbody>
             </table>
           </div>
-        </details>
+        </Disclosure>
       </Section>
 
       <Section title="Texte de l'offre" id="texte">
-        <div className="panel">
-          {app.description ? (
-            <pre className="description">{app.description}</pre>
-          ) : (
-            <p className="empty" style={{ margin: 0 }}>
-              Aucune description enregistrée pour cette offre.
-            </p>
-          )}
-        </div>
+        <Disclosure label="Afficher la description de l’offre">
+          <div className="panel panel-last">
+            {app.description ? (
+              <pre className="description">{app.description}</pre>
+            ) : (
+              <p className="empty flush">Aucune description enregistrée pour cette offre.</p>
+            )}
+          </div>
+        </Disclosure>
       </Section>
 
       <nav className="page-foot" aria-label="Liens connexes">

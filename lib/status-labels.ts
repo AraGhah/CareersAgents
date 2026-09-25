@@ -40,6 +40,11 @@ export const BAND_LABEL_FR: Record<Band, string> = {
   skip: "Rejeté (lieu ou période)",
 };
 
+export const LANG_LABEL_FR: Record<"en" | "fr", string> = {
+  en: "Anglais",
+  fr: "Français",
+};
+
 export const COMPONENT_LABEL_FR: Record<string, string> = {
   skills: "Compétences",
   location: "Lieu",

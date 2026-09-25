@@ -2,15 +2,13 @@ import type { ResumeProfile } from "../../lib/profile";
 
 export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
   return (
-    <div className="stack" style={{ gap: "var(--s-5)" }}>
+    <div className="stack stack-roomy">
       {profile.summary ? <p className="lede">{profile.summary}</p> : null}
 
       {profile.skills.length > 0 ? (
         <div>
-          <div className="panel-title" style={{ marginBottom: "var(--s-2)" }}>
-            Compétences
-          </div>
-          <p className="tag-list" style={{ margin: 0 }}>
+          <div className="panel-title block-title">Compétences</div>
+          <p className="tag-list flush">
             {profile.skills.map((s) => (
               <span key={s} className="badge neutral">
                 {s}
@@ -22,10 +20,8 @@ export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
 
       {profile.languages.length > 0 ? (
         <div>
-          <div className="panel-title" style={{ marginBottom: "var(--s-2)" }}>
-            Langues
-          </div>
-          <p className="tag-list" style={{ margin: 0 }}>
+          <div className="panel-title block-title">Langues</div>
+          <p className="tag-list flush">
             {profile.languages.map((l) => (
               <span key={l} className="badge neutral">
                 {l}
@@ -37,10 +33,8 @@ export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
 
       {profile.experience.length > 0 ? (
         <div>
-          <div className="panel-title" style={{ marginBottom: "var(--s-3)" }}>
-            Expérience
-          </div>
-          <div className="stack" style={{ gap: "var(--s-3)" }}>
+          <div className="panel-title block-title-lg">Expérience</div>
+          <div className="stack stack-snug">
             {profile.experience.map((exp, i) => (
               <div key={i}>
                 <div className="cell-main">
@@ -49,7 +43,7 @@ export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
                 </div>
                 {exp.years ? <div className="cell-sub">{exp.years}</div> : null}
                 {exp.bullets.length > 0 ? (
-                  <ul className="small muted" style={{ margin: "var(--s-1) 0 0", paddingLeft: "1.1rem" }}>
+                  <ul className="small muted list-pad">
                     {exp.bullets.map((b, bi) => (
                       <li key={bi}>{b}</li>
                     ))}
@@ -63,10 +57,8 @@ export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
 
       {profile.projects.length > 0 ? (
         <div>
-          <div className="panel-title" style={{ marginBottom: "var(--s-3)" }}>
-            Projets
-          </div>
-          <div className="stack" style={{ gap: "var(--s-3)" }}>
+          <div className="panel-title block-title-lg">Projets</div>
+          <div className="stack stack-snug">
             {profile.projects.map((p, i) => (
               <div key={i}>
                 <div className="cell-main">{p.name}</div>
@@ -80,16 +72,12 @@ export function ResumeProfilePreview({ profile }: { profile: ResumeProfile }) {
 
       {profile.education.length > 0 ? (
         <div>
-          <div className="panel-title" style={{ marginBottom: "var(--s-3)" }}>
-            Formation
-          </div>
-          <div className="stack" style={{ gap: "var(--s-2)" }}>
+          <div className="panel-title block-title-lg">Formation</div>
+          <div className="stack stack-tight">
             {profile.education.map((e, i) => (
               <div key={i}>
                 <div className="cell-main">{e.school}</div>
-                <div className="cell-sub">
-                  {[e.program, e.years].filter(Boolean).join(" · ")}
-                </div>
+                <div className="cell-sub">{[e.program, e.years].filter(Boolean).join(" · ")}</div>
               </div>
             ))}
           </div>

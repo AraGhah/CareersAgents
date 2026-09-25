@@ -7,6 +7,12 @@ const SHORT_DAY_YEAR = new Intl.DateTimeFormat("fr-CA", {
   timeZone: TZ,
 });
 const YEAR = new Intl.DateTimeFormat("en-CA", { year: "numeric", timeZone: TZ });
+const ISO_DAY = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  timeZone: TZ,
+});
 const LONG_DAY = new Intl.DateTimeFormat("fr-CA", {
   weekday: "long",
   day: "numeric",
@@ -14,10 +20,22 @@ const LONG_DAY = new Intl.DateTimeFormat("fr-CA", {
   timeZone: TZ,
 });
 
+export const WORKPLACE_LABEL_FR: Record<string, string> = {
+  onsite: "Sur place",
+  hybrid: "Hybride",
+  remote: "À distance",
+};
+
 /** "Jeudi 24 septembre" — today's date as a heading reads it. */
 export function today(): string {
   const s = LONG_DAY.format(new Date());
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Calendar day in America/Montreal as YYYY-MM-DD (not UTC). */
+export function todayIso(): string {
+  // en-CA with timeZone yields YYYY-MM-DD.
+  return ISO_DAY.format(new Date());
 }
 
 /** "23 sept.", with the year only when it isn't the current one. The zone is
@@ -36,7 +54,8 @@ export function day(value: Date | string | null): string {
 }
 
 export function place(location: string | null, workplaceType: string | null): string {
-  const parts = [location, workplaceType].filter(Boolean);
+  const workplace = workplaceType ? (WORKPLACE_LABEL_FR[workplaceType] ?? workplaceType) : null;
+  const parts = [location, workplace].filter(Boolean);
   return parts.length ? parts.join(" \u00b7 ") : "\u2014";
 }
 

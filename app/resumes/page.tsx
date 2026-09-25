@@ -6,7 +6,7 @@ import {
   uploadResumeAction,
 } from "../actions";
 import { FileInput, Flash, Select, SubmitButton } from "../components/client-ui";
-import { DbUnavailable, EmptyState, PageHeader, Section, Stat, TableWrap } from "../components/ui";
+import { DbUnavailable, EmptyState, HeroMetric, PageHeader, Section, TableWrap } from "../components/ui";
 import { Disclosure } from "../components/disclosure";
 import { ResumeProfilePreview } from "../components/resume-profile";
 import { day } from "../../lib/format";
@@ -41,6 +41,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
   const activeFr = resumes.find((r) => r.language === "fr" && r.is_active);
   const activeProfile = activeEn?.profile_json ?? activeFr?.profile_json ?? null;
   const activeSkills = activeProfile?.skills ?? [];
+  const activeCount = [activeEn, activeFr].filter(Boolean).length;
 
   return (
     <>
@@ -51,20 +52,23 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
 
       {sp.ok && OK_MESSAGE[sp.ok] ? <Flash>{OK_MESSAGE[sp.ok]}</Flash> : null}
 
-      <div className="stats">
-        <Stat
-          value={activeEn?.label ?? "Aucun"}
-          label="CV anglais actif"
-          tone={activeEn ? undefined : "alert"}
-        />
-        <Stat
-          value={activeFr?.label ?? "Aucun"}
-          label="CV français actif"
-          tone={activeFr ? undefined : "alert"}
-        />
-        <Stat value={activeSkills.length} label="Compétences extraites" />
-        <Stat value={resumes.length} label="CV dans la bibliothèque" />
-      </div>
+      <HeroMetric
+        value={activeCount}
+        label="CV actifs sur 2 langues"
+        tone={activeCount === 2 ? "good" : "alert"}
+        aside={
+          <>
+            <span className={activeEn ? undefined : "is-alert"}>
+              EN — {activeEn?.label ?? "aucun"}
+            </span>
+            <span className={activeFr ? undefined : "is-alert"}>
+              FR — {activeFr?.label ?? "aucun"}
+            </span>
+            <span>{activeSkills.length} compétences extraites</span>
+            <Link href="#bibliotheque">{resumes.length} CV en bibliothèque</Link>
+          </>
+        }
+      />
 
       <Section title="Importer un CV" id="upload">
         <form action={uploadResumeAction} className="panel">
@@ -77,7 +81,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                 ariaLabel="Langue"
                 defaultValue="en"
                 options={[
-                  { value: "en", label: "English" },
+                  { value: "en", label: "Anglais" },
                   { value: "fr", label: "Français" },
                 ]}
               />
@@ -221,11 +225,9 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
         <Section title="Profil actif" id="profil">
           <div className="panel panel-quiet">
             <ResumeProfilePreview profile={activeProfile} />
-            <div style={{ marginTop: "var(--s-5)" }}>
+            <div className="profile-raw">
               <Disclosure label="Voir les données brutes" openLabel="Masquer les données brutes">
-                <pre className="code-block" style={{ marginTop: "var(--s-3)" }}>
-                  {JSON.stringify(activeProfile, null, 2)}
-                </pre>
+                <pre className="code-block block-spaced">{JSON.stringify(activeProfile, null, 2)}</pre>
               </Disclosure>
             </div>
           </div>

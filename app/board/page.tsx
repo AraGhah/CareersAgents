@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { changeStatus } from "../actions";
+import { FlowStrip } from "../components/flow-strip";
 import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
 import { day } from "../../lib/format";
 import { listApplications } from "../../lib/queries";
 import { APPLICATION_STATUSES } from "../../lib/types";
 import { APPLICATION_STATUS_FR } from "../../lib/status-labels";
-import { DbUnavailable, EmptyState, PageHeader, Stat } from "../components/ui";
+import { DbUnavailable, EmptyState, HeroMetric, PageHeader } from "../components/ui";
 
 export const metadata = { title: "Board" };
 
@@ -33,21 +34,24 @@ export default async function BoardPage() {
   }));
 
   const live = applications.filter((a) => !CLOSED.includes(a.status)).length;
-  const applied = applications.filter((a) =>
-    ["applied", "followup", "interview"].includes(a.status),
-  ).length;
   const interviews = applications.filter((a) => a.status === "interview").length;
+  const toPrep = applications.filter((a) =>
+    ["discovered", "qualified", "ready"].includes(a.status),
+  ).length;
 
   return (
     <>
       <PageHeader
         title="Board"
+        lede="Suis chaque candidature jusqu’à l’envoi."
         actions={
-          <Link href="/pipeline" className="btn">
-            Ouvrir le pipeline
+          <Link href="/pipeline" className="btn primary">
+            Préparer
           </Link>
         }
       />
+
+      <FlowStrip current="track" />
 
       {applications.length === 0 ? (
         <EmptyState
@@ -63,20 +67,24 @@ export default async function BoardPage() {
             </>
           }
         >
-          Suis une offre depuis la liste des offres et elle apparaîtra ici, colonne par colonne.
+          Suis une offre depuis la liste — elle apparaîtra ici.
         </EmptyState>
       ) : (
         <>
-          <div className="stats">
-            <Stat value={applications.length} label="Candidatures au total" />
-            <Stat value={live} label="Encore en vie" tone={live > 0 ? "good" : undefined} />
-            <Stat value={applied} label="Envoyées" />
-            <Stat
-              value={interviews}
-              label="En entrevue"
-              tone={interviews > 0 ? "good" : undefined}
-            />
-          </div>
+          <HeroMetric
+            value={live}
+            label="Encore en vie"
+            tone={live > 0 ? "good" : undefined}
+            aside={
+              <>
+                <span>{applications.length} au total</span>
+                <Link href="/pipeline">{toPrep} à préparer</Link>
+                {interviews > 0 ? (
+                  <span className="is-good">{interviews} en entrevue</span>
+                ) : null}
+              </>
+            }
+          />
 
           <KanbanBoard
             cards={cards}

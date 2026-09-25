@@ -33,6 +33,7 @@ const JOB_LIST_SELECT = `
   ${SCORE_CTE}
   SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.posted_at,
          j.first_seen_at, j.closed_at, j.company_id,
+         LEFT(j.description, 600) AS description_preview,
          c.name AS company_name,
          a.id AS application_id, a.status,
          t.score, t.gated

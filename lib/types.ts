@@ -43,6 +43,8 @@ export type JobRow = {
   closed_at: Date | null;
   company_id: string;
   company_name: string;
+  /** Short description excerpt for list filters — only set by listJobs. */
+  description_preview?: string | null;
   application_id: string | null;
   status: ApplicationStatus | null;
   score: string | null;
