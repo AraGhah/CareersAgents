@@ -226,18 +226,18 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                       <ScoreMeter score={r.score} gated={r.gated} />
                     </td>
                     <td data-label="Source" className="muted">
-                      {r.source ?? "—"}
+                      {r.source ?? "n/d"}
                     </td>
                     <td data-label="Contact">
                       {r.recruiter_name || r.recruiter_email ? (
                         <>
-                          <span>{r.recruiter_name ?? "—"}</span>
+                          <span>{r.recruiter_name ?? "n/d"}</span>
                           {r.recruiter_email ? (
                             <span className="cell-sub mono">{r.recruiter_email}</span>
                           ) : null}
                         </>
                       ) : (
-                        <span className="empty">—</span>
+                        <span className="empty">n/d</span>
                       )}
                     </td>
                     <td data-label="Statut">
@@ -252,7 +252,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                       {day(r.submitted_at)}
                     </td>
                     <td data-label="Relance" className="tight num muted">
-                      {r.next_followup ?? "—"}
+                      {r.next_followup ?? "n/d"}
                     </td>
                   </tr>
                 ))}

@@ -126,7 +126,7 @@ export default async function AnswersPage() {
                       )}
                     </td>
                     <td data-label="Utile pour" className="muted">
-                      {p.highlight_for?.join(", ") ?? "—"}
+                      {p.highlight_for?.join(", ") ?? "n/d"}
                     </td>
                   </tr>
                 ))}

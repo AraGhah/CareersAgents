@@ -15,8 +15,8 @@ export const APPLICATION_STATUS_FR: Record<ApplicationStatus, string> = {
 
 export const BAND_LABEL_FR: Record<Band, string> = {
   high: "Priorité (85+)",
-  mid: "Postuler (70–84)",
-  ok: "À revoir (60–69)",
+  mid: "Postuler (70 à 84)",
+  ok: "À revoir (60 à 69)",
   low: "Sous 60",
   skip: "Rejeté (lieu ou période)",
 };

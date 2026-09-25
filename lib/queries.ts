@@ -323,7 +323,7 @@ export async function addVerifiedContact(opts: {
     throw new Error("Invalid email");
   }
   if (!opts.sourceUrl.trim()) {
-    throw new Error("source_url is required — no guessed addresses");
+    throw new Error("source_url is required: no guessed addresses");
   }
 
   const existing = await pool.query<{ id: string }>(

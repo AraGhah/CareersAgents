@@ -24,14 +24,14 @@ export function today(): string {
  *  pinned so server and browser always agree, and a date-only string
  *  ("2026-09-22") is a calendar day, not a UTC instant. */
 export function day(value: Date | string | null): string {
-  if (!value) return "—";
+  if (!value) return "n/d";
   const d =
     typeof value === "string"
       ? /^\d{4}-\d{2}-\d{2}$/.test(value)
         ? new Date(`${value}T12:00:00Z`)
         : new Date(value)
       : value;
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "n/d";
   return (YEAR.format(d) === YEAR.format(new Date()) ? SHORT_DAY : SHORT_DAY_YEAR).format(d);
 }
 

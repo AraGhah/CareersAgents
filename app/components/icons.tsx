@@ -24,6 +24,33 @@ export function IconBrand({ className, style }: IconProps) {
   );
 }
 
+export function IconSun({ className, style }: IconProps) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="3.4" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M10 2.6v1.7M10 15.7v1.7M2.6 10h1.7M15.7 10h1.7M4.8 4.8l1.2 1.2M14 14l1.2 1.2M4.8 15.2 6 14M14 6l1.2-1.2"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function IconMoon({ className, style }: IconProps) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M16.4 11.6A6.6 6.6 0 0 1 8.4 3.6a6.6 6.6 0 1 0 8 8Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconChevronDown({ className, style }: IconProps) {
   return (
     <svg className={className} style={style} viewBox="0 0 16 16" fill="none" aria-hidden="true">

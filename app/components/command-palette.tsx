@@ -81,12 +81,12 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         </Command.List>
         <div className="cmdk-foot">
           <span className="cluster">
-            <kbd>↑</kbd>
-            <kbd>↓</kbd>
+            <kbd>haut</kbd>
+            <kbd>bas</kbd>
             naviguer
           </span>
           <span className="cluster">
-            <kbd>↵</kbd>
+            <kbd>entrée</kbd>
             ouvrir
           </span>
           <span className="cluster">

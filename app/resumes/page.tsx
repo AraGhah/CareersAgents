@@ -178,7 +178,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                         ) : null}
                       </td>
                       <td data-label="Compétences" className="muted">
-                        {skills.slice(0, 8).join(", ") || "—"}
+                        {skills.slice(0, 8).join(", ") || "n/d"}
                       </td>
                       <td data-label="Actions">
                         <div className="cluster">

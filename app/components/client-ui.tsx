@@ -6,7 +6,7 @@ import * as RadixTooltip from "@radix-ui/react-tooltip";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { IconCheck, IconChevronDown } from "./icons";
+import { IconCheck, IconChevronDown, IconMoon, IconSun } from "./icons";
 import { useToast, type ToastTone } from "./toaster";
 
 /* --------------------------------------------------------------------------
@@ -182,7 +182,7 @@ export function CopyButton({
         }
       }}
     >
-      <span aria-live="polite">{copied ? "Copié ✓" : label}</span>
+      <span aria-live="polite">{copied ? "Copié" : label}</span>
     </button>
   );
 }
@@ -228,7 +228,7 @@ export function ThemeToggle() {
       aria-label={theme === "dark" ? "Passer en thème clair" : "Passer en thème sombre"}
       title={theme === "dark" ? "Thème clair" : "Thème sombre"}
     >
-      <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
+      {theme === "dark" ? <IconSun /> : <IconMoon />}
     </button>
   );
 }

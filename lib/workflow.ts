@@ -236,7 +236,7 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
 
     for (const ext of externalSources) {
       if (!ext.capability.available) {
-        errors.push(`${ext.label} skipped — ${ext.capability.reason}`);
+        errors.push(`${ext.label} skipped: ${ext.capability.reason}`);
         continue;
       }
       try {
@@ -380,7 +380,7 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   steps.push(
     hiring.contacts.length
       ? `Hiring contacts found (${hiring.contacts.length})`
-      : "No public email found — add a contact with source_url",
+      : "No public email found. Add a contact with source_url",
   );
 
   const contact = pickBestContact(hiring.contacts);
@@ -436,10 +436,10 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
       outreachId = draft.id;
       steps.push(`Personalized email prepared for ${contact.email} (awaiting your approval)`);
     } else {
-      steps.push(`Open outreach already exists for ${contact.email} — skipped duplicate`);
+      steps.push(`Open outreach already exists for ${contact.email}, skipped duplicate`);
     }
   } else {
-    steps.push("Cannot generate email yet — no verified public contact email");
+    steps.push("Cannot generate email yet: no verified public contact email");
   }
 
   if (resume) {

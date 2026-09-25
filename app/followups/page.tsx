@@ -181,7 +181,7 @@ export default async function FollowupsPage() {
                         <span className="empty">non classé</span>
                       )}
                     </td>
-                    <td data-label="Objet">{m.subject ?? "—"}</td>
+                    <td data-label="Objet">{m.subject ?? "n/d"}</td>
                     <td data-label="Rapproché de">
                       {m.application_id ? (
                         <Link href={`/applications/${m.application_id}`}>

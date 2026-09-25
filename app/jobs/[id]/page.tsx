@@ -103,7 +103,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                           </td>
                           <td data-label="Valeur">{percent(row?.raw_value ?? null)}</td>
                           <td data-label="Poids" className="tight num muted">
-                            {row ? percent(row.weight) : "—"}
+                            {row ? percent(row.weight) : "n/d"}
                           </td>
                         </tr>
                       );

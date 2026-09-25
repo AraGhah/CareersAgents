@@ -220,7 +220,7 @@ export function JobComposer({
           />
           {analyzing ? (
             <span className="field-hint">
-              <span className="mono">↻</span> Analyse de la page en cours…
+              Analyse de la page en cours…
             </span>
           ) : analysisNote ? (
             <span className="field-hint">
@@ -352,7 +352,7 @@ export function JobComposer({
                     } as React.CSSProperties
                   }
                 >
-                  <span className="match-ring-value">{match ? (match.gated ? "—" : match.percent) : "—"}</span>
+                  <span className="match-ring-value">{match ? (match.gated ? "n/d" : match.percent) : "n/d"}</span>
                 </div>
               </div>
 

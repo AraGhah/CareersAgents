@@ -277,8 +277,8 @@ export async function runChecklist(opts: {
         input.links.length === 0
           ? "no links in the answer bank"
           : failedLinks.length
-            ? failedLinks.map((l) => `${l.url} → ${l.status}`).join("; ")
-            : linkChecks.map((l) => `${l.url} → ${l.status}`).join("; "),
+            ? failedLinks.map((l) => `${l.url} (${l.status})`).join("; ")
+            : linkChecks.map((l) => `${l.url} (${l.status})`).join("; "),
     });
   }
 

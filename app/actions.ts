@@ -411,7 +411,7 @@ export async function draftOutreachAction(form: FormData) {
   const contact = contacts.find((c) => c.id === contactId);
   if (!contact?.email) throw new Error("Contact has no email");
   if (!contact.source_url?.trim()) {
-    throw new Error("Contact is missing source_url — refusing outreach to unverified addresses");
+    throw new Error("Contact is missing source_url: refusing outreach to unverified addresses");
   }
 
   let dossier = null;

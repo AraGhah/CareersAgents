@@ -139,7 +139,7 @@ export function ScoreMeter({
   if (score == null) {
     return (
       <span className="empty" title="Pas encore scoré">
-        —
+        n/d
       </span>
     );
   }
@@ -158,7 +158,7 @@ export function ScoreMeter({
 
   return (
     <span className={`meter meter-${band}`} title={`${label} : ${pct}/100`}>
-      <span className="meter-num">{gated ? "—" : pct}</span>
+      <span className="meter-num">{gated ? "n/d" : pct}</span>
       <span className="meter-track">
         <span className="meter-fill" style={{ width: `${gated ? 100 : pct}%` }} />
       </span>
@@ -174,7 +174,7 @@ export function ScoreMeter({
    -------------------------------------------------------------------------- */
 
 export function StatusPill({ status }: { status: ApplicationStatus | string | null }) {
-  if (!status) return <span className="empty">—</span>;
+  if (!status) return <span className="empty">n/d</span>;
   const label = APPLICATION_STATUS_FR[status as ApplicationStatus] ?? status;
   return <span className={`badge status status-${status}`}>{label}</span>;
 }

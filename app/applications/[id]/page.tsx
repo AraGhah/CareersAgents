@@ -266,7 +266,7 @@ export default async function ApplicationPage({
                   ))}
                 </span>
               ) : (
-                <span className="empty">—</span>
+                <span className="empty">n/d</span>
               )}
             </dd>
 
@@ -420,11 +420,11 @@ export default async function ApplicationPage({
                 {contacts.map((c) => (
                   <tr key={c.id}>
                     <td data-label="Contact">
-                      <span className="cell-main">{c.name ?? "—"}</span>
+                      <span className="cell-main">{c.name ?? "n/d"}</span>
                       <span className="cell-sub">{c.role ?? ""}</span>
                     </td>
                     <td data-label="Email" className="mono">
-                      {c.email ?? "—"}
+                      {c.email ?? "n/d"}
                     </td>
                     <td data-label="Source">
                       <a href={c.source_url} target="_blank" rel="noreferrer">
