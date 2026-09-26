@@ -21,6 +21,7 @@ type Search = {
   untracked?: string;
   low?: string;
   skipped?: string;
+  email?: string;
   category?: string;
 };
 
@@ -33,11 +34,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const untrackedOnly = sp.untracked === "1";
   const includeLow = sp.low === "1";
   const includeSkipped = sp.skipped === "1";
+  const withEmail = sp.email === "1";
 
   let jobs, summary, defaultCategory;
   try {
     [jobs, summary, defaultCategory] = await Promise.all([
-      listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped }),
+      listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped, withEmail }),
       deskSummary(),
       getActiveCategory(),
     ]);
@@ -74,6 +76,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const activeFilters = [
     search ? `« ${search} »` : null,
     categoryFilter ? INTERNSHIP_CATEGORY_LABEL_FR[categoryFilter] : null,
+    withEmail ? "avec email" : null,
     untrackedOnly ? "non suivies" : null,
     includeClosed ? "fermées incluses" : null,
     includeLow ? "sous 60 incluses" : null,
@@ -151,6 +154,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           ]}
         />
 
+        <label className="check">
+          <input type="checkbox" name="email" value="1" defaultChecked={withEmail} />
+          Avec email
+        </label>
         <label className="check">
           <input type="checkbox" name="untracked" value="1" defaultChecked={untrackedOnly} />
           Non suivies

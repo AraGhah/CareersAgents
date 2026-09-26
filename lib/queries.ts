@@ -49,6 +49,8 @@ export async function listJobs(opts: {
   untrackedOnly?: boolean;
   includeLow?: boolean;
   includeSkipped?: boolean;
+  /** Only jobs whose company has at least one public contact email. */
+  withEmail?: boolean;
 }): Promise<JobRow[]> {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -64,6 +66,16 @@ export async function listJobs(opts: {
   }
   if (!opts.includeLow) {
     where.push("(t.job_id IS NULL OR t.gated OR t.score >= 0.60)");
+  }
+  if (opts.withEmail) {
+    where.push(`EXISTS (
+      SELECT 1 FROM contacts ct
+       WHERE ct.company_id = j.company_id
+         AND ct.email IS NOT NULL
+         AND btrim(ct.email) <> ''
+         AND ct.source_url IS NOT NULL
+         AND btrim(ct.source_url) <> ''
+    )`);
   }
   if (opts.search) {
     params.push(`%${opts.search}%`);
