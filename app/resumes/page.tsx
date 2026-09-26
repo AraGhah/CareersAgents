@@ -6,7 +6,7 @@ import {
   uploadResumeAction,
 } from "../actions";
 import { FileInput, Flash, Select, SubmitButton } from "../components/client-ui";
-import { DbUnavailable, EmptyState, HeroMetric, PageHeader, Section, TableWrap } from "../components/ui";
+import { DbUnavailable, EmptyState, HeroMetric, PageHeader, Section } from "../components/ui";
 import { Disclosure } from "../components/disclosure";
 import { ResumeProfilePreview } from "../components/resume-profile";
 import { day } from "../../lib/format";
@@ -131,93 +131,72 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
             Importe d&apos;abord tes PDF, ou lance <code>npm run resumes:import</code>.
           </EmptyState>
         ) : (
-          <TableWrap>
-            <table>
-              <caption className="visually-hidden">
-                Bibliothèque des CV, avec leur langue, état d&apos;analyse et actions
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Langue</th>
-                  <th scope="col">Catégorie</th>
-                  <th scope="col">Libellé</th>
-                  <th scope="col">Actif</th>
-                  <th scope="col">Analyse</th>
-                  <th scope="col">Compétences</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumes.map((r) => {
-                  const skills = r.profile_json?.skills ?? [];
-                  return (
-                    <tr key={r.id}>
-                      <td data-label="Langue">
-                        {r.language.toUpperCase()}
-                      </td>
-                      <td data-label="Catégorie" className="muted">
-                        {r.category ? INTERNSHIP_CATEGORY_LABEL_FR[r.category] : "Générale"}
-                      </td>
-                      <td data-label="Libellé">
-                        <span className="cell-main">{r.label}</span>
-                        <span className="cell-sub">
-                          {r.filename} · {day(r.uploaded_at)}
+          <ul className="card-grid">
+            {resumes.map((r) => {
+              const skills = r.profile_json?.skills ?? [];
+              return (
+                <li key={r.id} className={`item-card${r.is_active ? " is-active" : ""}`}>
+                  <div className="item-card-head">
+                    <div>
+                      <h3 className="item-card-title">{r.label}</h3>
+                      <div className="item-card-meta">
+                        <span className="badge accent">{r.language.toUpperCase()}</span>
+                        <span>
+                          {r.category ? INTERNSHIP_CATEGORY_LABEL_FR[r.category] : "Générale"}
                         </span>
-                      </td>
-                      <td data-label="Actif">
-                        {r.is_active ? (
-                          <span className="badge green">Actif</span>
-                        ) : (
-                          <span className="empty">Non</span>
-                        )}
-                      </td>
-                      <td data-label="Analyse">
-                        {r.analysis_error ? (
-                          <span className="badge red">Erreur</span>
-                        ) : r.analyzed_at ? (
-                          <span className="muted">Analysé</span>
-                        ) : (
-                          <span className="badge yellow">En attente</span>
-                        )}
-                        {r.analysis_error ? (
-                          <span className="cell-sub">{r.analysis_error}</span>
-                        ) : null}
-                      </td>
-                      <td data-label="Compétences" className="muted">
-                        {skills.slice(0, 8).join(", ") || "n/d"}
-                      </td>
-                      <td data-label="Actions">
-                        <div className="cluster">
-                          {!r.is_active ? (
-                            <form action={activateResumeAction}>
-                              <input type="hidden" name="resumeId" value={r.id} />
-                              <SubmitButton className="small">Activer</SubmitButton>
-                            </form>
-                          ) : null}
-                          <form action={reanalyzeResumeAction}>
-                            <input type="hidden" name="resumeId" value={r.id} />
-                            <SubmitButton className="small ghost" pendingLabel="Analyse…">
-                              Réanalyser
-                            </SubmitButton>
-                          </form>
-                          <form action={replaceResumeAction}>
-                            <input type="hidden" name="resumeId" value={r.id} />
-                            <FileInput
-                              name="file"
-                              accept="application/pdf,.pdf"
-                              buttonLabel="Remplacer"
-                              ariaLabel={`Remplacer le PDF de ${r.label}`}
-                              autoSubmit
-                            />
-                          </form>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </TableWrap>
+                      </div>
+                    </div>
+                    {r.is_active ? <span className="badge green">Actif</span> : null}
+                  </div>
+
+                  <div className="item-card-body">
+                    <span className="cell-sub">
+                      {r.filename} · {day(r.uploaded_at)}
+                    </span>
+                    {r.analysis_error ? (
+                      <p className="flush">
+                        <span className="badge red">Erreur</span>{" "}
+                        <span className="small">{r.analysis_error}</span>
+                      </p>
+                    ) : r.analyzed_at ? (
+                      <p className="flush small muted">
+                        {skills.length > 0
+                          ? skills.slice(0, 8).join(", ")
+                          : "Analysé — aucune compétence extraite"}
+                      </p>
+                    ) : (
+                      <span className="badge yellow">Analyse en attente</span>
+                    )}
+                  </div>
+
+                  <div className="item-card-actions">
+                    {!r.is_active ? (
+                      <form action={activateResumeAction}>
+                        <input type="hidden" name="resumeId" value={r.id} />
+                        <SubmitButton className="small">Activer</SubmitButton>
+                      </form>
+                    ) : null}
+                    <form action={reanalyzeResumeAction}>
+                      <input type="hidden" name="resumeId" value={r.id} />
+                      <SubmitButton className="small ghost" pendingLabel="Analyse…">
+                        Réanalyser
+                      </SubmitButton>
+                    </form>
+                    <form action={replaceResumeAction}>
+                      <input type="hidden" name="resumeId" value={r.id} />
+                      <FileInput
+                        name="file"
+                        accept="application/pdf,.pdf"
+                        buttonLabel="Remplacer"
+                        ariaLabel={`Remplacer le PDF de ${r.label}`}
+                        autoSubmit
+                      />
+                    </form>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Section>
 

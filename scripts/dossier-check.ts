@@ -3,6 +3,7 @@
 
 import { analyzeResumeText } from "../lib/resume-parse";
 import { scoreJob, setHaveSkills } from "../lib/score";
+import { EMAIL_WORD_RANGE } from "../lib/letter";
 import { buildPersonalizedOutreach } from "../lib/outreach";
 import type { ApplicationDetail } from "../lib/types";
 import type { CompanyDossier } from "../lib/research";
@@ -126,7 +127,11 @@ Twilio Stripe MongoDB
   });
   assert(mail.body.includes("Example Co"), "outreach should mention company");
   assert(mail.body.includes("Dossier") || mail.body.includes("TypeScript"), "outreach should use profile/project");
-  assert(mail.wordCount <= 260, `outreach too long: ${mail.wordCount}`);
+  assert(mail.wordCount <= EMAIL_WORD_RANGE.max, `outreach too long: ${mail.wordCount}`);
+  assert(
+    mail.subject === "Application - Software Developer Intern - Ara Ghahramanyan",
+    `subject should be "Application - [exact role title] - [name]", got: ${mail.subject}`,
+  );
   console.log(`outreach ok · ${mail.wordCount} words · ${mail.subject}`);
 
   console.log("dossier-check passed");

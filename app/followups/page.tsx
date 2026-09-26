@@ -110,52 +110,31 @@ export default async function FollowupsPage() {
             Elles apparaissent ici dès qu&apos;une candidature est marquée comme envoyée.
           </EmptyState>
         ) : (
-          <TableWrap>
-            <table>
-              <caption className="visually-hidden">Relances planifiées, de la plus urgente à la plus lointaine</caption>
-              <thead>
-                <tr>
-                  <th scope="col" className="tight">
-                    Échéance
-                  </th>
-                  <th scope="col">État</th>
-                  <th scope="col">Poste</th>
-                  <th scope="col">Candidature</th>
-                </tr>
-              </thead>
-              <tbody>
-                {followups.map((f) => {
-                  const late = f.due_on <= today;
-                  return (
-                    <tr key={f.id}>
-                      <td data-label="Échéance" className="tight num">
-                        {day(f.due_on)}
-                        {late ? (
-                          <span className="cell-sub">
-                            <span className="badge red">à faire</span>
-                          </span>
-                        ) : null}
-                      </td>
-                      <td data-label="État">
-                        <span className={`badge ${f.state === "drafted" ? "green" : "yellow"}`}>
-                          {STATE_LABEL[f.state] ?? f.state}
-                        </span>
-                      </td>
-                      <td data-label="Poste">
-                        <span className="cell-main">{f.title}</span>
-                        <span className="cell-sub">{f.company_name}</span>
-                      </td>
-                      <td data-label="Candidature">
-                        <Link href={`/applications/${f.application_id}`}>
-                          <StatusPill status={f.status} />
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </TableWrap>
+          <ul className="card-grid-stack">
+            {followups.map((f) => {
+              const late = f.due_on <= today;
+              return (
+                <li key={f.id} className={`item-card-row${late ? " is-alert" : ""}`}>
+                  <div className="item-card-due">
+                    <span>{day(f.due_on)}</span>
+                    {late ? <span className="badge red">à faire</span> : null}
+                  </div>
+                  <div className="item-card-main">
+                    <div className="item-card-title">{f.title}</div>
+                    <div className="item-card-meta">
+                      <span>{f.company_name}</span>
+                      <span className={`badge ${f.state === "drafted" ? "green" : "yellow"}`}>
+                        {STATE_LABEL[f.state] ?? f.state}
+                      </span>
+                    </div>
+                  </div>
+                  <Link href={`/applications/${f.application_id}`}>
+                    <StatusPill status={f.status} />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Section>
 

@@ -370,6 +370,7 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     companyId: app.company_id,
     companyName: app.company_name,
     website: app.company_website,
+    postingUrl: app.url,
   });
   await logWorkflow(
     applicationId,

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { pool } from "./db";
+import { usableCompanyFact } from "./letter";
 import type { ApplicationDetail } from "./types";
 
 export type ResearchSignal = {
@@ -70,7 +71,20 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-async function fetchText(url: string): Promise<{ url: string; text: string } | null> {
+/** The page's own one-line description (meta or og:description): usually a clean statement about the company. */
+function metaDescription(html: string): string {
+  const tag = html.match(/<meta\b[^>]*(?:name|property)=["'](?:og:)?description["'][^>]*>/i)?.[0] ?? "";
+  const content = tag.match(/content=["']([^"']+)["']/i)?.[1] ?? "";
+  return content
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&apos;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchText(url: string): Promise<{ url: string; text: string; meta: string } | null> {
   try {
     const res = await fetch(url, {
       redirect: "follow",
@@ -84,7 +98,7 @@ async function fetchText(url: string): Promise<{ url: string; text: string } | n
     const html = await res.text();
     const text = stripHtml(html).slice(0, 12000);
     if (text.length < 80) return null;
-    return { url: res.url || url, text };
+    return { url: res.url || url, text, meta: metaDescription(html) };
   } catch {
     return null;
   }
@@ -95,7 +109,7 @@ function heuristicDossier(opts: {
   website: string | null;
   roleTitle: string;
   description: string | null;
-  pages: Array<{ url: string; text: string }>;
+  pages: Array<{ url: string; text: string; meta?: string }>;
 }): Omit<CompanyDossier, "id" | "company_id" | "application_id" | "researched_at"> {
   const page = opts.pages[0];
   const blob = [opts.description ?? "", ...opts.pages.map((p) => p.text)].join("\n");
@@ -109,10 +123,18 @@ function heuristicDossier(opts: {
         !/enable javascript|cookies?|privacy policy|all rights reserved|sign in|log in/i.test(s),
     );
 
-  const about =
-    sentences.find((s) => /we (?:are|build|help|provide|enable)|nous (?:sommes|aidons|offrons)/i.test(s)) ??
-    sentences[0] ??
-    `${opts.companyName} is hiring for ${opts.roleTitle}.`;
+  // The fact goes into a letter as "I am interested in X because ...", so it has to be a statement about
+  // the company, in the third person, that opens with its name: the page's own description first ("Genetec is a
+  // ..."), then sentences from the pages. "We build ..." is the company talking and is left out, as is
+  // page furniture; usableCompanyFact holds both rules. When nothing fits there is no fact, and the
+  // letter says so instead of pretending.
+  const stated = [...opts.pages.map((p) => p.meta ?? ""), ...sentences]
+    .map((c) => {
+      const asked = { companyName: opts.companyName };
+      return usableCompanyFact(c, { lang: "en", ...asked }) ?? usableCompanyFact(c, { lang: "fr", ...asked });
+    })
+    .find((c): c is string => c !== null);
+  const about = stated ?? `${opts.companyName} is hiring for ${opts.roleTitle}.`;
 
   const techHits = [
     ...blob.matchAll(
@@ -300,7 +322,7 @@ export async function researchCompanyForApplication(opts: {
     }
   }
 
-  const pages: Array<{ url: string; text: string }> = [];
+  const pages: Array<{ url: string; text: string; meta?: string }> = [];
   for (const url of [...new Set(urls)].slice(0, 3)) {
     const page = await fetchText(url);
     if (page) pages.push(page);

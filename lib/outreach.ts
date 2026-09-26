@@ -1,7 +1,8 @@
 import { pool } from "./db";
-import { createDraft } from "./gmail";
+import { createDraft, saveDraft } from "./gmail";
 import type { GmailAttachment } from "./gmail";
-import { detectLetterLang, fillOutreachEmail, type LetterLang } from "./letter";
+import { loadAttachments } from "./attachments";
+import { detectLetterLang, fillFollowupEmail, fillOutreachEmail, type LetterLang } from "./letter";
 import type { CompanyDossier } from "./research";
 import type { ApplicationDetail, Project } from "./types";
 
@@ -23,13 +24,14 @@ export type OutreachDraftRow = {
   sent_detected_at: Date | null;
   sent_at?: Date | null;
   approved_at?: Date | null;
+  gmail_message_id?: string | null;
 };
 
 export async function listOutreachForApplication(applicationId: string): Promise<OutreachDraftRow[]> {
   const { rows } = await pool.query<OutreachDraftRow>(
     `SELECT id, application_id, contact_id, resume_id, dossier_id, kind, lang,
             to_email, subject, body, gmail_draft_id, created_at, sent_detected_at,
-            sent_at, approved_at
+            sent_at, approved_at, gmail_message_id
        FROM outreach_drafts
       WHERE application_id = $1
       ORDER BY created_at DESC`,
@@ -76,53 +78,27 @@ export function buildPersonalizedOutreach(opts: {
     (lang === "fr"
       ? `Votre équipe recrute pour ${opts.app.title}.`
       : `Your team is hiring for ${opts.app.title}.`);
-  const signal = opts.dossier?.signals?.[0]?.signal;
-  const companyFact = [fact, signal && signal !== fact ? signal : ""].filter(Boolean).join(" ");
 
   if (kind === "followup") {
-    const greeting =
-      lang === "fr"
-        ? opts.recipientName
-          ? `Bonjour ${opts.recipientName},`
-          : "Bonjour,"
-        : opts.recipientName
-          ? `Hello ${opts.recipientName},`
-          : "Hello,";
-    const subject =
-      lang === "fr" ? `Relance - ${opts.app.title}` : `Following up - ${opts.app.title}`;
-    const body =
-      lang === "fr"
-        ? [
-            greeting,
-            "",
-            `Je vous relance au sujet du poste ${opts.app.title} chez ${opts.app.company_name}.`,
-            fact,
-            "",
-            "Je reste disponible si vous avez besoin d'autres documents.",
-            "",
-            "Cordialement,",
-            opts.fullName,
-          ].join("\n")
-        : [
-            greeting,
-            "",
-            `Following up on the ${opts.app.title} role at ${opts.app.company_name}.`,
-            fact,
-            "",
-            "Happy to send anything else you need.",
-            "",
-            "Best regards,",
-            opts.fullName,
-          ].join("\n");
-    return { subject, body, lang, wordCount: body.split(/\s+/).filter(Boolean).length };
+    const followup = fillFollowupEmail({
+      fullName: opts.fullName,
+      companyName: opts.app.company_name,
+      roleTitle: opts.app.title,
+      phone: opts.phone,
+      links: opts.links ?? [],
+      lang,
+      recruiterName: opts.recipientName,
+    });
+    return { subject: followup.subject, body: followup.body, lang, wordCount: followup.wordCount };
   }
 
   const mail = fillOutreachEmail({
     fullName: opts.fullName,
     companyName: opts.app.company_name,
     roleTitle: opts.app.title,
-    companyFact,
+    companyFact: fact,
     companyFactSource: opts.dossier?.company_fact_source ?? opts.app.company_website ?? "",
+    postingDescription: opts.app.description,
     projects: opts.projects,
     availability: opts.availability,
     locationRule: "",
@@ -134,14 +110,8 @@ export function buildPersonalizedOutreach(opts: {
     recruiterName: opts.recipientName ?? null,
   });
 
-  const subject =
-    kind === "application" || kind === "cover"
-      ? lang === "fr"
-        ? `Candidature - ${opts.app.title}`
-        : `Application - ${opts.app.title}`
-      : mail.subject;
-
-  return { subject, body: mail.body, lang, wordCount: mail.wordCount };
+  // "Application - [exact role title] - [name]" for every kind of first-contact email.
+  return { subject: mail.subject, body: mail.body, lang, wordCount: mail.wordCount };
 }
 
 export async function createOutreachDraft(opts: {
@@ -226,7 +196,7 @@ export async function getOutreachDraft(id: string): Promise<OutreachDraftRow | n
   const { rows } = await pool.query<OutreachDraftRow>(
     `SELECT id, application_id, contact_id, resume_id, dossier_id, kind, lang,
             to_email, subject, body, gmail_draft_id, created_at, sent_detected_at,
-            sent_at, approved_at
+            sent_at, approved_at, gmail_message_id
        FROM outreach_drafts WHERE id = $1`,
     [id],
   );
@@ -382,4 +352,80 @@ export async function approveOutreachDraft(opts: {
     `approved locally: Gmail draft not created (${gmailError}). Set up Gmail OAuth to push drafts automatically.`,
   );
   return { mode: "local", gmailId: null, gmailError };
+}
+
+/**
+ * Puts the finished email in Gmail as a draft with the CV and the cover letter attached, through the Gmail API
+ * (gmail.compose: it can make drafts, not send). If this application already has a draft, that draft is
+ * replaced with the current text and files instead of a second one being made. The recipient can be left
+ * empty and filled in inside Gmail.
+ */
+export async function saveApplicationDraft(opts: {
+  app: ApplicationDetail;
+  to: string | null;
+  subject: string;
+  body: string;
+  lang: LetterLang;
+}): Promise<{ mode: "created" | "updated"; draftId: string; messageId: string | null; attached: string[]; missing: string[] }> {
+  const to = opts.to?.trim().toLowerCase() || null;
+  if (to && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new Error("Cette adresse n'a pas l'air valide.");
+
+  const { rows } = await pool.query<OutreachDraftRow>(
+    `SELECT id, gmail_draft_id
+       FROM outreach_drafts
+      WHERE application_id = $1 AND kind = 'application'
+        AND sent_at IS NULL AND sent_detected_at IS NULL AND gmail_draft_id IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [opts.app.id],
+  );
+  const existing = rows[0] ?? null;
+
+  const { attachments, missing } = await loadAttachments(opts.app);
+  if (attachments.length === 0) {
+    throw new Error("Aucun fichier à joindre : génère d'abord la lettre à l'étape 1.");
+  }
+
+  const saved = await saveDraft({
+    to: to ?? undefined,
+    subject: opts.subject,
+    body: opts.body,
+    attachments,
+    draftId: existing?.gmail_draft_id ?? null,
+  });
+
+  const contact = to
+    ? (
+        await pool.query<{ id: string }>(
+          `SELECT id FROM contacts WHERE company_id = $1 AND lower(email) = $2 LIMIT 1`,
+          [opts.app.company_id, to],
+        )
+      ).rows[0]
+    : undefined;
+
+  if (existing) {
+    await pool.query(
+      `UPDATE outreach_drafts
+          SET to_email = $2, subject = $3, body = $4, lang = $5, contact_id = $6, resume_id = $7,
+              gmail_draft_id = $8, gmail_message_id = $9, approved_at = now(), approved_by = 'user'
+        WHERE id = $1`,
+      [existing.id, to ?? "", opts.subject, opts.body, opts.lang, contact?.id ?? null, opts.app.resume_id, saved.draftId, saved.messageId],
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO outreach_drafts (
+          application_id, contact_id, resume_id, kind, lang, to_email, subject, body,
+          gmail_draft_id, gmail_message_id, approved_at, approved_by
+        ) VALUES ($1, $2, $3, 'application', $4, $5, $6, $7, $8, $9, now(), 'user')`,
+      [opts.app.id, contact?.id ?? null, opts.app.resume_id, opts.lang, to ?? "", opts.subject, opts.body, saved.draftId, saved.messageId],
+    );
+  }
+
+  return {
+    mode: saved.updated ? "updated" : "created",
+    draftId: saved.draftId,
+    messageId: saved.messageId,
+    attached: attachments.map((a) => a.filename),
+    missing,
+  };
 }

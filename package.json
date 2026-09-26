@@ -32,6 +32,10 @@
     "assist:check": "tsx scripts/assist-check.ts",
     "resumes:import": "tsx scripts/import-resumes.ts",
     "dossier:check": "tsx scripts/dossier-check.ts",
+    "letter:check": "tsx scripts/letter-check.ts",
+    "packages:rebuild": "tsx scripts/rebuild-packages.ts",
+    "contact:check": "tsx scripts/contact-check.ts",
+    "contacts:find": "tsx scripts/find-contacts.ts",
     "demo:record": "tsx scripts/record-demo.ts"
   },
   "dependencies": {
@@ -48,7 +52,8 @@
     "cmdk": "^1.1.1",
     "decimal.js": "^10.6.0",
     "dotenv": "^18.0.1",
-    "exceljs": "^4.4.0",
+    "exceljs": "^3.4.0",
+    "google-auth-library": "^11.1.0",
     "googleapis": "^181.0.0",
     "next": "16.3.5",
     "node-cron": "^4.6.0",

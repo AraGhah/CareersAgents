@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Hanken_Grotesk, IBM_Plex_Mono, Newsreader } from "next/font/google";
+import { IBM_Plex_Mono, Inter } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { CommandPaletteProvider } from "./components/command-palette";
@@ -12,20 +12,10 @@ import { IconBrand } from "./components/icons";
 import { assistedModeDefault } from "../lib/sources";
 import { getDeskOwner } from "../lib/desk-owner";
 
-const sans = Hanken_Grotesk({
+const sans = Inter({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
-});
-
-// The optical-size axis lets titles use the display cut (finer hairlines,
-// tighter spacing) while small serif text stays sturdy.
-const display = Newsreader({
-  subsets: ["latin"],
-  style: ["normal", "italic"],
-  axes: ["opsz"],
-  display: "swap",
-  variable: "--font-display",
 });
 
 const mono = IBM_Plex_Mono({
@@ -42,16 +32,15 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f3f4f0" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0f0d" },
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
   ],
 };
 
 /** Applies the stored theme before first paint so the page never flashes.
- *  Dark is the default identity: only an explicit stored "light" choice
- *  ever sets the attribute here — everything else falls through to the CSS
- *  default (dark), except a first-time OS light preference (handled in CSS). */
-const THEME_SCRIPT = `try{var t=localStorage.getItem('desk-theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t}}catch(e){}`;
+ *  Light (v4) is the default identity; only an explicit stored "dark" choice
+ *  switches away. */
+const THEME_SCRIPT = `try{var t=localStorage.getItem('desk-theme');document.documentElement.dataset.theme=(t==='dark'||t==='light')?t:'light'}catch(e){document.documentElement.dataset.theme='light'}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // A pure env-var read, not a DB query — safe in the layout even during a
@@ -63,7 +52,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="fr"
-      className={`${sans.variable} ${mono.variable} ${display.variable}`}
+      className={`${sans.variable} ${mono.variable}`}
+      data-theme="light"
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >

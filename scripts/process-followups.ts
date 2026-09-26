@@ -6,6 +6,7 @@
 import { pool } from "../lib/db";
 import { createDraft } from "../lib/gmail";
 import { followupTemplate } from "../lib/followups";
+import { detectLetterLang, parseLinks } from "../lib/letter";
 
 const DRY = process.argv.includes("--dry");
 const TODAY = process.argv.find((a) => a.startsWith("--on="))?.slice(5);
@@ -19,6 +20,8 @@ type DueRow = {
   company_name: string;
   company_id: string;
   full_name: string | null;
+  phone: string | null;
+  links: string | null;
 };
 
 async function contactForCompany(companyId: string): Promise<{ email: string; source_url: string } | null> {
@@ -57,7 +60,9 @@ async function run() {
   const { rows } = await pool.query<DueRow>(
     `SELECT f.id, f.due_on::text, f.application_id, a.submitted_at,
             j.title, c.name AS company_name, c.id AS company_id,
-            (SELECT answer_en FROM answers WHERE key = 'full_name') AS full_name
+            (SELECT answer_en FROM answers WHERE key = 'full_name') AS full_name,
+            (SELECT answer_en FROM answers WHERE key = 'phone') AS phone,
+            (SELECT answer_en FROM answers WHERE key = 'links') AS links
        FROM followups f
        JOIN applications a ON a.id = f.application_id
        JOIN jobs j ON j.id = a.job_id
@@ -98,7 +103,10 @@ async function run() {
       companyName: row.company_name,
       roleTitle: row.title,
       fullName: row.full_name ?? "Ara Ghahramanyan",
+      phone: row.phone ?? undefined,
+      links: parseLinks(row.links),
       daysSinceSubmit: days,
+      lang: detectLetterLang(row.title, null),
     });
 
     if (DRY) {

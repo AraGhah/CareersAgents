@@ -312,6 +312,14 @@ export async function listContactsForCompany(companyId: string) {
   return rows;
 }
 
+/** Records a company's website when it has none. A website that is already stored is never replaced. */
+export async function setCompanyWebsite(companyId: string, website: string) {
+  await pool.query(
+    `UPDATE companies SET website = $2 WHERE id = $1 AND (website IS NULL OR btrim(website) = '')`,
+    [companyId, website],
+  );
+}
+
 export async function addVerifiedContact(opts: {
   companyId: string;
   name?: string | null;

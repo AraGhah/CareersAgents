@@ -1,9 +1,8 @@
 /* ==========================================================================
-   Internship Desk
-   Deep green-black surfaces, a warm cream for text and the primary action, one
-   restrained mint for "you are here" and links, and a brass for what needs a
-   decision. Titles set in a text serif; everything else in a humanist sans.
-   Color carries meaning (status, score, priority), not decoration.
+   Internship Desk — v4 professional light UI
+   Clean light surfaces, Inter, blue accent, white cards. Color still carries
+   meaning (status, score, priority); the optional dark theme keeps the same
+   blue accent on slate surfaces.
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
@@ -11,53 +10,53 @@
    -------------------------------------------------------------------------- */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --chrome: #070b09;
-  --paper-0: #0b110e;
-  --paper-1: #111a16;
-  --paper-2: #17211c;
-  --paper-3: #1e2a24;
-  --paper-4: #283630;
+  --chrome: #f1f5f9;
+  --paper-0: #f8fafc;
+  --paper-1: #ffffff;
+  --paper-2: #f1f5f9;
+  --paper-3: #e2e8f0;
+  --paper-4: #cbd5e1;
 
-  --ink-0: #eef1ea;
-  --ink-1: #cdd3ca;
-  --ink-2: #98a39b;
-  --ink-3: #79847c;
+  --ink-0: #0f172a;
+  --ink-1: #334155;
+  --ink-2: #64748b;
+  --ink-3: #94a3b8;
 
-  --line: rgb(218 235 224 / 0.08);
-  --line-strong: rgb(218 235 224 / 0.15);
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
 
   /* Accent: links, the current page, focus. */
-  --accent: #86d4ae;
-  --accent-hover: #a1e0c1;
-  --accent-active: #6fc39a;
-  --accent-on: #06140d;
-  --accent-soft: rgb(134 212 174 / 0.1);
-  --accent-soft-strong: rgb(134 212 174 / 0.18);
-  --accent-line: rgb(134 212 174 / 0.3);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-active: #1e40af;
+  --accent-on: #ffffff;
+  --accent-soft: #eff6ff;
+  --accent-soft-strong: #dbeafe;
+  --accent-line: #93c5fd;
 
-  /* Primary action: warm cream. */
-  --primary-bg: #eef1ea;
-  --primary-bg-hover: #ffffff;
-  --primary-fg: #0a100d;
+  /* Primary action: solid blue. */
+  --primary-bg: #2563eb;
+  --primary-bg-hover: #1d4ed8;
+  --primary-fg: #ffffff;
 
-  --good: #74d3a4;
-  --good-on: #06140d;
-  --good-soft: rgb(116 211 164 / 0.11);
-  --good-line: rgb(116 211 164 / 0.3);
-  --brass: #d8b56a;
-  --brass-soft: rgb(216 181 106 / 0.11);
-  --brass-line: rgb(216 181 106 / 0.3);
-  --amber: #e79b5c;
-  --amber-soft: rgb(231 155 92 / 0.11);
-  --amber-line: rgb(231 155 92 / 0.3);
-  --clay: #ea7d86;
-  --clay-soft: rgb(234 125 134 / 0.11);
-  --clay-line: rgb(234 125 134 / 0.3);
-  --slate: #88b0e8;
-  --slate-soft: rgb(136 176 232 / 0.11);
-  --slate-line: rgb(136 176 232 / 0.3);
+  --good: #059669;
+  --good-on: #ffffff;
+  --good-soft: #ecfdf5;
+  --good-line: #a7f3d0;
+  --brass: #b45309;
+  --brass-soft: #fffbeb;
+  --brass-line: #fde68a;
+  --amber: #c2410c;
+  --amber-soft: #fff7ed;
+  --amber-line: #fed7aa;
+  --clay: #dc2626;
+  --clay-soft: #fef2f2;
+  --clay-line: #fecaca;
+  --slate: #3b82f6;
+  --slate-soft: #eff6ff;
+  --slate-line: #bfdbfe;
 
   --s-1: 0.25rem;
   --s-2: 0.5rem;
@@ -78,9 +77,9 @@
   --r-pill: 999px;
 
   --edge: 0 0 #0000;
-  --shadow-1: 0 1px 2px rgb(0 8 4 / 0.4);
-  --shadow-2: 0 8px 24px rgb(0 8 4 / 0.4);
-  --shadow-pop: 0 12px 32px -6px rgb(0 8 4 / 0.65), 0 0 0 1px rgb(218 235 224 / 0.07);
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-2: 0 8px 24px rgb(15 23 42 / 0.08);
+  --shadow-pop: 0 12px 32px -8px rgb(15 23 42 / 0.18), 0 0 0 1px rgb(15 23 42 / 0.05);
 
   --dur-1: 120ms;
   --dur-2: 180ms;
@@ -94,22 +93,20 @@
   --page-max: 84rem;
 
   --focus: 0 0 0 2px var(--paper-0), 0 0 0 4px var(--accent);
-  --primary-face: linear-gradient(180deg, color-mix(in srgb, var(--primary-bg) 88%, white), var(--primary-bg));
+  --primary-face: linear-gradient(180deg, color-mix(in srgb, var(--primary-bg) 92%, white), var(--primary-bg));
 
-  /* Depth: every raised surface catches the same light from above - a
-     hairline highlight on its top edge, a soft green-black shadow below. */
-  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.04);
-  --surface: linear-gradient(180deg, rgb(255 255 255 / 0.018), rgb(255 255 255 / 0) 55%), var(--paper-1);
-  --shadow-card: 0 1px 0 rgb(0 6 3 / 0.3), 0 10px 28px -16px rgb(0 8 4 / 0.7);
-  --shadow-lift: 0 1px 0 rgb(0 6 3 / 0.3), 0 14px 30px -14px rgb(0 8 4 / 0.85);
-  --primary-shadow: 0 0 0 1px rgb(0 0 0 / 0.25), 0 6px 18px -8px rgb(238 241 234 / 0.28);
+  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.95);
+  --surface: #ffffff;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -14px rgb(15 23 42 / 0.12);
+  --shadow-lift: 0 1px 2px rgb(15 23 42 / 0.05), 0 14px 30px -14px rgb(15 23 42 / 0.18);
+  --primary-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 1px 2px rgb(37 99 235 / 0.25), 0 6px 16px -8px rgb(37 99 235 / 0.45);
   --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
 
   /* Layers, low to high. */
   --z-rail: 30;
   --z-topbar: 40;
 
-  --check-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%230a100d' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+  --check-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
   --arrow-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 11 11 5M6 5h5v5'/%3E%3C/svg%3E");
   --search-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.5'/%3E%3Cpath d='m10.5 10.5 3 3'/%3E%3C/svg%3E");
   --plus-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M8 3.5v9M3.5 8h9'/%3E%3C/svg%3E");
@@ -117,128 +114,67 @@
   --circle-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm3.7 6.7L7.4 11.1 4.3 7.9l1-1 2.1 2.2 3.3-3.4 1 1Z'/%3E%3C/svg%3E");
 }
 
-:root[data-theme="light"] {
-  color-scheme: light;
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-  --chrome: #e9ece5;
-  --paper-0: #f3f5f0;
-  --paper-1: #fbfcf9;
-  --paper-2: #eef1ea;
-  --paper-3: #e3e8e0;
-  --paper-4: #d5dcd2;
+  --chrome: #0b1220;
+  --paper-0: #0f172a;
+  --paper-1: #1e293b;
+  --paper-2: #273549;
+  --paper-3: #334155;
+  --paper-4: #475569;
 
-  --ink-0: #131c17;
-  --ink-1: #34423a;
-  --ink-2: #5c6a61;
-  --ink-3: #6b786f;
+  --ink-0: #f8fafc;
+  --ink-1: #cbd5e1;
+  --ink-2: #94a3b8;
+  --ink-3: #64748b;
 
-  --line: #dde3da;
-  --line-strong: #c6cfc4;
+  --line: rgb(148 163 184 / 0.14);
+  --line-strong: rgb(148 163 184 / 0.24);
 
-  --accent: #1d6a4a;
-  --accent-hover: #175539;
-  --accent-active: #114530;
-  --accent-on: #ffffff;
-  --accent-soft: #e1efe7;
-  --accent-soft-strong: #cfe4d8;
-  --accent-line: #a9cdb9;
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-active: #3b82f6;
+  --accent-on: #0f172a;
+  --accent-soft: rgb(96 165 250 / 0.12);
+  --accent-soft-strong: rgb(96 165 250 / 0.2);
+  --accent-line: rgb(96 165 250 / 0.35);
 
-  --primary-bg: #15211b;
-  --primary-bg-hover: #000000;
-  --primary-fg: #f4f6f1;
-  --check-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+  --primary-bg: #3b82f6;
+  --primary-bg-hover: #60a5fa;
+  --primary-fg: #ffffff;
 
-  --good: #1a7a4f;
-  --good-on: #ffffff;
-  --good-soft: #e0f1e8;
-  --good-line: #b0d9c2;
-  --brass: #86651a;
-  --brass-soft: #f5edd7;
-  --brass-line: #e0cf9c;
-  --amber: #a4510f;
-  --amber-soft: #fbebdc;
-  --amber-line: #edc5a3;
-  --clay: #b13a4a;
-  --clay-soft: #fbe6e9;
-  --clay-line: #efbcc4;
-  --slate: #2f5ea3;
-  --slate-soft: #e6eefb;
-  --slate-line: #bdd0ee;
+  --good: #34d399;
+  --good-on: #064e3b;
+  --good-soft: rgb(52 211 153 / 0.12);
+  --good-line: rgb(52 211 153 / 0.3);
+  --brass: #fbbf24;
+  --brass-soft: rgb(251 191 36 / 0.12);
+  --brass-line: rgb(251 191 36 / 0.3);
+  --amber: #fb923c;
+  --amber-soft: rgb(251 146 60 / 0.12);
+  --amber-line: rgb(251 146 60 / 0.3);
+  --clay: #f87171;
+  --clay-soft: rgb(248 113 113 / 0.12);
+  --clay-line: rgb(248 113 113 / 0.3);
+  --slate: #93c5fd;
+  --slate-soft: rgb(147 197 253 / 0.12);
+  --slate-line: rgb(147 197 253 / 0.3);
 
-  --shadow-1: 0 1px 2px rgb(19 28 23 / 0.06);
-  --shadow-2: 0 8px 24px rgb(19 28 23 / 0.1);
-  --shadow-pop: 0 12px 32px -8px rgb(19 28 23 / 0.2), 0 0 0 1px rgb(19 28 23 / 0.06);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 12px 32px -6px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(148 163 184 / 0.1);
 
-  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.9);
-  --surface: linear-gradient(180deg, #ffffff, rgb(255 255 255 / 0) 55%), var(--paper-1);
-  --shadow-card: 0 1px 2px rgb(19 28 23 / 0.05), 0 8px 24px -14px rgb(19 28 23 / 0.16);
-  --shadow-lift: 0 1px 2px rgb(19 28 23 / 0.06), 0 14px 30px -14px rgb(19 28 23 / 0.24);
-  --primary-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(19 28 23 / 0.2), 0 6px 16px -8px rgb(19 28 23 / 0.5);
+  --bevel: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --surface: linear-gradient(180deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0) 55%), var(--paper-1);
+  --shadow-card: 0 1px 0 rgb(0 0 0 / 0.25), 0 10px 28px -16px rgb(0 0 0 / 0.55);
+  --shadow-lift: 0 1px 0 rgb(0 0 0 / 0.25), 0 14px 30px -14px rgb(0 0 0 / 0.65);
+  --primary-shadow: 0 0 0 1px rgb(0 0 0 / 0.25), 0 6px 18px -8px rgb(59 130 246 / 0.4);
 }
 
-/* System preference only applies before the visitor has an explicit choice
-   AND before the inline layout script has run: the script defaults new
-   visitors to dark, and only a stored "light" choice, or this media query
-   pre-hydration, ever shows light. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]):not([data-theme="light"]) {
-    color-scheme: light;
-
-    --chrome: #e9ece5;
-    --paper-0: #f3f5f0;
-    --paper-1: #fbfcf9;
-    --paper-2: #eef1ea;
-    --paper-3: #e3e8e0;
-    --paper-4: #d5dcd2;
-
-    --ink-0: #131c17;
-    --ink-1: #34423a;
-    --ink-2: #5c6a61;
-    --ink-3: #6b786f;
-
-    --line: #dde3da;
-    --line-strong: #c6cfc4;
-
-    --accent: #1d6a4a;
-    --accent-hover: #175539;
-    --accent-active: #114530;
-    --accent-on: #ffffff;
-    --accent-soft: #e1efe7;
-    --accent-soft-strong: #cfe4d8;
-    --accent-line: #a9cdb9;
-
-    --primary-bg: #15211b;
-    --primary-bg-hover: #000000;
-    --primary-fg: #f4f6f1;
-    --check-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
-
-    --good: #1a7a4f;
-    --good-on: #ffffff;
-    --good-soft: #e0f1e8;
-    --good-line: #b0d9c2;
-    --brass: #86651a;
-    --brass-soft: #f5edd7;
-    --brass-line: #e0cf9c;
-    --amber: #a4510f;
-    --amber-soft: #fbebdc;
-    --amber-line: #edc5a3;
-    --clay: #b13a4a;
-    --clay-soft: #fbe6e9;
-    --clay-line: #efbcc4;
-    --slate: #2f5ea3;
-    --slate-soft: #e6eefb;
-    --slate-line: #bdd0ee;
-
-    --shadow-1: 0 1px 2px rgb(19 28 23 / 0.06);
-    --shadow-2: 0 8px 24px rgb(19 28 23 / 0.1);
-    --shadow-pop: 0 12px 32px -8px rgb(19 28 23 / 0.2), 0 0 0 1px rgb(19 28 23 / 0.06);
-
-    --bevel: inset 0 1px 0 rgb(255 255 255 / 0.9);
-    --surface: linear-gradient(180deg, #ffffff, rgb(255 255 255 / 0) 55%), var(--paper-1);
-    --shadow-card: 0 1px 2px rgb(19 28 23 / 0.05), 0 8px 24px -14px rgb(19 28 23 / 0.16);
-    --shadow-lift: 0 1px 2px rgb(19 28 23 / 0.06), 0 14px 30px -14px rgb(19 28 23 / 0.24);
-    --primary-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(19 28 23 / 0.2), 0 6px 16px -8px rgb(19 28 23 / 0.5);
-  }
+/* Explicit light choice mirrors :root (script always sets data-theme). */
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* --------------------------------------------------------------------------
@@ -290,25 +226,22 @@ h4 {
   margin: 0;
 }
 
-/* Titles are the one place the serif appears. */
 h1,
 h2 {
-  font-family: var(--font-display), Georgia, serif;
-  font-weight: 400;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
 }
 
 h1 {
-  font-size: clamp(2.1rem, 1.55rem + 1.45vw, 2.9rem);
-  letter-spacing: -0.03em;
-  line-height: 1.02;
-  font-optical-sizing: auto;
+  font-size: clamp(1.75rem, 1.4rem + 1.1vw, 2.25rem);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
 }
 
 h2 {
-  font-size: 1.45rem;
-  font-weight: 450;
-  letter-spacing: -0.018em;
-  font-optical-sizing: auto;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 h3 {
@@ -442,9 +375,7 @@ hr {
   gap: var(--s-5);
   padding: 0 var(--s-3) var(--s-4);
   border-right: 1px solid var(--line);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.012), transparent 40%),
-    var(--chrome);
+  background: var(--chrome);
 }
 
 .brand {
@@ -476,18 +407,18 @@ hr {
 }
 
 .brand-mark {
-  font-family: var(--font-display), Georgia, serif;
-  font-size: 1.12rem;
-  font-weight: 500;
-  line-height: 1.1;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.15;
   letter-spacing: -0.02em;
   color: var(--ink-0);
   white-space: nowrap;
 }
 
 .brand-mark em {
-  font-style: italic;
-  font-weight: 400;
+  font-style: normal;
+  font-weight: 600;
   color: var(--accent);
 }
 
@@ -497,8 +428,7 @@ hr {
   letter-spacing: 0.01em;
 }
 
-/* Logomark: a ranked list - the product in one glyph - on a machined tile.
-   Same dark tile in both themes so the mark reads as one object. */
+/* Logomark: ranked list on a blue tile — same mark in both themes. */
 .brand-logo {
   display: inline-grid;
   place-items: center;
@@ -507,12 +437,12 @@ hr {
   height: 28px;
   border-radius: 8px;
   background:
-    radial-gradient(120% 90% at 30% 0%, rgb(134 212 174 / 0.28), transparent 60%),
-    linear-gradient(180deg, #1d2b24, #0e1612);
+    radial-gradient(120% 90% at 30% 0%, rgb(147 197 253 / 0.35), transparent 60%),
+    linear-gradient(180deg, #3b82f6, #1d4ed8);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.12),
-    inset 0 0 0 1px rgb(134 212 174 / 0.22),
-    0 2px 6px -2px rgb(0 0 0 / 0.5);
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    inset 0 0 0 1px rgb(37 99 235 / 0.35),
+    0 2px 6px -2px rgb(37 99 235 / 0.35);
   transition: transform var(--dur-3) var(--ease-spring);
 }
 
@@ -585,8 +515,8 @@ hr {
   right: 0;
   height: 34px;
   border-radius: var(--r-md);
-  background: var(--paper-3);
-  box-shadow: var(--bevel), 0 0 0 1px var(--line);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   transform: translateY(var(--nav-y, 0px));
   opacity: var(--nav-o, 0);
   transition:
@@ -630,7 +560,7 @@ hr {
 
 .nav-link[aria-current="page"] {
   color: var(--ink-0);
-  font-weight: 500;
+  font-weight: 600;
   background: transparent;
 }
 
@@ -1269,17 +1199,15 @@ a.stat:hover::after {
   box-shadow: 0 0 0 3px var(--clay-soft);
 }
 
-/* The figure is the one large serif element on a dashboard page. */
 .stat-value {
   display: block;
   margin-top: var(--s-3);
-  font-family: var(--font-display), Georgia, serif;
-  font-optical-sizing: auto;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-variant-numeric: lining-nums tabular-nums;
-  font-size: 2.6rem;
-  font-weight: 400;
+  font-size: 2.25rem;
+  font-weight: 650;
   line-height: 1;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
   color: var(--ink-0);
 }
 
@@ -2562,15 +2490,12 @@ thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--paper-1);
+  background: color-mix(in srgb, var(--paper-2) 70%, var(--paper-1));
   font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--ink-3);
   white-space: nowrap;
-}
-
-thead th {
   padding-top: var(--s-3);
   padding-bottom: var(--s-3);
   border-bottom: 1px solid var(--line);
@@ -2602,11 +2527,11 @@ thead th {
 }
 
 .job-title {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--ink-0);
   text-decoration: none;
   line-height: 1.35;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.01em;
 }
 
 .job-title:hover {
@@ -2681,6 +2606,144 @@ thead th {
 .tile-slate  { background: var(--slate-soft);  color: var(--slate); }
 .tile-amber  { background: var(--amber-soft);  color: var(--amber); }
 .tile-clay   { background: var(--clay-soft);   color: var(--clay); }
+
+/* --------------------------------------------------------------------------
+   9b. Card grids — CV library and follow-up lists (v4 white cards)
+   -------------------------------------------------------------------------- */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card-grid-stack {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--bevel), var(--shadow-card);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--ease-spring);
+}
+
+.item-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--bevel), var(--shadow-lift);
+}
+
+.item-card.is-active {
+  border-color: var(--accent-line);
+  box-shadow: var(--bevel), var(--shadow-card), 0 0 0 1px var(--accent-soft-strong);
+}
+
+.item-card.is-alert {
+  border-left: 3px solid var(--clay);
+}
+
+.item-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.item-card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink-0);
+  line-height: 1.3;
+}
+
+.item-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.item-card-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.item-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--line);
+}
+
+.item-card-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr) auto;
+  gap: var(--s-4);
+  align-items: center;
+  padding: var(--s-4) var(--s-5);
+  background: var(--paper-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--bevel), var(--shadow-card);
+  transition:
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+}
+
+.item-card-row:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--bevel), var(--shadow-lift);
+}
+
+.item-card-row.is-alert {
+  border-left: 3px solid var(--clay);
+}
+
+.item-card-main {
+  min-width: 0;
+}
+
+.item-card-due {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-0);
+}
+
+@media (max-width: 640px) {
+  .item-card-row {
+    grid-template-columns: 1fr;
+    gap: var(--s-3);
+  }
+}
 
 th,
 td {
@@ -3264,10 +3327,10 @@ a.cell-main:hover {
   flex: 0 0 17rem;
   width: 17rem;
   max-height: min(72vh, 44rem);
-  background: var(--surface);
+  background: var(--paper-2);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--bevel), var(--shadow-card);
+  box-shadow: none;
   padding: var(--s-2);
   min-height: 5rem;
   scroll-snap-align: start;
@@ -3374,10 +3437,10 @@ a.cell-main:hover {
   grid-template-rows: auto auto;
   gap: var(--s-2);
   padding: 0.55rem var(--s-3) 0.55rem 0.35rem;
-  background: var(--paper-2);
+  background: var(--paper-1);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  box-shadow: var(--bevel);
+  box-shadow: var(--bevel), var(--shadow-1);
   color: var(--ink-0);
   font-size: 0.8125rem;
   font-weight: 500;
@@ -4183,6 +4246,283 @@ pre.code-block.as-text {
   padding-top: var(--s-5);
   border-top: 1px solid var(--line);
   font-size: 0.85rem;
+}
+
+/* --------------------------------------------------------------------------
+   Application page: three steps (Préparer, Relire, Envoyer), then the rest folded away
+   -------------------------------------------------------------------------- */
+
+.apply-steps {
+  list-style: none;
+  margin: 0 0 var(--s-8);
+  padding: 0;
+  display: grid;
+  gap: var(--s-4);
+}
+
+.apply-step {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--bevel), var(--shadow-card);
+}
+
+.apply-step.is-current {
+  border-left: 3px solid var(--accent);
+}
+
+.apply-step.is-locked {
+  background: transparent;
+  box-shadow: none;
+}
+
+.apply-step.is-locked .apply-step-title {
+  color: var(--ink-3);
+}
+
+.apply-step-num {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.apply-step.is-current .apply-step-num {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.apply-step.is-done .apply-step-num {
+  border-color: var(--good-line);
+  color: var(--good);
+  background: var(--good-soft);
+}
+
+.apply-step-body {
+  min-width: 0;
+}
+
+.apply-step-title {
+  margin: 0.15rem 0 var(--s-2);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.apply-step-lede {
+  margin: 0 0 var(--s-4);
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-size: 0.9rem;
+}
+
+.apply-step-lede:last-child {
+  margin-bottom: 0;
+}
+
+/* "Personnaliser" — a plain disclosure that keeps its inputs in the form. */
+.apply-more {
+  margin: 0 0 var(--s-4);
+}
+
+.apply-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) 0;
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+
+.apply-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.apply-more > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--dur-2) var(--ease);
+}
+
+.apply-more[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+/* The global form-actions rule draws a divider; inside a step the card is the divider. */
+.apply-step .form-actions {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.apply-step .apply-sent {
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+.apply-more > summary:hover {
+  color: var(--ink-0);
+}
+
+.apply-more-body {
+  display: grid;
+  gap: var(--s-4);
+  max-width: 44rem;
+  margin-top: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper-0);
+}
+
+.apply-issues ul {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-4);
+  padding-left: 1.1rem;
+  color: var(--ink-1);
+  font-size: 0.875rem;
+}
+
+.apply-email {
+  margin-bottom: var(--s-3);
+}
+
+.apply-letter {
+  padding-top: var(--s-2);
+}
+
+.send-panel {
+  display: grid;
+  gap: var(--s-4);
+  max-width: 44rem;
+}
+
+/* Other addresses found for the company: one click to use one. */
+.send-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: calc(var(--s-2) * -1);
+}
+
+/* No public address: say so, and point to the way in that does work. */
+.send-none {
+  padding: var(--s-4);
+  border: 1px solid var(--brass-line);
+  border-radius: var(--r-md);
+  background: var(--brass-soft);
+}
+
+.send-none p {
+  margin: 0 0 var(--s-3);
+  color: var(--ink-1);
+  font-size: 0.875rem;
+}
+
+.send-none .form-actions {
+  margin-top: 0;
+}
+
+/* The Gmail draft, with the CV and letter attached. */
+.send-gmail {
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper-0);
+}
+
+.send-gmail-title {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.send-gmail-lede {
+  margin: 0 0 var(--s-3);
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.send-gmail-meta {
+  margin: var(--s-3) 0 0;
+  color: var(--ink-3);
+  font-size: 0.8125rem;
+}
+
+.send-gmail .form-actions,
+.send-panel .apply-more-body .form-actions {
+  margin-top: 0;
+}
+
+.send-files-title {
+  margin: var(--s-3) 0 var(--s-2);
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+
+.send-files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apply-sent {
+  margin: var(--s-5) 0 0;
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+.more-options {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.more-options > .disclosure {
+  padding: var(--s-1) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+/* Padding only while open: inside a 0fr collapse it would otherwise keep a strip of the content showing. */
+.more-options > .disclosure .collapse.is-open .collapse-inner {
+  padding-bottom: var(--s-3);
+}
+
+@media (max-width: 640px) {
+  .apply-step {
+    grid-template-columns: 1fr;
+    padding: var(--s-4);
+  }
+
+  .apply-step-num {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
 }
 
 /* --------------------------------------------------------------------------

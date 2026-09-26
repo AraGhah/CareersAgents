@@ -1,19 +1,22 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { detectCategories } from "./category";
 import {
+  EMAIL_WORD_RANGE,
   bankForForm,
   detectLetterLang,
   fillLetter,
   fillOutreachEmail,
   flagUnknownNouns,
   parseLinks,
+  usableCompanyFact,
   type LetterInput,
   type LetterLang,
   type MatchedAnswer,
   type NounFlag,
 } from "./letter";
+import { renderLetterPdf } from "./letter-pdf";
+import { projectFacts } from "./project-facts";
 import { pool } from "./db";
 import { listContactsForCompany, updateApplicationFields } from "./queries";
 import { pickBestContact } from "./recruiter";
@@ -105,65 +108,36 @@ export async function projectsForCategories(categories: string[]): Promise<Proje
     return rows;
   }
 
+  // Most relevant first: the letter builds its "proof" paragraph on the first project.
   const { rows } = await pool.query<Project>(
     `SELECT id, name, summary, tech, url, highlight_for
        FROM projects
       WHERE highlight_for && $1::text[]
-      ORDER BY name
+      ORDER BY (SELECT count(*) FROM unnest(highlight_for) AS h WHERE h = ANY($1::text[])) DESC, name
       LIMIT 3`,
     [categories],
   );
 
-  if (rows.length > 0) return rows;
+  if (rows.length >= 2) return rows;
+
+  if (rows.length === 1) {
+    // The letter draws its "match" and "proof" paragraphs from two different projects, so a
+    // role that fits only one still gets a second. Game projects stay out unless the role is one.
+    const extra = await pool.query<Project>(
+      `SELECT id, name, summary, tech, url, highlight_for
+         FROM projects
+        WHERE id <> $1 AND NOT ('gamedev' = ANY(COALESCE(highlight_for, '{}')))
+        ORDER BY name
+        LIMIT 1`,
+      [rows[0].id],
+    );
+    return [...rows, ...extra.rows];
+  }
 
   const fallback = await pool.query<Project>(
     `SELECT id, name, summary, tech, url, highlight_for FROM projects ORDER BY name LIMIT 2`,
   );
   return fallback.rows;
-}
-
-async function writePdf(letter: string, filePath: string) {
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.TimesRoman);
-  const fontSize = 11;
-  const lineHeight = 14;
-  const margin = 54;
-  let page = doc.addPage();
-  let { width, height } = page.getSize();
-  let y = height - margin;
-
-  const maxWidth = width - margin * 2;
-  const paragraphs = letter.split("\n");
-
-  for (const paragraph of paragraphs) {
-    const words = paragraph.length === 0 ? [""] : paragraph.split(/\s+/);
-    let line = "";
-    for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (font.widthOfTextAtSize(next, fontSize) > maxWidth && line) {
-        page.drawText(line, { x: margin, y, size: fontSize, font, color: rgb(0.1, 0.1, 0.1) });
-        y -= lineHeight;
-        line = word;
-        if (y < margin) {
-          page = doc.addPage();
-          ({ width, height } = page.getSize());
-          y = height - margin;
-        }
-      } else {
-        line = next;
-      }
-    }
-    page.drawText(line, { x: margin, y, size: fontSize, font, color: rgb(0.1, 0.1, 0.1) });
-    y -= lineHeight;
-    if (y < margin) {
-      page = doc.addPage();
-      ({ width, height } = page.getSize());
-      y = height - margin;
-    }
-  }
-
-  const bytes = await doc.save();
-  await writeFile(filePath, bytes);
 }
 
 async function fileExists(filePath: string | null): Promise<boolean> {
@@ -226,10 +200,13 @@ export async function runChecklist(opts: {
   letter: string;
   input: LetterInput;
   flags: NounFlag[];
+  /** The generated email and the rendered page count, for the guide's "before sending" checks. */
+  email?: { subject: string; body: string; wordCount: number };
+  letterPages?: number;
   /** Live HEAD/GET requests per link, ~10s timeout each, sequential — skip for bulk builds. */
   checkLinks?: boolean;
 }): Promise<ChecklistItem[]> {
-  const { app, letter, input, flags } = opts;
+  const { app, letter, input, flags, email, letterPages } = opts;
   const checkLinks = opts.checkLinks ?? true;
   const resumeOk = await fileExists(app.resume_path);
 
@@ -266,6 +243,61 @@ export async function runChecklist(opts: {
     },
   ];
 
+  // The guide's "quick check before sending": no leftover brackets, one page,
+  // a short email, a verified company detail, and a proof project with real facts.
+  const bracket = /\[[^\]]*\]/;
+  checklist.push({
+    id: "brackets",
+    ok: !bracket.test(letter) && !(email && (bracket.test(email.body) || bracket.test(email.subject))),
+    label: "No template brackets left in the letter or email",
+    detail: "no [placeholder] text",
+  });
+
+  if (letterPages !== undefined) {
+    checklist.push({
+      id: "page",
+      ok: letterPages === 1,
+      label: "Cover letter fits on one page",
+      detail: `${letterPages} page(s)`,
+    });
+  }
+
+  if (email) {
+    const { min, max } = EMAIL_WORD_RANGE;
+    checklist.push({
+      id: "email_length",
+      ok: email.wordCount >= min && email.wordCount <= max,
+      label: `Email is short (${min}–${max} words; the guide says about 150–200)`,
+      detail: `${email.wordCount} words`,
+    });
+  }
+
+  const fact = usableCompanyFact(input.companyFact, {
+    lang: input.lang,
+    verified: input.companyFactVerified,
+    companyName: input.companyName,
+  });
+  checklist.push({
+    id: "company_fact",
+    ok: fact !== null,
+    label: "Company fit uses a verified company fact",
+    detail: fact
+      ? input.companyFactSource
+      : "no usable fact, so the letter talks about the role instead; write a real fact with its source",
+  });
+
+  const proof = input.projects[0];
+  checklist.push({
+    id: "project_facts",
+    ok: proof !== undefined && projectFacts(proof) !== null,
+    label: "Proof project has hand-written letter facts",
+    detail: proof
+      ? projectFacts(proof)
+        ? proof.name
+        : `${proof.name}: add it to lib/project-facts.ts`
+      : "no project selected",
+  });
+
   if (checkLinks) {
     const linkChecks = await linkStatuses(input.links);
     const failedLinks = linkChecks.filter((l) => !l.ok);
@@ -296,6 +328,8 @@ export async function buildApplicationPackage(opts: {
   app: ApplicationDetail;
   companyFact: string;
   companyFactSource: string;
+  /** True when a person typed the fact and its source (the manual build form), so it is trusted as written. */
+  companyFactVerified?: boolean;
   lang?: LetterLang;
   /** Skip the live link-reachability check — used for bulk/automated builds. */
   checkLinks?: boolean;
@@ -322,6 +356,8 @@ export async function buildApplicationPackage(opts: {
     roleTitle: opts.app.title,
     companyFact: opts.companyFact,
     companyFactSource: opts.companyFactSource,
+    companyFactVerified: opts.companyFactVerified,
+    postingDescription: opts.app.description,
     projects,
     availability: contact.availability,
     locationRule: contact.locationRule,
@@ -337,9 +373,12 @@ export async function buildApplicationPackage(opts: {
   const outreach = fillOutreachEmail(input);
   const flags = flagUnknownNouns(letter, input);
 
+  // One folder per application. The name is readable, and the id keeps it unique: two applications
+  // for the same posting, or postings whose titles differ only in punctuation, used to share a folder
+  // and overwrite each other's letter, email and checklist.
   const dir = path.join(
     "applications",
-    `${slugPart(opts.app.company_name)}-${slugPart(opts.app.title)}`,
+    `${slugPart(opts.app.company_name)}-${slugPart(opts.app.title)}-${opts.app.id.slice(0, 8)}`,
   );
   await mkdir(dir, { recursive: true });
 
@@ -347,7 +386,8 @@ export async function buildApplicationPackage(opts: {
   const pdfPath = path.join(dir, `cover-letter.${lang}.pdf`);
   const emailPath = path.join(dir, `outreach-email.${lang}.txt`);
   await writeFile(letterPath, letter, "utf8");
-  await writePdf(letter, pdfPath);
+  const pdf = await renderLetterPdf(letter);
+  await writeFile(pdfPath, pdf.bytes);
   await writeFile(
     emailPath,
     [`Subject: ${outreach.subject}`, "", outreach.body].join("\n"),
@@ -362,6 +402,8 @@ export async function buildApplicationPackage(opts: {
     letter,
     input,
     flags,
+    email: outreach,
+    letterPages: pdf.pages,
     checkLinks: opts.checkLinks,
   });
 
@@ -377,6 +419,7 @@ export async function buildApplicationPackage(opts: {
         checklist,
         companyFact: opts.companyFact,
         companyFactSource: opts.companyFactSource,
+        companyFactVerified: opts.companyFactVerified ?? false,
         emailSubject: outreach.subject,
         emailBody: outreach.body,
         emailWordCount: outreach.wordCount,

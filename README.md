@@ -138,15 +138,80 @@ weight change reorders two synthetic postings.
 
 ## Application package
 
-On an application page, write a company fact with its source URL and click
-**Build letter, email and checklist**. You get a short outreach email (120 words max),
-a cover letter, PDF, and checklist. The letter is filled from the answer bank and
-the projects whose `highlight_for` overlaps the posting. Green answers paste as
-is; yellow ones you reword; red ones you type yourself. PDFs land in
-`applications/{company}-{role}/`. The checklist is mechanical: company name,
-role title, noun check, resume path on disk, link HTTP status, one application
-row per job. `npm run package:check` builds one package and verifies a
+An application page has three steps, and everything else is folded under
+**Plus d'options**:
+
+1. **Préparer**: one click on *Générer la lettre et l'email* first looks the company
+   up on its own public pages (its website, the address applications go to, what it
+   does), then builds a short application email, a one-page cover letter as a PDF, and
+   a checklist. *Personnaliser* (optional) takes a true fact about the company, its
+   source link, and the language.
+2. **Relire**: the checklist result in plain words, the email, and the letter.
+3. **Envoyer**: the recipient is filled in from what step 1 found, with the page it
+   was read from so it can be checked; other addresses found are one click away.
+   *Créer le brouillon Gmail (CV et lettre joints)* puts the email in your Gmail as a
+   draft with the CV and the cover letter already attached, through the Gmail API
+   (only the `gmail.compose` permission: it can make drafts and cannot send anything).
+   Pressing it again after regenerating replaces that draft instead of adding a second.
+   You open the draft in Gmail, read it, and press Send yourself. *J'ai envoyé la
+   candidature* then schedules the follow-ups.
+
+   Gmail is connected once with `npm run gmail:auth`. Until then, or if you prefer,
+   *Ouvrir dans Gmail* and *Ouvrir dans l'app de messagerie* open a message without
+   attachments, and the two PDFs are one click away as downloads.
+
+**Finding the address.** Only an address a company's own page publishes is ever
+offered, and its source page is stored with it; none is built from a pattern. The
+search resolves the website (the one on record, then the job posting's site, then a
+domain guessed from the name that must pass checks: the page has to show the company's
+name, the domain has to carry all of it, and the pages read have to show a Québec,
+Canada or software connection, so `giro.com` (helmets) never stands in for GIRO),
+reads the home, careers and contact pages and the links between them, and keeps
+careers and recruiting inboxes first and general ones after. Addresses printed for
+accessibility, accommodation, privacy or press requests are dropped: job postings are
+full of them and they are not where an application goes. Most large employers publish
+no application address at all and take applications through a form. The page says so
+and links to the posting instead of offering a wrong address.
+`npm run contacts:find` shows what it finds for every company you have an unsent
+application with (add `--apply` to store it); `npm run contact:check` tests the rules.
+
+**Every application email follows one template**, Ara's own SAP example, word for
+word (`scripts/letter-check.ts` fails if the SAP email drifts from it): who I am and
+when I am available; the exact role and its focus; my hands-on experience and one
+main project; the attached CV and letter and the links; an invitation to talk; the
+signature with labelled LinkedIn, GitHub and Portfolio lines. The template is never
+shortened to fit a length, so a very long job title can push it a little past 200
+words. The subject is `Application - [exact role title] - Ara Ghahramanyan`
+(`Candidature - ...` for a French posting). Follow-up emails use the same greeting
+and signature. The letter is header, opening, match, proof, company fit, closing,
+in the wording of the cover letter template.
+
+A posting that reads as French (its title or text) gets both in French, worded
+without gendered forms, and the French CV. A bilingual title with as many English
+words as French stays English. The language can be changed under *Personnaliser*.
+
+Everything is filled from data you wrote, never invented: the answer bank
+(contact block, availability), the projects whose `highlight_for` overlaps the
+posting, and `lib/project-facts.ts`, which holds the first-person wording for each
+project in English and French. When you add a project to `seed/project-data.ts`,
+add its entry there too; without one, the letter falls back to a plain list of
+tools and the checklist flags it. Only a company fact that you typed, or that
+passes a quality filter (not the "X is hiring for Y" placeholder, not scraped page
+navigation, right language), goes into the "company fit" paragraph. Otherwise that
+paragraph talks about the role and the checklist says so. Files land in
+`applications/{company}-{role}-{id}/`, one folder per application.
+
+The checklist is mechanical: company name, role title, noun check, resume path on
+disk, no leftover `[brackets]`, one page, email length, verified company fact,
+proof project has facts, link HTTP status, one application row per job.
+`npm run letter:check` (no database) checks both templates against the guide in
+English and French; `npm run package:check` builds one package and verifies a
 corrupted company name fails the checklist.
+
+**After changing a template**, `npm run packages:rebuild` shows what would be redone
+for every application that has not been sent; add `--apply` to do it. It backs up
+`applications/` first, keeps a company fact you typed, leaves sent applications and
+hand-edited files alone, and refreshes stored outreach drafts that are not in Gmail yet.
 
 ## Desk server (stdio)
 

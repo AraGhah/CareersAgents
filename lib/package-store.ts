@@ -14,6 +14,8 @@ export type StoredPackage = {
   lang: string | null;
   companyFact: string | null;
   companyFactSource: string | null;
+  /** True when a person typed the fact, so it can safely be shown back in the form. */
+  companyFactVerified: boolean;
   emailSubject: string | null;
   emailBody: string | null;
   emailWordCount: number | null;
@@ -27,6 +29,7 @@ type ChecklistFile = {
   checklist?: ChecklistItem[];
   companyFact?: string;
   companyFactSource?: string;
+  companyFactVerified?: boolean;
   emailSubject?: string;
   emailBody?: string;
   emailWordCount?: number;
@@ -66,6 +69,7 @@ export async function loadStoredPackage(coverLetterPath: string | null): Promise
     lang: meta.lang ?? lang,
     companyFact: meta.companyFact ?? null,
     companyFactSource: meta.companyFactSource ?? null,
+    companyFactVerified: meta.companyFactVerified ?? false,
     emailSubject: meta.emailSubject ?? null,
     emailBody: meta.emailBody ?? null,
     emailWordCount: meta.emailWordCount ?? null,

@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Company pages that refuse plain requests are opened in a headless browser (lib/contact-discovery.ts);
+  // the server must load Playwright as is, not bundle it.
+  serverExternalPackages: ["playwright", "playwright-core"],
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb",

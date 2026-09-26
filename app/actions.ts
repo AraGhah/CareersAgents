@@ -13,13 +13,20 @@ import {
   startApplication,
   updateApplicationFields,
 } from "../lib/queries";
-import { buildApplicationPackage, loadApplicantContact, projectsForCategories } from "../lib/package";
+import {
+  buildApplicationPackage,
+  buildPackageFromDossier,
+  loadApplicantContact,
+  projectsForCategories,
+} from "../lib/package";
 import { detectCategories } from "../lib/category";
 import { detectInternshipCategories, isInternshipCategory } from "../lib/internship-category";
 import type { InternshipCategory } from "../lib/internship-category";
 import { detectLetterLang, parseLinks } from "../lib/letter";
 import { pool } from "../lib/db";
-import { createOutreachDraft, buildPersonalizedOutreach } from "../lib/outreach";
+import { createOutreachDraft, buildPersonalizedOutreach, saveApplicationDraft } from "../lib/outreach";
+import { findRecipientForApplication } from "../lib/contact-discovery";
+import { loadStoredPackage } from "../lib/package-store";
 import { researchCompanyForApplication } from "../lib/research";
 import {
   reanalyzeResume,
@@ -33,6 +40,7 @@ import type { ResumeLanguage } from "../lib/profile";
 import {
   APPLICATION_STATUSES,
   WORKPLACE_TYPES,
+  type ApplicationDetail,
   type ApplicationStatus,
   type WorkplaceType,
 } from "../lib/types";
@@ -289,32 +297,134 @@ export async function saveApplication(form: FormData) {
   revalidatePath(`/applications/${id}`);
 }
 
+/**
+ * Finds out about the company before anything is written: its website, the address applications go to,
+ * and what it does. All three read public pages, and any of them can come up empty (many companies take
+ * applications through a form, and some sites do not answer), so a failure here only means less to
+ * work with; the letter and the email are still built.
+ */
+async function lookUpCompany(app: ApplicationDetail, force = false) {
+  let newWebsite: string | null = null;
+  try {
+    newWebsite = (await findRecipientForApplication(app, { force })).newWebsite;
+  } catch (err) {
+    console.error("[contacts] address search failed:", err);
+  }
+  try {
+    return await researchCompanyForApplication({
+      app: { ...app, company_website: app.company_website ?? newWebsite },
+      companyId: app.company_id,
+      // A website found just now means the earlier notes were written without reading the company's pages.
+      force: Boolean(newWebsite),
+    });
+  } catch (err) {
+    console.error("[research] company research failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Researches the company, finds where to send the application, then builds the letter, the email and the
+ * checklist. The company fact is optional: a fact typed in the form is trusted as written; without one the
+ * letter uses what the research found when it passes the quality filter, and otherwise talks about the role.
+ */
 export async function buildPackage(form: FormData) {
   const id = required(form, "applicationId");
-  const companyFact = required(form, "companyFact");
-  const companyFactSource = required(form, "companyFactSource");
+  const typedFact = text(form, "companyFact");
+  const typedSource = text(form, "companyFactSource");
   const langRaw = text(form, "lang");
   const lang = langRaw === "fr" || langRaw === "en" ? langRaw : undefined;
 
-  const app = await getApplication(id);
-  if (!app) throw new Error("application not found");
+  const first = await getApplication(id);
+  if (!first) throw new Error("application not found");
+  const dossier = await lookUpCompany(first);
+  // The company may have gained a website just now, and the letter reads it.
+  const app = (await getApplication(id)) ?? first;
 
-  const result = await buildApplicationPackage({
-    app,
-    companyFact,
-    companyFactSource,
-    lang,
-  });
-
-  await updateApplicationFields(id, {
-    notes: app.notes,
-    resumePath: result.resumePath ?? app.resume_path,
-    coverLetterPath: result.pdfPath,
-    resumeId: result.resumeId,
-  });
+  if (typedFact) {
+    const result = await buildApplicationPackage({
+      app,
+      companyFact: typedFact,
+      companyFactSource: typedSource ?? app.company_website ?? app.url,
+      companyFactVerified: true,
+      lang,
+    });
+    await updateApplicationFields(id, {
+      notes: app.notes,
+      resumePath: result.resumePath ?? app.resume_path,
+      coverLetterPath: result.pdfPath,
+      resumeId: result.resumeId,
+    });
+  } else {
+    await buildPackageFromDossier({
+      app,
+      dossier,
+      lang: lang ?? detectLetterLang(app.title, app.description),
+      force: true,
+    });
+  }
 
   revalidatePath(`/applications/${id}`);
   redirect(`/applications/${id}?built=1`);
+}
+
+/** Looks again for the address on the company's public pages (the step-3 "search again" button). */
+export async function findRecipientAction(form: FormData) {
+  const id = required(form, "applicationId");
+  const app = await getApplication(id);
+  if (!app) throw new Error("application not found");
+
+  let found = 0;
+  try {
+    found = (await findRecipientForApplication(app, { force: true })).contacts.filter((c) => c.email).length;
+  } catch (err) {
+    console.error("[contacts] address search failed:", err);
+  }
+  revalidatePath(`/applications/${id}`);
+  redirect(`/applications/${id}?searched=1&found=${found}#envoyer`);
+}
+
+function gmailMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/not authorized|invalid_grant|unauthorized_client|No refresh token|invalid_client/i.test(raw)) {
+    return "Gmail n'est plus connecté. Lance « npm run gmail:auth » une fois, puis réessaie.";
+  }
+  if (/insufficient|scope|permission/i.test(raw)) {
+    return "Gmail n'a pas la permission de créer des brouillons. Relance « npm run gmail:auth » et accepte l'accès « composer ».";
+  }
+  return raw;
+}
+
+/**
+ * Puts the email in Gmail as a draft with the CV and the cover letter attached (Gmail API, gmail.compose:
+ * it makes drafts and cannot send). Pressing it again replaces that draft with the current text and files.
+ */
+export async function saveGmailDraftAction(form: FormData) {
+  const id = required(form, "applicationId");
+  const to = text(form, "to");
+  const app = await getApplication(id);
+  if (!app) throw new Error("application not found");
+
+  const stored = await loadStoredPackage(app.cover_letter_path);
+  let outcome: string;
+  if (!stored?.emailSubject || !stored.emailBody) {
+    outcome = `gmailError=${encodeURIComponent("Génère d'abord la lettre et l'email (étape 1).")}`;
+  } else {
+    try {
+      const saved = await saveApplicationDraft({
+        app,
+        to,
+        subject: stored.emailSubject,
+        body: stored.emailBody,
+        lang: stored.lang === "fr" ? "fr" : "en",
+      });
+      outcome = `draft=${saved.mode}`;
+    } catch (err) {
+      outcome = `gmailError=${encodeURIComponent(gmailMessage(err))}`;
+    }
+  }
+  revalidatePath(`/applications/${id}`);
+  redirect(`/applications/${id}?${outcome}#envoyer`);
 }
 
 export async function uploadResumeAction(form: FormData) {

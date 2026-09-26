@@ -193,9 +193,8 @@ export function CopyButton({
 }
 
 /* --------------------------------------------------------------------------
-   Theme toggle — paired with the no-flash script in the layout head. Dark is
-   the product's native identity: absent a stored choice, only an explicit
-   OS preference for light shows light — everything else defaults dark.
+   Theme toggle — paired with the no-flash script in the layout head. Light
+   (v4) is the product default; only an explicit stored "dark" choice switches.
    -------------------------------------------------------------------------- */
 
 type Theme = "light" | "dark";
@@ -203,13 +202,13 @@ type Theme = "light" | "dark";
 function readDocumentTheme(): Theme {
   const applied = document.documentElement.dataset.theme;
   if (applied === "light" || applied === "dark") return applied;
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  return "light";
 }
 
 export function ThemeToggle() {
-  // Dark is the SSR/default snapshot; useLayoutEffect aligns with the
+  // Light is the SSR/default snapshot; useLayoutEffect aligns with the
   // no-flash script before paint so the icon matches the painted theme.
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useLayoutEffect(() => {

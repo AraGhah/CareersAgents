@@ -1,4 +1,5 @@
 import { pool } from "./db";
+import { fillFollowupEmail } from "./letter";
 import type { ApplicationStatus } from "./types";
 
 export async function scheduleFollowups(applicationId: string, submittedAt: Date = new Date()) {
@@ -82,39 +83,26 @@ export async function listOpenFollowups() {
   return rows;
 }
 
+/** The follow-up email. One generator, in lib/letter.ts, so it matches the application email's voice and signature. */
 export function followupTemplate(opts: {
   companyName: string;
   roleTitle: string;
   fullName: string;
-  daysSinceSubmit: number;
+  phone?: string;
+  links?: string[];
+  recruiterName?: string | null;
+  daysSinceSubmit?: number;
   lang?: "en" | "fr";
 }): { subject: string; body: string } {
-  if (opts.lang === "fr") {
-    return {
-      subject: `Relance - ${opts.roleTitle}`,
-      body: [
-        "Bonjour,",
-        "",
-        `J'ai postulé au poste ${opts.roleTitle} chez ${opts.companyName} il y a environ ${opts.daysSinceSubmit} jours et je voulais savoir si vous aviez besoin d'autres documents.`,
-        "",
-        "Je peux détailler mes projets ou ma disponibilité si utile.",
-        "",
-        "Cordialement,",
-        opts.fullName,
-      ].join("\n"),
-    };
-  }
-  return {
-    subject: `Following up - ${opts.roleTitle}`,
-    body: [
-      "Hello,",
-      "",
-      `I applied for the ${opts.roleTitle} role at ${opts.companyName} about ${opts.daysSinceSubmit} days ago and wanted to check whether you need anything else from me.`,
-      "",
-      "Happy to share more detail on my projects or availability.",
-      "",
-      "Best regards,",
-      opts.fullName,
-    ].join("\n"),
-  };
+  const { subject, body } = fillFollowupEmail({
+    fullName: opts.fullName,
+    companyName: opts.companyName,
+    roleTitle: opts.roleTitle,
+    phone: opts.phone,
+    links: opts.links ?? [],
+    lang: opts.lang ?? "en",
+    recruiterName: opts.recruiterName,
+    daysSinceSubmit: opts.daysSinceSubmit,
+  });
+  return { subject, body };
 }

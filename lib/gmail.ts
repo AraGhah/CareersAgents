@@ -213,14 +213,22 @@ function wrapBase64(value: string): string {
   return value.replace(/(.{76})/g, "$1\r\n");
 }
 
-function buildRawMessage(opts: {
-  to: string;
+/**
+ * The message as RFC 2822 text. A draft does not need a recipient (Gmail lets you fill it in), so `to`
+ * is optional; an attachment's filename is encoded as an RFC 2047 word when it is not plain ASCII.
+ */
+export function buildRawMessage(opts: {
+  to?: string;
   subject: string;
   body: string;
   attachments?: GmailAttachment[];
 }): string {
   const attachments = opts.attachments ?? [];
-  const headers = [`To: ${opts.to}`, `Subject: ${encodeHeaderValue(opts.subject)}`, "MIME-Version: 1.0"];
+  const headers = [
+    ...(opts.to ? [`To: ${opts.to}`] : []),
+    `Subject: ${encodeHeaderValue(opts.subject)}`,
+    "MIME-Version: 1.0",
+  ];
 
   if (attachments.length === 0) {
     return [
@@ -242,11 +250,14 @@ function buildRawMessage(opts: {
     "",
   ];
   for (const att of attachments) {
+    // Plain-ASCII name for old clients, and the real one (accents included) as an RFC 2231 parameter.
+    const ascii = att.filename.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/"/g, "'") || "attachment";
+    const utf8 = `UTF-8''${encodeURIComponent(att.filename)}`;
     parts.push(
       `--${boundary}`,
-      `Content-Type: ${att.contentType}; name="${att.filename}"`,
+      `Content-Type: ${att.contentType}; name="${ascii}"; name*=${utf8}`,
       "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename="${att.filename}"`,
+      `Content-Disposition: attachment; filename="${ascii}"; filename*=${utf8}`,
       "",
       wrapBase64(att.content.toString("base64")),
       "",
@@ -266,7 +277,7 @@ function encodeForGmail(raw: string): string {
 }
 
 export async function createDraft(opts: {
-  to: string;
+  to?: string;
   subject: string;
   body: string;
   attachments?: GmailAttachment[];
@@ -281,6 +292,56 @@ export async function createDraft(opts: {
   const id = draft.data.id;
   if (!id) throw new Error("Gmail draft create returned no id");
   return id;
+}
+
+/** True once `npm run gmail:auth` has stored a token. Says nothing about whether it is still accepted. */
+export async function gmailIsConnected(): Promise<boolean> {
+  const tokens = await loadTokens();
+  return Boolean(tokens?.refresh_token || tokens?.access_token);
+}
+
+function isNotFound(err: unknown): boolean {
+  const e = err as { code?: number | string; response?: { status?: number } };
+  return e?.code === 404 || e?.code === "404" || e?.response?.status === 404;
+}
+
+/**
+ * Creates the draft, or replaces the one already made for this application (drafts.update swaps the whole
+ * message, attachments included), so pressing the button again after regenerating refreshes the same draft
+ * instead of piling up copies. If that draft was since deleted or sent in Gmail, a new one is created.
+ * Needs only the gmail.compose scope; nothing is ever sent.
+ */
+export async function saveDraft(opts: {
+  to?: string;
+  subject: string;
+  body: string;
+  attachments?: GmailAttachment[];
+  draftId?: string | null;
+}): Promise<{ draftId: string; messageId: string | null; updated: boolean }> {
+  const gmail = await getGmail();
+  const raw = encodeForGmail(buildRawMessage(opts));
+
+  if (opts.draftId) {
+    try {
+      const res = await gmail.users.drafts.update({
+        userId: "me",
+        id: opts.draftId,
+        requestBody: { id: opts.draftId, message: { raw } },
+      });
+      return { draftId: res.data.id ?? opts.draftId, messageId: res.data.message?.id ?? null, updated: true };
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
+  }
+
+  const created = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw } } });
+  if (!created.data.id) throw new Error("Gmail draft create returned no id");
+  return { draftId: created.data.id, messageId: created.data.message?.id ?? null, updated: false };
+}
+
+export async function deleteDraft(draftId: string): Promise<void> {
+  const gmail = await getGmail();
+  await gmail.users.drafts.delete({ userId: "me", id: draftId });
 }
 
 /** Explicit send — only used after user approval when GMAIL_ALLOW_SEND=true. */
