@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { GmailAttachment } from "./gmail";
 import { detectInternshipCategories } from "./internship-category";
@@ -53,6 +53,27 @@ export async function applicationFiles(app: ApplicationDetail): Promise<Applicat
   add("cv", cvPath, (ext) => `CV - ${fullName}${ext}`);
   add("letter", app.cover_letter_path, (ext) => `${lang === "fr" ? "Lettre de motivation" : "Cover Letter"} - ${company}${ext}`);
   return files;
+}
+
+/**
+ * The same list, but only the files that are actually readable on disk right now. A path can be recorded
+ * on the application (or resolved from the active resume) yet point at a file that was since moved or
+ * deleted — this is what a download link or an "attached automatically" message should check before
+ * promising a file it can't deliver.
+ */
+export async function existingApplicationFiles(app: ApplicationDetail): Promise<ApplicationFile[]> {
+  const files = await applicationFiles(app);
+  const checks = await Promise.all(
+    files.map(async (f) => {
+      try {
+        await access(f.path);
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return files.filter((_, i) => checks[i]);
 }
 
 /** The same files, read into memory and ready to attach. Files missing on disk are skipped and reported. */

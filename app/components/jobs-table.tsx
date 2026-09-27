@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { getJobDetailAction, trackJob, type JobRowDetail } from "../actions";
+import { changeStatus, getJobDetailAction, trackJob, type JobRowDetail } from "../actions";
 import { SubmitButton } from "./client-ui";
 import { CompanyTile, ScoreMeter, StatusPill } from "./ui";
 import { Collapse } from "./disclosure";
@@ -80,6 +80,7 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                         {isPriorityCompany(job.company_name) ? (
                           <span className="tag-priority">Prioritaire</span>
                         ) : null}
+                        {job.has_email ? <span className="tag-email">Email trouvé</span> : null}
                         {job.closed_at ? <span className="tag-closed">Fermée</span> : null}
                       </span>
                     </div>
@@ -93,9 +94,24 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                 </td>
                 <td data-label="Candidature">
                   {job.application_id ? (
-                    <Link href={`/applications/${job.application_id}`}>
-                      <StatusPill status={job.status} />
-                    </Link>
+                    <div className="cluster">
+                      <Link href={`/applications/${job.application_id}`}>
+                        <StatusPill status={job.status} />
+                      </Link>
+                      {job.status === "ready" ? (
+                        <form action={changeStatus}>
+                          <input type="hidden" name="applicationId" value={job.application_id} />
+                          <input type="hidden" name="status" value="applied" />
+                          <SubmitButton
+                            className="small ghost"
+                            pendingLabel="…"
+                            title="Déjà envoyée ? Passe-la directement à « Envoyée » sans ouvrir la candidature."
+                          >
+                            Marquer envoyée
+                          </SubmitButton>
+                        </form>
+                      ) : null}
+                    </div>
                   ) : (
                     <form action={trackJob}>
                       <input type="hidden" name="jobId" value={job.id} />

@@ -609,15 +609,24 @@ export async function addContactAction(form: FormData) {
   redirect(`/applications/${applicationId}?contact=1`);
 }
 
-export async function findInternshipsAction() {
+async function runDiscoveryAndRevalidate() {
   const { runFindInternships } = await import("../lib/workflow");
   const summary = await runFindInternships({ fresh: false });
   revalidatePath("/");
   revalidatePath("/pipeline");
   revalidatePath("/board");
-  redirect(
-    `/pipeline?found=1&new=${summary.inserted}&qualified=${summary.qualified}&boards=${summary.boards}&prepared=${summary.prepared}`,
-  );
+  return `found=1&new=${summary.inserted}&qualified=${summary.qualified}&boards=${summary.boards}&prepared=${summary.prepared}`;
+}
+
+export async function findInternshipsAction() {
+  const query = await runDiscoveryAndRevalidate();
+  redirect(`/pipeline?${query}`);
+}
+
+/** Same search, triggered from the Offres list — lands back there instead of the Tracker. */
+export async function findInternshipsFromJobsAction() {
+  const query = await runDiscoveryAndRevalidate();
+  redirect(`/?${query}`);
 }
 
 export async function prepareWorkflowAction(form: FormData) {

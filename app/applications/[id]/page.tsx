@@ -6,7 +6,7 @@ import { Disclosure } from "../../components/disclosure";
 import { FlowStrip } from "../../components/flow-strip";
 import { DbUnavailable, ExtLink, PageHeader, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
-import { applicationFiles } from "../../../lib/attachments";
+import { existingApplicationFiles } from "../../../lib/attachments";
 import { detectCategories } from "../../../lib/category";
 import { contactKind, hostOf } from "../../../lib/contact-parse";
 import { gmailIsConnected } from "../../../lib/gmail";
@@ -93,6 +93,7 @@ export default async function ApplicationPage({
   let account: string | undefined;
   let gmailConnected = false;
   let attachmentNames: string[] = [];
+  let downloadableFiles: Awaited<ReturnType<typeof existingApplicationFiles>> = [];
   let extrasError: string | null = null;
 
   try {
@@ -106,7 +107,11 @@ export default async function ApplicationPage({
     ]);
     account = (await loadApplicantContact(lang)).email;
     gmailConnected = await gmailIsConnected();
-    attachmentNames = (await applicationFiles(app)).map((f) => f.filename);
+    // Only files that are actually readable right now: a recorded path can point at a file that was
+    // since moved or deleted, and a download link (or an "attached automatically" promise) must not
+    // be shown for one that would just 404.
+    downloadableFiles = await existingApplicationFiles(app);
+    attachmentNames = downloadableFiles.map((f) => f.filename);
   } catch (err) {
     extrasError = (err as Error).message;
   }
@@ -133,10 +138,14 @@ export default async function ApplicationPage({
         }
       : null;
 
-  const files = [
-    { label: "Télécharger la lettre (PDF)", href: `/applications/${app.id}/files/letter` },
-    ...(app.resume_path || resume ? [{ label: "Télécharger le CV", href: `/applications/${app.id}/files/cv` }] : []),
-  ];
+  const FILE_LABEL: Record<"cv" | "letter", string> = {
+    letter: "Télécharger la lettre (PDF)",
+    cv: "Télécharger le CV",
+  };
+  const FILE_ORDER: Record<"cv" | "letter", number> = { letter: 0, cv: 1 };
+  const files = [...downloadableFiles]
+    .sort((a, b) => FILE_ORDER[a.kind] - FILE_ORDER[b.kind])
+    .map((f) => ({ label: FILE_LABEL[f.kind], href: `/applications/${app.id}/files/${f.kind}` }));
 
   return (
     <>

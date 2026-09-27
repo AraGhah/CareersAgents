@@ -213,6 +213,11 @@ async function runApifyActorJobs(
   // A full custom input (as JSON) always wins if the user's actor needs a
   // shape this can't cover — it can't safely be split per query, so it runs
   // once instead of once per query term.
+  // How many raw results to ask the actor for, per query — the user wants a run of the "Chercher
+  // des stages" button to be able to add up to ~100 new internships. Configurable since a wider
+  // net costs more Apify credits per run and some actors cap it lower regardless.
+  const rowsPerQuery = Number(process.env.APIFY_JOBS_ROWS_PER_QUERY?.trim()) || 100;
+
   const runs: Array<{ cacheKey: string; input: unknown }> = customInput
     ? [{ cacheKey: cacheKeyFor(cfg.source, `${actorId}-custom`), input: JSON.parse(customInput) }]
     : queries.map((query) => ({
@@ -224,9 +229,9 @@ async function runApifyActorJobs(
           keyword: query,
           location,
           country,
-          rows: 60,
-          maxJobs: 60,
-          limit: 60,
+          rows: rowsPerQuery,
+          maxJobs: rowsPerQuery,
+          limit: rowsPerQuery,
           scrapeJobDetails: false,
         },
       }));

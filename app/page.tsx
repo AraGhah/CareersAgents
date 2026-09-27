@@ -1,6 +1,7 @@
 import Form from "next/form";
 import Link from "next/link";
-import { AutoSubmit, Select, SubmitButton } from "./components/client-ui";
+import { findInternshipsFromJobsAction } from "./actions";
+import { AutoSubmit, Flash, Select, SubmitButton } from "./components/client-ui";
 import { FlowStrip } from "./components/flow-strip";
 import { DbUnavailable, EmptyState, HeroMetric, PageHeader, TableWrap } from "./components/ui";
 import { JobsTable } from "./components/jobs-table";
@@ -23,6 +24,11 @@ type Search = {
   skipped?: string;
   email?: string;
   category?: string;
+  found?: string;
+  new?: string;
+  qualified?: string;
+  boards?: string;
+  prepared?: string;
 };
 
 export const metadata = { title: "Offres" };
@@ -69,9 +75,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         detectInternshipCategories(job.title, job.description_preview ?? null).includes(categoryFilter),
       )
     : jobs;
-  const sortedJobs = [...visibleJobs].sort(
-    (a, b) => Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name)),
-  );
+  // Focus on what's actually actionable: a job whose company has no known email can't be sent to
+  // from this app yet, so those with one surface first; priority companies break ties within that.
+  const sortedJobs = [...visibleJobs].sort((a, b) => {
+    const emailDiff = Number(!a.has_email) - Number(!b.has_email);
+    if (emailDiff !== 0) return emailDiff;
+    return Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name));
+  });
 
   const activeFilters = [
     search ? `« ${search} »` : null,
@@ -93,10 +103,15 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         lede="Les offres découvertes, classées par score de correspondance."
         actions={
           <>
+            <form action={findInternshipsFromJobsAction}>
+              <SubmitButton className="primary" pendingLabel="Recherche en cours…">
+                Chercher des stages
+              </SubmitButton>
+            </form>
             <Link href="/jobs/new" className="btn">
               Ajouter une offre
             </Link>
-            <Link href="/pipeline" className="btn primary">
+            <Link href="/pipeline" className="btn">
               My Applications
             </Link>
           </>
@@ -104,6 +119,16 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       />
 
       <FlowStrip current="offers" />
+
+      {sp.found === "1" ? (
+        <Flash>
+          Recherche terminée. {sp.new ?? "0"} nouvelles offres, {sp.qualified ?? "0"} qualifiées sur{" "}
+          {sp.boards ?? "0"} boards.
+          {Number(sp.prepared) > 0
+            ? ` ${sp.prepared} candidature${Number(sp.prepared) > 1 ? "s" : ""} prête${Number(sp.prepared) > 1 ? "s" : ""} à approuver.`
+            : null}
+        </Flash>
+      ) : null}
 
       <HeroMetric
         value={summary.priorityOpen}

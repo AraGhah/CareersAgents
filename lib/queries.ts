@@ -29,6 +29,17 @@ const SCORE_CTE = `
   )
 `;
 
+// Whether the job's company has at least one public, sourced contact email — the thing that actually
+// lets an application go out from this app. Shared by the SELECT (to show it) and the WHERE (to filter).
+const HAS_EMAIL_EXPR = `EXISTS (
+  SELECT 1 FROM contacts ct
+   WHERE ct.company_id = j.company_id
+     AND ct.email IS NOT NULL
+     AND btrim(ct.email) <> ''
+     AND ct.source_url IS NOT NULL
+     AND btrim(ct.source_url) <> ''
+)`;
+
 const JOB_LIST_SELECT = `
   ${SCORE_CTE}
   SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.posted_at,
@@ -36,7 +47,8 @@ const JOB_LIST_SELECT = `
          LEFT(j.description, 600) AS description_preview,
          c.name AS company_name,
          a.id AS application_id, a.status,
-         t.score, t.gated
+         t.score, t.gated,
+         ${HAS_EMAIL_EXPR} AS has_email
     FROM jobs j
     JOIN companies c ON c.id = j.company_id
     LEFT JOIN applications a ON a.job_id = j.id
@@ -76,14 +88,7 @@ export async function listJobs(opts: {
     where.push("(t.job_id IS NULL OR t.gated OR t.score >= 0.60)");
   }
   if (opts.withEmail) {
-    where.push(`EXISTS (
-      SELECT 1 FROM contacts ct
-       WHERE ct.company_id = j.company_id
-         AND ct.email IS NOT NULL
-         AND btrim(ct.email) <> ''
-         AND ct.source_url IS NOT NULL
-         AND btrim(ct.source_url) <> ''
-    )`);
+    where.push(HAS_EMAIL_EXPR);
   }
   if (opts.search) {
     params.push(`%${opts.search}%`);
@@ -112,7 +117,8 @@ export async function getJob(id: string): Promise<JobDetail | null> {
             j.external_id, j.company_id,
             c.name AS company_name, c.city AS company_city,
             a.id AS application_id, a.status,
-            t.score, t.gated
+            t.score, t.gated,
+            ${HAS_EMAIL_EXPR} AS has_email
        FROM jobs j
        JOIN companies c ON c.id = j.company_id
        LEFT JOIN applications a ON a.job_id = j.id

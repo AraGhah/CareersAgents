@@ -49,6 +49,8 @@ export type JobRow = {
   status: ApplicationStatus | null;
   score: string | null;
   gated: boolean | null;
+  /** Whether the company has at least one public, sourced contact email on file. */
+  has_email: boolean;
 };
 
 export type ScoreComponent = {

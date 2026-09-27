@@ -2551,6 +2551,7 @@ thead th {
 }
 
 .tag-priority,
+.tag-email,
 .tag-closed {
   font-size: 0.75rem;
   font-weight: 500;
@@ -2560,11 +2561,16 @@ thead th {
   color: var(--brass);
 }
 
+.tag-email {
+  color: var(--good);
+}
+
 .tag-closed {
   color: var(--ink-3);
 }
 
 .tag-priority::before,
+.tag-email::before,
 .tag-closed::before {
   content: "";
   display: inline-block;
