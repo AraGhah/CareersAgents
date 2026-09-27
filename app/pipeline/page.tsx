@@ -31,7 +31,7 @@ type Search = {
   ok?: string;
 };
 
-export const metadata = { title: "Pipeline" };
+export const metadata = { title: "Tracker" };
 
 export default async function PipelinePage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
@@ -61,8 +61,8 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
   return (
     <>
       <PageHeader
-        title="Pipeline"
-        lede="Prépare les candidatures prêtes à envoyer."
+        title="Tracker"
+        lede="Prepare your applications and send them out."
         actions={
           <form action={findInternshipsAction} id="recherche">
             <SubmitButton className="primary" pendingLabel="Recherche en cours…">
@@ -163,7 +163,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         </TableWrap>
       </Section>
 
-      <Section title="Kanban" note={`${rows.length} candidature${rows.length === 1 ? "" : "s"}`} id="kanban">
+      <Section title="Status Board" note={`${rows.length} application${rows.length === 1 ? "" : "s"}`} id="kanban">
         {rows.length === 0 ? (
           <EmptyState
             title="Aucune candidature à afficher"
@@ -193,7 +193,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         )}
       </Section>
 
-      <Section title="Candidatures" id="candidatures">
+      <Section title="Applications" id="candidatures">
         {rows.length === 0 ? (
           <EmptyState
             title="Aucune candidature suivie"
@@ -277,10 +277,10 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         )}
       </Section>
 
-      <nav className="page-foot" aria-label="Liens connexes">
-        <Link href="/resumes">Changer le CV actif</Link>
-        <Link href="/followups">Voir les relances</Link>
-        <Link href="/">Retour aux offres</Link>
+      <nav className="page-foot" aria-label="Related links">
+        <Link href="/resumes">Change active resume</Link>
+        <Link href="/followups">View follow-ups</Link>
+        <Link href="/">Back to jobs</Link>
       </nav>
     </>
   );

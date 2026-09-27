@@ -61,6 +61,14 @@ export async function listJobs(opts: {
   if (opts.untrackedOnly) {
     where.push("a.id IS NULL");
   }
+  // Hide positions that have already been applied to (or further along).
+  // They still live in the Board / Tracker view; no need to clutter the
+  // job list with positions that are no longer actionable from here.
+  if (!opts.untrackedOnly) {
+    where.push(
+      "(a.status IS NULL OR a.status IN ('discovered', 'qualified', 'ready'))",
+    );
+  }
   if (!opts.includeSkipped) {
     where.push("(t.job_id IS NULL OR t.gated IS NOT TRUE)");
   }

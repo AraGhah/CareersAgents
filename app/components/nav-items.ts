@@ -7,16 +7,16 @@ export type NavEntry = {
   href: string;
   label: string;
   icon: NavIconKey;
-  group?: "Recherche" | "Profil";
+  group?: "Search" | "Profile";
   action?: boolean;
 };
 
 export const NAV_ITEMS: NavEntry[] = [
-  { href: "/", label: "Offres", icon: "offers", group: "Recherche" },
-  { href: "/pipeline", label: "Pipeline", icon: "pipeline", group: "Recherche" },
-  { href: "/board", label: "Board", icon: "board", group: "Recherche" },
-  { href: "/followups", label: "Relances", icon: "bell", group: "Recherche" },
-  { href: "/resumes", label: "CV", icon: "file", group: "Profil" },
-  { href: "/answers", label: "Banque de réponses", icon: "quote", group: "Profil" },
-  { href: "/jobs/new", label: "Ajouter une offre", icon: "plus", action: true },
+  { href: "/", label: "Jobs", icon: "offers", group: "Search" },
+  { href: "/pipeline", label: "Tracker", icon: "pipeline", group: "Search" },
+  { href: "/board", label: "Board", icon: "board", group: "Search" },
+  { href: "/followups", label: "Follow-ups", icon: "bell", group: "Search" },
+  { href: "/resumes", label: "Resume", icon: "file", group: "Profile" },
+  { href: "/answers", label: "Answers", icon: "quote", group: "Profile" },
+  { href: "/jobs/new", label: "Add a job", icon: "plus", action: true },
 ];

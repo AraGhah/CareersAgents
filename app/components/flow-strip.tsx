@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 const STEPS = [
-  { id: "offers", href: "/", label: "Offres" },
-  { id: "track", href: "/board", label: "Suivre" },
-  { id: "prepare", href: "/pipeline", label: "Préparer" },
-  { id: "send", href: "/followups", label: "Envoyer" },
+  { id: "offers", href: "/", label: "Jobs" },
+  { id: "track", href: "/board", label: "Track" },
+  { id: "prepare", href: "/pipeline", label: "Prepare" },
+  { id: "send", href: "/followups", label: "Send" },
 ] as const;
 
 export type FlowStepId = (typeof STEPS)[number]["id"];

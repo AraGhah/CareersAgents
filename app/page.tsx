@@ -97,7 +97,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
               Ajouter une offre
             </Link>
             <Link href="/pipeline" className="btn primary">
-              Lancer une recherche
+              My Applications
             </Link>
           </>
         }
@@ -199,7 +199,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             ) : (
               <>
                 <Link href="/pipeline" className="btn primary">
-                  Lancer une recherche
+                  My Applications
                 </Link>
                 <Link href="/jobs/new" className="btn">
                   Ajouter une offre
