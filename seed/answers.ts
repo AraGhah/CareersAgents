@@ -142,11 +142,23 @@ const answers: SeedAnswer[] = [
       "Je veux un stage d\u2019hiver 2027 dans une \u00e9quipe qui livre du backend ou de l\u2019infonuagique que je peux suivre de bout en bout, puis continuer dans ce genre de r\u00f4le apr\u00e8s le dipl\u00f4me de juin 2027.",
   },
 
+  // Personal and legal answers. The slots are declared here, the text is not: it is typed into the database
+  // (the /answers page), so nothing personal lands in git. Red means the desk never fills it by itself; the
+  // ones lib/apply/personal.ts reads are offered as a suggestion you confirm on each application.
   { key: "work_authorization", category: "red" },
+  { key: "sponsorship_required", category: "red" },
   { key: "salary_expectation", category: "red" },
+  { key: "previous_employment", category: "red" },
+  { key: "gender", category: "red" },
+  { key: "ethnicity", category: "red" },
+  { key: "disability", category: "red" },
+  { key: "indigenous", category: "red" },
+  { key: "visible_minority", category: "red" },
+  { key: "veteran", category: "red" },
+  { key: "hispanic_latino", category: "red" },
+  { key: "lgbtq", category: "red" },
   { key: "criminal_record_check", category: "red" },
   { key: "security_clearance", category: "red" },
-  { key: "self_identification", category: "red" },
 ];
 
 async function main() {

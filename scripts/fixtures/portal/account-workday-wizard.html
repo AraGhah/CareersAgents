@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- Fixture in the shape of Workday's application wizard: a progress bar over several steps, the first of which has fields but
+     no CV. The desk must recognise this as a multi-step wizard and stop, never plan step 1 as if it were the whole form. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Application</title></head>
+  <body>
+    <ol data-automation-id="progressBar">
+      <li data-automation-id="progressBarActiveStep">My Information</li>
+      <li>My Experience</li>
+      <li>Application Questions</li>
+      <li>Voluntary Disclosures</li>
+      <li>Self Identify</li>
+      <li>Review</li>
+    </ol>
+    <main>
+      <h2>My Information</h2>
+      <label for="c">Country</label><input id="c" name="country" />
+      <label for="f">First Name *</label><input id="f" name="first" required />
+      <label for="l">Last Name *</label><input id="l" name="last" required />
+      <label for="a">Address Line 1 *</label><input id="a" name="address" required />
+    </main>
+  </body>
+</html>

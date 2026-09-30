@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { pool } from "../lib/db";
+import { gatedSql } from "../lib/score";
 import {
   appendApplicationNote,
   setApplicationStatus,
@@ -32,8 +33,7 @@ const SCORE_CTE = `
   totals AS (
     SELECT s.job_id,
            SUM(s.raw_value * s.weight) AS score,
-           BOOL_OR(s.component = 'location' AND s.raw_value = 0)
-             OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+           ${gatedSql("s")} AS gated
       FROM job_scores s
       JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
      GROUP BY s.job_id

@@ -4,6 +4,8 @@ An AI-powered platform concept that helps students find and manage internship ap
 
 This project is a set of interactive prototypes (Design Components — self-contained `.dc.html` files) rather than a deployed product.
 
+> These notes describe the design prototypes only. The `.dc.html` files listed below are not in this repository; the working application (Next.js + Postgres) is documented in `README.md`.
+
 ## Files
 
 **Landing pages**

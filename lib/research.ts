@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessage, pickModel, tokenLimit, type Tier } from "./claude";
 import { pool } from "./db";
 import { usableCompanyFact } from "./letter";
 import type { ApplicationDetail } from "./types";
@@ -209,22 +210,62 @@ function parseJsonObject<T>(text: string): T {
   return JSON.parse(candidate.slice(start, end + 1)) as T;
 }
 
-async function claudeEnrich(opts: {
+type Dossier = ReturnType<typeof heuristicDossier>;
+type EnrichInput = {
   companyName: string;
   roleTitle: string;
   description: string | null;
   pages: Array<{ url: string; text: string }>;
-  base: ReturnType<typeof heuristicDossier>;
-}): Promise<ReturnType<typeof heuristicDossier> | null> {
+  base: Dossier;
+};
+
+/** A fact the letter can use: the same test the letter applies (third person, opens with the company's name...). */
+function usableFact(fact: string | null | undefined, companyName: string): string | null {
+  if (!fact) return null;
+  return usableCompanyFact(fact, { lang: "en", companyName }) ?? usableCompanyFact(fact, { lang: "fr", companyName });
+}
+
+/**
+ * Reading a few fetched pages into a summary and one fact is an extraction job: it starts on the cheap model.
+ * The strong one is asked only when that came back with no fact a letter could use and the heuristic has none
+ * either, or when its reply could not be read, so a company whose pages hold nothing usable is not paid for twice
+ * by default.
+ */
+export async function claudeEnrich(opts: EnrichInput): Promise<Dossier | null> {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key) return null;
-
   const client = new Anthropic({ apiKey: key });
-  const model = process.env.ANTHROPIC_RESEARCH_MODEL?.trim() || "claude-haiku-4-5-20251001";
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1200,
+  const pinned = process.env.ANTHROPIC_RESEARCH_MODEL;
+  const oneModel = pickModel("easy", pinned).model === pickModel("hard", pinned).model;
+  const haveFact = !!usableFact(opts.base.company_fact, opts.companyName);
+
+  let result: Dossier | null = null;
+  let firstError: unknown = null;
+  try {
+    result = await enrichOnce("easy", opts, client);
+  } catch (err) {
+    firstError = err;
+  }
+  const good = !!result && !!usableFact(result.company_fact, opts.companyName);
+  if (!good && !haveFact && !oneModel) {
+    try {
+      result = (await enrichOnce("hard", opts, client)) ?? result;
+      firstError = null;
+    } catch (err) {
+      firstError ??= err;
+    }
+  }
+  if (!result && firstError) throw firstError;
+  return result;
+}
+
+async function enrichOnce(tier: Tier, opts: EnrichInput, client: Anthropic): Promise<Dossier | null> {
+  const pick = pickModel(tier, process.env.ANTHROPIC_RESEARCH_MODEL);
+  const model = pick.model;
+
+  const response = await createMessage(client, pick, {
+    max_tokens: tokenLimit(1200, pick.tier),
     system:
       "You are a hiring-research analyst for internship outreach. Use only provided text. Do not invent emails, names, or facts. Return valid JSON only.",
     messages: [
@@ -240,7 +281,7 @@ Fetched pages: ${JSON.stringify(
 Return JSON:
 {
   "summary": "3-5 sentences",
-  "company_fact": "one concrete sentence usable in an email",
+  "company_fact": "ONE sentence, 30 to 240 characters, in the third person, opening with the company's name and saying what the company does or builds (not where its offices are or how big it is). No we/our/you, no parentheses, few proper nouns. Example: 'Acme is a Canadian company that builds warehouse robots for grocery distributors.'",
   "company_fact_source": "url",
   "signals": [{"signal":"...","source":"url","date":null}],
   "contact_targets": [{"role":"...","why":"...","searchHint":"..."}],
@@ -261,10 +302,16 @@ Return JSON:
     confidence?: number;
   }>(textBlock.text);
 
+  // The model's fact wins when a letter can use it; a fact the heuristic found and the letter can use is kept over
+  // one it cannot (the model's would otherwise overwrite it and the letter would say there is no verified fact).
+  const modelFact = usableFact(parsed.company_fact, opts.companyName);
+  const baseFact = usableFact(opts.base.company_fact, opts.companyName);
+  const useModelFact = modelFact !== null || baseFact === null;
+
   return {
     summary: parsed.summary?.trim() || opts.base.summary,
-    company_fact: parsed.company_fact?.trim() || opts.base.company_fact,
-    company_fact_source: parsed.company_fact_source?.trim() || opts.base.company_fact_source,
+    company_fact: useModelFact ? parsed.company_fact?.trim() || opts.base.company_fact : opts.base.company_fact,
+    company_fact_source: useModelFact ? parsed.company_fact_source?.trim() || opts.base.company_fact_source : opts.base.company_fact_source,
     signals:
       Array.isArray(parsed.signals) && parsed.signals.length > 0 ? parsed.signals : opts.base.signals,
     contact_targets:

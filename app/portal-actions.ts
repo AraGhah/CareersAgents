@@ -10,8 +10,12 @@ import { mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isJobBoardUrl } from "../lib/apply/apply-url";
+import { decideChannel, saveChannel } from "../lib/apply/route";
 import { approveField, getRun, pendingCount, planIsComplete, updateRun } from "../lib/apply/store";
 import type { Lang } from "../lib/apply/types";
+import { pool } from "../lib/db";
+import { getApplication } from "../lib/queries";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODES = new Set(["plan", "review", "submit"]);
@@ -70,6 +74,36 @@ export async function planPortalAction(form: FormData) {
   revalidatePath(`/applications/${applicationId}`);
   revalidatePath("/portal");
   redirect(`/applications/${applicationId}?portal=${code === 0 ? "planned" : "plan-failed"}#portail`);
+}
+
+/**
+ * The company's own posting, pasted by hand for a role the desk could not find on the company's site. It is kept
+ * on the job, the application is re-routed, and the form is read from there. A LinkedIn or Indeed link is refused:
+ * those are the copies this exists to get away from.
+ */
+export async function setFormUrlAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  let url: URL | null = null;
+  try {
+    url = new URL(field(form, "formUrl"));
+  } catch {
+    url = null;
+  }
+  if (!url || !/^https?:$/.test(url.protocol) || isJobBoardUrl(url.toString())) {
+    redirect(`/applications/${applicationId}?portal=form-invalid#portail`);
+  }
+  const app = await getApplication(applicationId);
+  if (!app) throw new Error("application not found");
+
+  await pool.query(`UPDATE jobs SET apply_url = $2 WHERE id = $1`, [app.job_id, url.toString()]);
+  const decision = await decideChannel(app, { applyUrl: url.toString() });
+  await saveChannel(applicationId, decision.channel);
+  // A portal form is read now; an account portal only records why it stays yours (with this link).
+  const code = await launch(applicationId, "plan", { wait: true });
+  revalidatePath(`/applications/${applicationId}`);
+  revalidatePath("/portal");
+  const flash = decision.channel !== "portal" ? "form-manual" : code === 0 ? "planned" : "plan-failed";
+  redirect(`/applications/${applicationId}?portal=${flash}#portail`);
 }
 
 /** Open a visible browser that fills the form. "review" leaves Submit to you; "submit" submits only if every gate passes. */

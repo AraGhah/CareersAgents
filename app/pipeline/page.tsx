@@ -1,6 +1,7 @@
+import Form from "next/form";
 import Link from "next/link";
 import { changeStatus, findInternshipsAction, setActiveCategoryAction } from "../actions";
-import { Flash, Select, SubmitButton } from "../components/client-ui";
+import { AutoSubmit, Flash, Select, SubmitButton } from "../components/client-ui";
 import { FlowStrip } from "../components/flow-strip";
 import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
 import {
@@ -21,8 +22,13 @@ import { PIPELINE_STATUSES } from "../../lib/types";
 import { getActiveResume } from "../../lib/resumes";
 import { getActiveCategory } from "../../lib/settings";
 import { INTERNSHIP_CATEGORIES, INTERNSHIP_CATEGORY_LABEL_FR } from "../../lib/internship-category";
+import { TRACKER_MIN_OPTIONS, TRACKER_SORT_OPTIONS, parseTrackerMin, parseTrackerSort, viewTrackerRows } from "../../lib/list-filters";
 
 type Search = {
+  /** Lowest score shown, in percent. */
+  min?: string;
+  /** status (default) | best | worst */
+  sort?: string;
   found?: string;
   new?: string;
   qualified?: string;
@@ -52,6 +58,12 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       </>
     );
   }
+
+  // The score filter and the order apply to the board and to the table below it; the counts above stay those of everything.
+  const minScore = parseTrackerMin(sp.min);
+  const sort = parseTrackerSort(sp.sort);
+  const shown = viewTrackerRows(rows, { min: minScore, sort });
+  const narrowed = minScore !== undefined || sort !== "status";
 
   const toPrepare = rows.filter((r) => r.status === "qualified" || r.status === "ready").length;
   const inFlight = rows.filter((r) => r.status === "applied" || r.status === "followup").length;
@@ -163,7 +175,44 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         </TableWrap>
       </Section>
 
-      <Section title="Status Board" note={`${rows.length} application${rows.length === 1 ? "" : "s"}`} id="kanban">
+      <Form action="#kanban" scroll={false} className="filters" role="search">
+        <AutoSubmit />
+        <Select
+          name="min"
+          ariaLabel="Score minimum"
+          defaultValue={minScore === undefined ? "" : String(minScore)}
+          placeholder="Score minimum"
+          compact
+          autoSubmit
+          options={TRACKER_MIN_OPTIONS}
+        />
+        <Select
+          name="sort"
+          ariaLabel="Ordre des candidatures"
+          defaultValue={sort}
+          placeholder="Ordre"
+          compact
+          autoSubmit
+          options={TRACKER_SORT_OPTIONS}
+        />
+        <SubmitButton className="primary">Filtrer</SubmitButton>
+        {narrowed ? (
+          <Link href="/pipeline#kanban" className="btn ghost">
+            Réinitialiser
+          </Link>
+        ) : null}
+        {narrowed ? (
+          <span className="result-count" aria-live="polite">
+            {shown.length} sur {rows.length}
+          </span>
+        ) : null}
+      </Form>
+
+      <Section
+        title="Status Board"
+        note={narrowed ? `${shown.length} sur ${rows.length} application${rows.length === 1 ? "" : "s"}` : `${rows.length} application${rows.length === 1 ? "" : "s"}`}
+        id="kanban"
+      >
         {rows.length === 0 ? (
           <EmptyState
             title="Aucune candidature à afficher"
@@ -177,7 +226,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
           </EmptyState>
         ) : (
           <KanbanBoard
-            cards={rows.map(
+            cards={shown.map(
               (r): KanbanCard => ({
                 id: r.application_id,
                 title: r.title,
@@ -203,6 +252,17 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
               </Link>
             }
           />
+        ) : shown.length === 0 ? (
+          <EmptyState
+            title="Aucune candidature ne correspond à ce filtre"
+            actions={
+              <Link href="/pipeline#candidatures" className="btn">
+                Effacer le filtre
+              </Link>
+            }
+          >
+            {rows.length} candidature{rows.length === 1 ? "" : "s"} suivie{rows.length === 1 ? "" : "s"}, aucune avec un score de {minScore} ou plus.
+          </EmptyState>
         ) : (
           <TableWrap>
             <table>
@@ -226,7 +286,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {shown.map((r) => (
                   <tr key={r.application_id}>
                     <td data-label="Poste">
                       <Link href={`/applications/${r.application_id}`} className="cell-main">

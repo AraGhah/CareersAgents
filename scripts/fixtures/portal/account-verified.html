@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Fixture: the page the verification link opens. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Verified</title></head>
+  <body>
+    <h1>Email verified</h1>
+    <script>
+      var a = JSON.parse(localStorage.getItem("acct") || "null");
+      if (a) { a.verified = true; localStorage.setItem("acct", JSON.stringify(a)); }
+    </script>
+  </body>
+</html>

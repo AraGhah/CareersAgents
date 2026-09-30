@@ -61,6 +61,18 @@ function main() {
     if (at === -1 || (firstClick !== -1 && at > firstClick)) offenders.push(`${SUBMIT_MODULE} ~ "${gate}" must come before any click`);
   }
 
+  // The second audited path: pressing an employer portal's sign-in / create-account button (lib/apply/account.ts). It never
+  // touches the application (no submitSelectors, no Submit), every click is inside press(), and press() refuses unless the
+  // account is configured, before its first click.
+  const ACCOUNT_MODULE = path.join("lib", "apply", "account.ts");
+  const accountCode = readFileSync(path.join(root, ACCOUNT_MODULE), "utf8");
+  const gateAt = accountCode.indexOf("account actions need PORTAL_CREATE_ACCOUNTS");
+  const accountClick = accountCode.indexOf(".click(");
+  if (gateAt === -1 || (accountClick !== -1 && gateAt > accountClick)) offenders.push(`${ACCOUNT_MODULE} ~ the account gate must come before any click`);
+  const pressBody = accountCode.match(/async function press\([\s\S]*?\n}\n/)?.[0] ?? "";
+  if ((accountCode.match(/\.click\(/g) ?? []).length !== (pressBody.match(/\.click\(/g) ?? []).length) offenders.push(`${ACCOUNT_MODULE} ~ every click must be inside press()`);
+  if (/submitSelectors/.test(accountCode)) offenders.push(`${ACCOUNT_MODULE} ~ must not use the application's submitSelectors`);
+
   if (offenders.length) {
     console.error("Forbidden submit-click patterns found:");
     for (const o of offenders) console.error(`  ${o}`);
@@ -68,6 +80,7 @@ function main() {
   }
   console.log(`no submit-click patterns in ${files.length} source files`);
   console.log(`the only submit path (${SUBMIT_MODULE}) is gated by PORTAL_ALLOW_SUBMIT and the preflight`);
+  console.log(`the only account path (${ACCOUNT_MODULE}) clicks inside press(), gated by the configured account`);
 
   if (!looksLikeSubmit("Submit") || !looksLikeSubmit("Submit application")) {
     throw new Error("Submit labels should be blocked");

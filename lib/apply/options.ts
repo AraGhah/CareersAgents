@@ -42,7 +42,16 @@ const SYNONYMS: string[][] = [
     "site carriere",
   ],
   ["job board", "online job board", "job posting site", "site d'emploi"],
+  ["man", "male", "homme", "masculin"],
+  ["white", "caucasian", "blanc", "blanche", "caucasien", "caucasienne"],
+  ["canadian citizen", "citizen of canada", "citoyen canadien", "citoyenne canadienne", "citoyen du canada"],
 ];
+
+/**
+ * "I do not want to answer", "Prefer not to say", "Je préfère ne pas répondre": a way out, never a Yes or a No.
+ * "I do not ..." would otherwise read as a No, and a tie on a disability question would leave nothing suggested.
+ */
+const DECLINE = /prefer not|decline|not to (say|answer|disclose|identify)|(do not|don't|dont) (want|wish) to|ne souhaite pas|ne veux pas|prefere ne pas|refuse/;
 
 function synonymsOf(value: string): string[] {
   const v = norm(value);
@@ -99,7 +108,7 @@ export function matchOption(value: string | null, options: string[]): OptionMatc
   if (isYes(v) || isNo(v)) {
     const want = isYes(v) ? YES_OPTION : NO_OPTION;
     const other = isYes(v) ? NO_OPTION : YES_OPTION;
-    const yn = unique(normed.filter((o) => want.test(o.n) && !other.test(o.n)));
+    const yn = unique(normed.filter((o) => want.test(o.n) && !other.test(o.n) && !DECLINE.test(o.n)));
     return yn ? hit(yn, "yes-no") : null;
   }
 

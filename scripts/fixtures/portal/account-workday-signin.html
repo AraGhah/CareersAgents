@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- Fixture in the shape of Workday's sign-in page: fields and buttons found by data-automation-id, the button a div with
+     role=button. Not checked against a live tenant. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Sign In</title></head>
+  <body>
+    <div data-automation-id="signInContent">
+      <h1>Sign In</h1>
+      <div role="alert" id="err"></div>
+      <label>Email Address <input data-automation-id="email" type="text" /></label>
+      <label>Password <input data-automation-id="password" type="password" /></label>
+      <div role="button" tabindex="0" data-automation-id="signInSubmitButton" id="go">Sign In</div>
+      <p><a data-automation-id="createAccountLink" href="/account-workday-signup.html">Create Account</a></p>
+    </div>
+    <script>
+      document.getElementById("go").onclick = function () {
+        var a = JSON.parse(localStorage.getItem("acct") || "null");
+        var e = document.querySelector("[data-automation-id=email]").value;
+        var p = document.querySelector("[data-automation-id=password]").value;
+        if (a && a.email === e && a.password === p) location.href = "/account-workday-wizard.html";
+        else document.getElementById("err").textContent = "The email address or password you entered is incorrect.";
+      };
+    </script>
+  </body>
+</html>

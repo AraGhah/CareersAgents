@@ -1,7 +1,9 @@
 {
-  "skills": 0.4,
-  "location": 0.2,
-  "timing": 0.2,
-  "language": 0.1,
-  "level": 0.1
+  "skills": 0.3,
+  "concepts": 0.1,
+  "role": 0.2,
+  "level": 0.1,
+  "timing": 0.1,
+  "location": 0.15,
+  "language": 0.05
 }

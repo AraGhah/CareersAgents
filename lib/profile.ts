@@ -64,6 +64,9 @@ const dictionary = (skillsFile.dictionary as DictionaryEntry[]).map((entry) => (
   regexes: entry.patterns.map((pattern) => new RegExp(pattern, "i")),
 }));
 
+/** The technology dictionary (skills.json) with its patterns compiled: one entry per technology. */
+export const skillDictionary = dictionary;
+
 export const skillDictionaryNames = dictionary.map((d) => d.name);
 
 export function extractSkillsFromText(text: string): string[] {

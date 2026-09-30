@@ -1,6 +1,11 @@
 {
   "internshipTerms": ["intern", "interns", "internship", "internships", "stage", "stages", "stagiaire", "stagiaires", "interne", "internes", "co-op", "co-ops", "coop", "coops"],
   "roleTerms": ["full-stack", "full stack", "fullstack", "software", "developer", "développeur", "développeuse", "engineer", "ingénieur", "ingénieure", "backend", "back-end", "frontend", "front-end", "web"],
-  "excludeTerms": ["senior", "staff", "principal", "director", "directeur", "directrice", "manager", "gestionnaire", "lead", "vp", "head of"],
+  "excludeTerms": [
+    "senior", "sénior", "staff", "principal", "director", "directeur", "directrice", "manager", "gestionnaire", "lead", "vp", "head of",
+    "cybersecurity", "cyber security", "cyber-security", "cybersécurité", "cyber-sécurité", "cyber", "infosec",
+    "information security", "sécurité de l'information", "sécurité informatique", "security analyst", "security engineer",
+    "security operations", "security office", "bureau de la sécurité", "soc analyst", "pentest", "penetration testing"
+  ],
   "autoTrackMinPercent": 70
 }

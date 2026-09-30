@@ -6,7 +6,7 @@ import { pool } from "../db";
 import { listContactsForCompany } from "../queries";
 import { pickBestContact } from "../recruiter";
 import type { ApplicationDetail } from "../types";
-import { manualOnlyReason } from "./platforms";
+import { manualOnlyReason, neverDrivenReason } from "./platforms";
 
 export type Channel = "email" | "portal" | "manual";
 
@@ -14,15 +14,20 @@ export type ChannelDecision = { channel: Channel; reason: string; contactEmail: 
 
 export async function decideChannel(
   app: ApplicationDetail,
-  opts: { forcePortal?: boolean; applyUrl?: string } = {},
+  opts: { forcePortal?: boolean; applyUrl?: string; hint?: string | null; allowAccountPortals?: boolean } = {},
 ): Promise<ChannelDecision> {
   const contact = pickBestContact(await listContactsForCompany(app.company_id));
   if (contact?.email && !opts.forcePortal) {
     return { channel: "email", reason: `Published contact ${contact.email} (${contact.source_url}).`, contactEmail: contact.email };
   }
   // Judged on the company's own form when one is known, not on the job-board listing.
-  const manual = manualOnlyReason(opts.applyUrl ?? app.url);
-  if (manual) return { channel: "manual", reason: manual, contactEmail: null };
+  // An employer's account portal is the desk's to try only on a run you started with the account configured.
+  const manual = (opts.allowAccountPortals ? neverDrivenReason : manualOnlyReason)(opts.applyUrl ?? app.url);
+  if (manual) {
+    // A person applies from here: say where the company's own posting or careers page is.
+    const where = opts.applyUrl && opts.applyUrl !== app.url ? ` The company's own posting: ${opts.applyUrl}` : opts.hint ? ` ${opts.hint}` : "";
+    return { channel: "manual", reason: `${manual}${where}`, contactEmail: null };
+  }
   return {
     channel: "portal",
     reason: opts.forcePortal && contact?.email ? "Portal chosen by hand although a contact exists." : "No recruiter or HR address is published: apply through the company's form.",

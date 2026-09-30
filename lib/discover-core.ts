@@ -16,10 +16,14 @@ function escapeRegex(word: string): string {
   return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Word-boundary match against any of the given terms (case-insensitive). */
+/**
+ * Whole-word match against any of the given terms (case-insensitive). The word edges are "not a letter or digit"
+ * rather than \b, which is defined on ASCII letters only: a term that ends in an accent ("cybersécurité") could never
+ * match with \b, because the accented letter is not a word character.
+ */
 function termsToRegex(terms: string[]): RegExp | null {
   if (terms.length === 0) return null;
-  return new RegExp(`\\b(?:${terms.map(escapeRegex).join("|")})\\b`, "i");
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.map(escapeRegex).join("|")})(?![\\p{L}\\p{N}])`, "iu");
 }
 
 const INTERNSHIP_RE = termsToRegex(filters.internshipTerms);

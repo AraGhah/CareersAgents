@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Fixture in the shape of Workday's create-account page. Not checked against a live tenant. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Create Account</title></head>
+  <body>
+    <div data-automation-id="createAccountContent">
+      <h1>Create Account</h1>
+      <div role="alert" id="err"></div>
+      <label>Email Address <input data-automation-id="email" type="text" /></label>
+      <label>Password <input data-automation-id="password" type="password" /></label>
+      <label>Verify New Password <input data-automation-id="verifyPassword" type="password" /></label>
+      <label><input type="checkbox" data-automation-id="createAccountCheckbox" id="terms" /> I have read and accept the Terms and Conditions and the Privacy Notice</label>
+      <div role="button" tabindex="0" data-automation-id="createAccountSubmitButton" id="go">Create Account</div>
+      <p><a href="/account-workday-signin.html">Sign In</a></p>
+    </div>
+    <script>
+      document.getElementById("go").onclick = function () {
+        var e = document.querySelector("[data-automation-id=email]").value;
+        var p = document.querySelector("[data-automation-id=password]").value;
+        if (!document.getElementById("terms").checked) return (document.getElementById("err").textContent = "You must accept the terms.");
+        var existing = JSON.parse(localStorage.getItem("acct") || "null");
+        if (existing && existing.email === e) return (document.getElementById("err").textContent = "An account with this email already exists.");
+        localStorage.setItem("acct", JSON.stringify({ email: e, password: p, verified: true }));
+        location.href = "/account-workday-wizard.html";
+      };
+    </script>
+  </body>
+</html>

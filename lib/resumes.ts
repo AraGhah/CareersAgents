@@ -5,6 +5,8 @@ import { analyzePdfBuffer } from "./resume-parse";
 import type { ResumeLanguage, ResumeProfile, ResumeRow } from "./profile";
 import { fallbackHaveSkills } from "./profile";
 import type { InternshipCategory } from "./internship-category";
+import { buildCvProfile, type CvProfile } from "./match/cv";
+import { setCvProfile } from "./score";
 
 export const RESUMES_DIR = path.join("resumes");
 
@@ -105,6 +107,17 @@ export async function getActiveSkills(): Promise<string[]> {
   );
   const unique = [...new Set(fromProfiles)];
   return unique.length > 0 ? unique : fallbackHaveSkills();
+}
+
+/**
+ * Points the match at what the active CVs say (English and French): every technology with its level or where it
+ * was used, and the practices the CV describes. Call this before scoring postings. Returns the skills it found.
+ */
+export async function loadActiveCv(): Promise<CvProfile> {
+  const [en, fr] = await Promise.all([getActiveResumesForLang("en"), getActiveResumesForLang("fr")]);
+  const profile = buildCvProfile([...en, ...fr].map((r) => ({ raw_text: r.raw_text, profile_json: r.profile_json })));
+  setCvProfile(profile);
+  return profile;
 }
 
 export async function getMergedActiveProfile(): Promise<ResumeProfile | null> {

@@ -1,5 +1,7 @@
 import { pool } from "./db";
 import { logStatusEvent, scheduleFollowups } from "./followups";
+import type { JobSort } from "./list-filters";
+import { gatedSql } from "./score";
 import type {
   Answer,
   ApplicationDetail,
@@ -21,8 +23,7 @@ const SCORE_CTE = `
   totals AS (
     SELECT s.job_id,
            SUM(s.raw_value * s.weight) AS score,
-           BOOL_OR(s.component = 'location' AND s.raw_value = 0)
-             OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+           ${gatedSql("s")} AS gated
       FROM job_scores s
       JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
      GROUP BY s.job_id
@@ -55,6 +56,14 @@ const JOB_LIST_SELECT = `
     LEFT JOIN totals t ON t.job_id = j.id
 `;
 
+// How the jobs list is ordered (lib/list-filters.ts). Skipped and unscored jobs always come after the scored ones.
+const JOB_SORT_SQL: Record<JobSort, string> = {
+  best: "t.score DESC NULLS LAST, j.first_seen_at DESC, c.name",
+  worst: "t.score ASC NULLS LAST, j.first_seen_at DESC, c.name",
+  recent: "j.first_seen_at DESC, t.score DESC NULLS LAST, c.name",
+  company: "c.name, t.score DESC NULLS LAST, j.first_seen_at DESC",
+};
+
 export async function listJobs(opts: {
   search?: string;
   includeClosed?: boolean;
@@ -63,6 +72,12 @@ export async function listJobs(opts: {
   includeSkipped?: boolean;
   /** Only jobs whose company has at least one public contact email. */
   withEmail?: boolean;
+  /**
+   * Lowest score shown, in percent (0 = every score). Left out, the list hides what is under 60 and leaves skipped jobs
+   * alone; given, it applies to every job, skipped ones included.
+   */
+  minScore?: number;
+  sort?: JobSort;
 }): Promise<JobRow[]> {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -84,8 +99,12 @@ export async function listJobs(opts: {
   if (!opts.includeSkipped) {
     where.push("(t.job_id IS NULL OR t.gated IS NOT TRUE)");
   }
-  if (!opts.includeLow) {
-    where.push("(t.job_id IS NULL OR t.gated OR t.score >= 0.60)");
+  const explicitMin = opts.minScore !== undefined;
+  const min = explicitMin ? opts.minScore! : opts.includeLow ? 0 : 60;
+  if (min > 0) {
+    params.push(min / 100);
+    const cut = `t.score >= $${params.length}`;
+    where.push(explicitMin ? `(t.job_id IS NULL OR ${cut})` : `(t.job_id IS NULL OR t.gated OR ${cut})`);
   }
   if (opts.withEmail) {
     where.push(HAS_EMAIL_EXPR);
@@ -102,8 +121,7 @@ export async function listJobs(opts: {
                WHEN t.job_id IS NULL THEN 1
                ELSE 0
              END,
-             t.score DESC NULLS LAST,
-             j.first_seen_at DESC, c.name`;
+             ${JOB_SORT_SQL[opts.sort ?? "best"]}`;
 
   const { rows } = await pool.query<JobRow>(sql, params);
   return rows;

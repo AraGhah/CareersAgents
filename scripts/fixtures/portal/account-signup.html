@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Fixture: a sign-up page. ?verify=1 makes the new account wait for its email link; ?rule=1 refuses short passwords.
+     It also records whether the marketing box was ticked, so the test can check it was left alone. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Create account</title></head>
+  <body>
+    <h1>Create your account</h1>
+    <div id="err" role="alert"></div>
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" />
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password" />
+    <label for="pw2">Verify new password</label>
+    <input id="pw2" name="verifyPassword" type="password" />
+    <label><input type="checkbox" id="terms" /> I have read and agree to the Terms and Privacy Policy</label>
+    <label><input type="checkbox" id="alerts" /> Send me job alerts and newsletters</label>
+    <button id="go" type="button">Create Account</button>
+    <p>Already have an account? <a id="signin" href="/account-signin.html">Sign in</a></p>
+    <script>
+      document.getElementById("signin").href = "/account-signin.html" + location.search;
+      document.getElementById("go").onclick = function () {
+        var err = document.getElementById("err");
+        var email = document.getElementById("email").value;
+        var pw = document.getElementById("pw").value;
+        var existing = JSON.parse(localStorage.getItem("acct") || "null");
+        if (!document.getElementById("terms").checked) return (err.textContent = "You must accept the terms.");
+        if (pw !== document.getElementById("pw2").value) return (err.textContent = "Passwords do not match.");
+        if (location.search.indexOf("rule=1") >= 0 && pw.length < 30) return (err.textContent = "Password must be at least 30 characters.");
+        if (existing && existing.email === email) return (err.textContent = "An account with this email already exists.");
+        var verify = location.search.indexOf("verify=1") >= 0;
+        localStorage.setItem("acct", JSON.stringify({ email: email, password: pw, verified: !verify }));
+        localStorage.setItem("alertsTicked", String(document.getElementById("alerts").checked));
+        location.href = verify ? "/account-verify.html" + location.search : "/account-after.html";
+      };
+    </script>
+  </body>
+</html>

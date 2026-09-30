@@ -9,6 +9,7 @@
 import { candidateHasSkill, type CandidateProfile } from "./candidate";
 import { PERSON_ONLY_INTENTS } from "./classify";
 import { isYesNoOptionSet, matchOption, realOptions } from "./options";
+import { personalSuggestion } from "./personal";
 import { extractSkillsFromText } from "../profile";
 import type { FieldDecision, FieldIntent, FieldSource, FieldStatus, FormField, Lang } from "./types";
 
@@ -103,6 +104,16 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
 
   if (PERSON_ONLY_INTENTS.has(intent)) {
     const reason = REASON_BY_INTENT[intent] ?? PERSON_ONLY_REASON;
+    // What you wrote in your answer bank is offered pre-selected, never filled: it stays yours to confirm.
+    const suggestion = personalSuggestion(field, intent, c, job.location);
+    if (suggestion) {
+      return {
+        value: suggestion.value,
+        source: "bank",
+        status: "manual",
+        reason: `From your answer bank (${suggestion.what}). Confirm it: nothing personal is filled without you.`,
+      };
+    }
     // Voluntary questions nobody has to answer stay blank rather than guessed.
     if (!field.required && (intent === "demographic" || intent === "referral")) {
       return { value: null, source: "none", status: "skipped", reason: `${reason} Optional, left blank.` };

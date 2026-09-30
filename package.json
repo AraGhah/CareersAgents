@@ -39,6 +39,14 @@
     "packages:rebuild": "tsx scripts/rebuild-packages.ts",
     "contact:check": "tsx scripts/contact-check.ts",
     "contacts:find": "tsx scripts/find-contacts.ts",
+    "applications:dedupe": "tsx scripts/dedupe-applications.ts",
+    "applications:prune": "tsx scripts/prune-applications.ts",
+    "careers:find": "tsx scripts/find-careers.ts",
+    "descriptions:backfill": "tsx scripts/backfill-descriptions.ts",
+    "match:check": "tsx scripts/match-check.ts",
+    "jobs:check": "tsx scripts/jobs-list-check.ts",
+    "account:check": "tsx scripts/account-check.ts",
+    "careers:check": "tsx scripts/careers-check.ts",
     "demo:record": "tsx scripts/record-demo.ts"
   },
   "dependencies": {

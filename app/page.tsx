@@ -15,12 +15,17 @@ import {
 } from "../lib/internship-category";
 import { isPriorityCompany } from "../lib/priority-companies";
 import { today } from "../lib/format";
+import { JOB_SORT_OPTIONS, MIN_SCORE_OPTIONS, jobSortLabel, minScoreLabel, parseJobSort, parseMinScore } from "../lib/list-filters";
 
 type Search = {
   q?: string;
   closed?: string;
   untracked?: string;
   low?: string;
+  /** Lowest score shown, in percent. */
+  min?: string;
+  /** best (default) | worst | recent | company | actionable */
+  sort?: string;
   skipped?: string;
   email?: string;
   category?: string;
@@ -41,11 +46,14 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const includeLow = sp.low === "1";
   const includeSkipped = sp.skipped === "1";
   const withEmail = sp.email === "1";
+  const minScore = parseMinScore(sp.min, sp.low);
+  const sort = parseJobSort(sp.sort);
 
   let jobs, summary, defaultCategory;
   try {
     [jobs, summary, defaultCategory] = await Promise.all([
-      listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped, withEmail }),
+      // "actionable" keeps the score order from the query and then brings jobs with a known email forward (below).
+      listJobs({ search, includeClosed, untrackedOnly, includeLow, includeSkipped, withEmail, minScore, sort: sort === "actionable" ? "best" : sort }),
       deskSummary(),
       getActiveCategory(),
     ]);
@@ -75,13 +83,17 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         detectInternshipCategories(job.title, job.description_preview ?? null).includes(categoryFilter),
       )
     : jobs;
-  // Focus on what's actually actionable: a job whose company has no known email can't be sent to
-  // from this app yet, so those with one surface first; priority companies break ties within that.
-  const sortedJobs = [...visibleJobs].sort((a, b) => {
-    const emailDiff = Number(!a.has_email) - Number(!b.has_email);
-    if (emailDiff !== 0) return emailDiff;
-    return Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name));
-  });
+  // The list is ordered by the query (best score first unless another order is chosen). Only "avec email d'abord" re-orders
+  // it: a job whose company has no known email can't be sent to from this app yet, so those with one come first, priority
+  // companies next, and the score order is kept within each group.
+  const sortedJobs =
+    sort === "actionable"
+      ? [...visibleJobs].sort((a, b) => {
+          const emailDiff = Number(!a.has_email) - Number(!b.has_email);
+          if (emailDiff !== 0) return emailDiff;
+          return Number(!isPriorityCompany(a.company_name)) - Number(!isPriorityCompany(b.company_name));
+        })
+      : visibleJobs;
 
   const activeFilters = [
     search ? `« ${search} »` : null,
@@ -89,7 +101,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     withEmail ? "avec email" : null,
     untrackedOnly ? "non suivies" : null,
     includeClosed ? "fermées incluses" : null,
-    includeLow ? "sous 60 incluses" : null,
+    minScoreLabel(minScore),
     includeSkipped ? "rejetées incluses" : null,
   ].filter(Boolean) as string[];
 
@@ -192,16 +204,31 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           Fermées
         </label>
         <label className="check">
-          <input type="checkbox" name="low" value="1" defaultChecked={includeLow} />
-          Sous 60
-        </label>
-        <label className="check">
           <input type="checkbox" name="skipped" value="1" defaultChecked={includeSkipped} />
           Rejetées
         </label>
 
+        <Select
+          name="min"
+          ariaLabel="Score minimum"
+          defaultValue={minScore === undefined ? "" : String(minScore)}
+          placeholder="Score minimum"
+          compact
+          autoSubmit
+          options={MIN_SCORE_OPTIONS}
+        />
+        <Select
+          name="sort"
+          ariaLabel="Ordre de la liste"
+          defaultValue={sort}
+          placeholder="Ordre"
+          compact
+          autoSubmit
+          options={JOB_SORT_OPTIONS}
+        />
+
         <SubmitButton className="primary">Filtrer</SubmitButton>
-        {filtered ? (
+        {filtered || sort !== "best" ? (
           <Link href="/" className="btn ghost">
             Réinitialiser
           </Link>
@@ -210,7 +237,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       <p className="result-count" aria-live="polite">
         {sortedJobs.length} {sortedJobs.length === 1 ? "offre" : "offres"}
-        {filtered ? `, filtrées par ${activeFilters.join(", ")}` : null}
+        {filtered ? `, filtrées par ${activeFilters.join(", ")}` : null} · {jobSortLabel(sort)}
       </p>
 
       {sortedJobs.length === 0 ? (
@@ -233,7 +260,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             )
           }
         >
-          {filtered ? "Coche « Sous 60 » ou « Fermées » pour voir les offres écartées." : null}
+          {filtered ? "Baisse le score minimum, ou coche « Rejetées » ou « Fermées », pour voir plus d’offres." : null}
         </EmptyState>
       ) : (
         <TableWrap>

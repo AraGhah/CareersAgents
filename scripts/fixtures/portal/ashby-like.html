@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- The shape of a real Ashby application page: no <form> element, a resume-autofill panel that carries the
+     same "application-form" class as the questions and comes first, and the questions split over sibling
+     containers. The first element matching the class holds one input; no single one holds most of the page. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Research Internship</title></head>
+  <body>
+    <div id="root">
+      <div class="ashby-application-form-autofill-pane">
+        <p>Autofill from resume</p>
+        <input type="file" id="autofill" aria-label="Autofill from resume" />
+      </div>
+      <div class="ashby-application-form-container">
+        <div class="ashby-application-form-section">
+          <label for="name">Name<span>*</span></label>
+          <input id="name" name="_systemfield_name" type="text" required />
+          <label for="email">Email<span>*</span></label>
+          <input id="email" name="_systemfield_email" type="email" required />
+          <label for="phone">Phone</label>
+          <input id="phone" name="phone" type="tel" />
+        </div>
+        <div class="ashby-application-form-section">
+          <label for="company">Current company</label>
+          <input id="company" name="company" type="text" />
+          <label for="loc">Current location<span>*</span></label>
+          <input id="loc" name="location" type="text" required />
+          <label for="linkedin">LinkedIn</label>
+          <input id="linkedin" name="linkedin" type="text" />
+        </div>
+        <button type="button">Submit Application</button>
+      </div>
+    </div>
+  </body>
+</html>

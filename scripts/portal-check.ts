@@ -15,15 +15,18 @@ import { matchOption } from "../lib/apply/options";
 import { lintAnswer, lengthTarget, blockingFailures } from "../lib/apply/answers/humanize";
 import { buildCorpus, checkGrounding } from "../lib/apply/answers/grounding";
 import { buildStyleProfile } from "../lib/apply/answers/style";
-import type { AnswerLLM } from "../lib/apply/answers/engine";
+import type Anthropic from "@anthropic-ai/sdk";
+import { answerQuestion, answerTier, type AnswerLLM } from "../lib/apply/answers/engine";
+import { createMessage, modelLabel, pickModel, tokenLimit, usageSummary } from "../lib/claude";
 import { extractFields, extractFieldsWithOptions } from "../lib/apply/browser/extract";
 import { currentValue, fillField, type FillResult } from "../lib/apply/browser/fill";
 import { detectCaptcha, detectClosedPosting, detectLoginWall, visibleFormErrors } from "../lib/apply/browser/guards";
 import { planFields, mergeApprovals, type PlanContext } from "../lib/apply/planner";
-import { adapterFor, canonicalPostingUrl, confirmationText, hasApplicationForm, manualOnlyReason, revealApplicationForm } from "../lib/apply/platforms";
+import { adapterFor, canonicalPostingUrl, confirmationText, hasApplicationForm, manualOnlyReason, revealApplicationForm, scopeSelector } from "../lib/apply/platforms";
+import { resolveField } from "../lib/apply/resolve";
 import { preflightPasses, runPreflight } from "../lib/apply/preflight";
 import { submitApplication } from "../lib/apply/submit";
-import { roleKey } from "../lib/apply/dedupe";
+import { roleKey, twinKey } from "../lib/apply/dedupe";
 import type { ResumeChoice } from "../lib/apply/resume-select";
 import type { FieldDecision, FormField } from "../lib/apply/types";
 import type { Answer, Project } from "../lib/types";
@@ -109,11 +112,14 @@ function unitChecks() {
   });
   check(classifyField(f("Are you legally authorized to work in Canada?", "radio", ["Yes", "No"])) === "work_authorization", "work authorization is person-only");
   check(classifyField(f("Will you now or in the future require visa sponsorship?", "select")) === "sponsorship", "sponsorship is person-only");
+  check(classifyField(f("Work authorization status", "select")) === "work_authorization", "'work authorization' as a noun is person-only too");
   check(classifyField(f("I certify that the information provided is true and complete", "checkbox")) === "legal_declaration", "certification is a legal declaration");
   check(classifyField(f("I have read and agree to the Privacy Policy", "checkbox")) === "consent", "privacy consent is person-only");
   check(classifyField(f("What is your date of birth?", "date")) === "sensitive", "date of birth is sensitive");
   check(classifyField(f("Gender", "select")) === "demographic", "gender is demographic");
   check(classifyField(f("Expected salary")) === "salary", "salary is person-only");
+  check(classifyField(f("When are you available for internship?")) === "available_from", "'when are you available' is the start date");
+  check(classifyField(f("How many months are you available for an internship for? Please indicate start month and end month", "textarea")) === "open_question", "'how many months are you available' is not the start date");
   check(classifyField(f("First Name")) === "first_name", "First Name");
   check(classifyField(f("Prénom")) === "first_name", "Prénom (French)");
   check(classifyField(f("Courriel")) === "email", "Courriel (French)");
@@ -139,8 +145,173 @@ function unitChecks() {
   check(lengthTarget({ label: "Why us?", hint: null, maxLength: 300, rows: null, kind: "textarea" }).max <= 43, "length target capped by maxlength");
 }
 
+/** Which Claude answers which question: the tier a question starts on, and when the strong model is called in. */
+async function routingChecks(env: { candidate: ReturnType<typeof buildCandidateProfile>; corpus: ReturnType<typeof buildCorpus>; job: { companyName: string; title: string; description: string }; goodAnswer: string }) {
+  console.log("\nmodel routing (which Claude answers which question)");
+  const HAIKU = "claude-haiku-4-5-20251001";
+  const SONNET = "claude-sonnet-5-5";
+
+  check(answerTier("why_company", 150) === "hard" && answerTier("why_fit", 150) === "hard" && answerTier("why_role", 150) === "hard", "company-specific questions start on the strong model");
+  check(answerTier("about_you", 150) === "hard" && answerTier("challenge", 150) === "hard" && answerTier("technical", 150) === "hard", "questions that synthesize start on the strong model");
+  check(["strengths", "weakness", "teamwork", "career_goal", "project"].every((t) => answerTier(t as never, 150) === "easy"), "strengths, weakness, teamwork, career goal and project start on the cheap one");
+  check(answerTier("generic", 60) === "easy" && answerTier("generic", 150) === "easy", "a short generic question is cheap");
+  check(answerTier("generic", 250) === "hard" && answerTier("strengths", 250) === "hard", "a long answer (over 200 words) is the strong model's");
+
+  const saved = { ...process.env };
+  for (const k of ["ANTHROPIC_MODEL_HARD", "ANTHROPIC_MODEL_EASY", "ANTHROPIC_EFFORT", "ANTHROPIC_EFFORT_EASY", "ANTHROPIC_ANSWER_MODEL"]) delete process.env[k];
+  const hard = pickModel("hard");
+  const easy = pickModel("easy");
+  check(hard.model === SONNET && hard.effort === "high", "hard = Sonnet 5.5 at high effort", hard);
+  check(easy.model === HAIKU && easy.effort === null, "easy = Haiku 4.5, no effort setting", easy);
+  process.env.ANTHROPIC_MODEL_EASY = "claude-sonnet-5-5";
+  process.env.ANTHROPIC_EFFORT = "max";
+  check(pickModel("easy").model === SONNET && pickModel("hard").effort === "max", "both tiers can be pointed elsewhere from .env.local");
+  check(pickModel("easy", "claude-opus-5-5").model === "claude-opus-5-5" && pickModel("hard", "claude-opus-5-5").model === "claude-opus-5-5", "a pinned model wins over the tiers");
+  process.env.ANTHROPIC_EFFORT = "nonsense";
+  check(pickModel("hard").effort === "high", "an unknown effort falls back to high");
+  Object.assign(process.env, saved);
+  for (const k of ["ANTHROPIC_MODEL_HARD", "ANTHROPIC_MODEL_EASY", "ANTHROPIC_EFFORT", "ANTHROPIC_EFFORT_EASY", "ANTHROPIC_ANSWER_MODEL"]) if (!(k in saved)) delete process.env[k];
+  check(modelLabel(HAIKU) === "Haiku 4.5" && modelLabel(SONNET) === "Sonnet 5.5" && modelLabel("claude-sonnet-5") === "Sonnet 5", "model names read as people say them");
+  check(tokenLimit(2000, "hard") > 2000 && tokenLimit(2000, "easy") === 2000, "the strong model gets room to think; the cheap one does not need it");
+
+  // The call: Haiku 4.5 rejects an effort setting with a 400, so it is never sent one; a model that turns out to
+  // reject it is retried without, and remembered.
+  const sent: Array<{ model: string; effort?: string }> = [];
+  const stub = {
+    messages: {
+      create: async (p: { model: string; output_config?: { effort?: string } }) => {
+        sent.push({ model: p.model, effort: p.output_config?.effort });
+        if (p.model === "claude-future-1" && p.output_config?.effort) throw Object.assign(new Error("This model does not support the effort parameter."), { status: 400 });
+        return { usage: { input_tokens: 10, output_tokens: 5 }, content: [], stop_reason: "end_turn" };
+      },
+    },
+  } as unknown as Anthropic;
+  const params = { max_tokens: 10, messages: [{ role: "user" as const, content: "x" }] };
+  await createMessage(stub, { tier: "easy", model: HAIKU, effort: "high" }, params);
+  check(sent[0].effort === undefined, "Haiku is never sent an effort setting");
+  await createMessage(stub, { tier: "hard", model: SONNET, effort: "high" }, params);
+  check(sent[1].effort === "high", "Sonnet is sent one");
+  await createMessage(stub, { tier: "hard", model: "claude-future-1", effort: "high" }, params);
+  check(sent[2].effort === "high" && sent[3].effort === undefined, "a model that rejects it is retried without");
+  await createMessage(stub, { tier: "hard", model: "claude-future-1", effort: "high" }, params);
+  check(sent[4].effort === undefined && sent.length === 5, "and is not asked again");
+  check(/Haiku 4\.5 ×1/.test(usageSummary() ?? "") && /Sonnet 5\.5 ×1/.test(usageSummary() ?? ""), "the tokens each model used are tallied", usageSummary());
+
+  // The engine: which tier each attempt runs on.
+  const field = (label: string): FormField => ({ index: 0, signature: label, label, kind: "textarea", required: true, options: [], name: null, placeholder: null, maxLength: null, rows: 6, hint: null, accept: null });
+  const draft = (over: Partial<{ answer: string; missing_info: string | null; confidence: "high" | "medium" | "low" }> = {}, model = HAIKU) => ({
+    answer: env.goodAnswer, facts_used: ["Dossier uses PostgreSQL"], missing_info: null, confidence: "high" as const, model, ...over,
+  });
+  const robotic = "I am writing to express my keen interest. I am passionate about leveraging synergy in a fast-paced environment!";
+  const run = async (label: string, script: Array<(tier: string | undefined) => ReturnType<typeof draft>>) => {
+    const tiers: Array<string | undefined> = [];
+    let i = 0;
+    const llm: AnswerLLM = async (_s, _u, o) => {
+      tiers.push(o?.tier);
+      return script[Math.min(i++, script.length - 1)](o?.tier);
+    };
+    const out = await answerQuestion(field(label), { candidate: env.candidate, companyName: env.job.companyName, roleTitle: env.job.title, posting: env.job.description, companyNotes: [], corpus: env.corpus, samples: [], llm });
+    return { tiers: tiers.join(">"), out };
+  };
+  const cheapGood = () => draft();
+  const strongGood = () => draft({}, SONNET);
+
+  const a = await run("What are your greatest strengths?", [cheapGood]);
+  check(a.tiers === "easy" && a.out.status === "generated" && /Haiku 4\.5/.test(a.out.reason), "a strengths question is drafted once, by the cheap model", a);
+  const b = await run("Why do you want to work at Acme Robotics?", [strongGood]);
+  check(b.tiers === "hard" && b.out.status === "generated" && /Sonnet 5\.5/.test(b.out.reason), "a why-us question goes straight to the strong model", b);
+  const c = await run("What are your greatest strengths?", [() => draft({ answer: robotic }), strongGood]);
+  check(c.tiers === "easy>hard" && c.out.status === "generated", "a cheap draft that fails the checks is redone by the strong model", c);
+  const d = await run("What are your greatest strengths?", [() => draft({ answer: "", missing_info: "no strengths listed" }), strongGood]);
+  check(d.tiers === "easy>hard" && d.out.status === "generated", "'material lacks this' from the cheap model gets a second look from the strong one", d);
+  const e = await run("What are your greatest strengths?", [() => draft({ answer: "", missing_info: "nothing" }), () => draft({ answer: "", missing_info: "nothing in the material" }, SONNET)]);
+  check(e.tiers === "easy>hard" && e.out.status === "manual" && e.out.value === null, "and if the strong model agrees, it is yours (no guess)", e);
+  const f = await run("What are your greatest strengths?", [() => draft({ confidence: "low" }), strongGood]);
+  check(f.tiers === "easy>hard" && f.out.status === "generated", "a low-confidence cheap draft is checked by the strong model", f);
+  const g = await run("Why do you want to work at Acme Robotics?", [() => draft({ answer: robotic }, SONNET), strongGood]);
+  check(g.tiers === "hard>hard" && g.out.status === "generated", "a strong model's own failed draft is revised by the strong model, not escalated", g);
+  const h = await run("Describe your volunteering experience in 250 words.", [strongGood]);
+  // (The fake answer is far shorter than 250 words, so the length check sends it to a revision: still the strong model.)
+  check(h.tiers.startsWith("hard") && !h.tiers.includes("easy"), "a 250-word answer starts on the strong model and stays there", h);
+}
+
+/** Personal and legal answers are suggested from the answer bank, never filled: the plan stays "manual" until confirmed. */
+function personalChecks() {
+  console.log("\npersonal answers (suggested, never filled)");
+  const mk = (label: string, kind: FormField["kind"] = "text", options: string[] = [], required = true): FormField => ({
+    index: 0, signature: label, label, kind, required, options, name: null, placeholder: null, maxLength: null, rows: null, hint: null, accept: null,
+  });
+  const personal = [
+    answer("work_authorization", "red", "Canadian citizen", "Citoyen canadien"),
+    answer("sponsorship_required", "red", "No", "Non"),
+    answer("salary_expectation", "red", "Negotiable", "Négociable"),
+    answer("previous_employment", "red", "No", "Non"),
+    answer("gender", "red", "Man", "Homme"),
+    answer("ethnicity", "red", "White", "Blanc"),
+    answer("disability", "red", "No", "Non"),
+    answer("indigenous", "red", "No", "Non"),
+    answer("visible_minority", "red", "No", "Non"),
+    answer("veteran", "red", "No", "Non"),
+    answer("hispanic_latino", "red", "No", "Non"),
+    answer("lgbtq", "red", "No", "Non"),
+  ];
+  const withPersonal = (lang: "en" | "fr") =>
+    buildCandidateProfile({ lang, answers: [...ANSWERS.filter((a) => a.key !== "work_authorization"), ...personal], projects: PROJECTS, resume: null });
+  const bare = buildCandidateProfile({ lang: "en", answers: ANSWERS, projects: PROJECTS, resume: null });
+  const job = { companyName: "Acme", title: "Software Developer Intern", description: null, location: "Montréal, QC", workplaceType: null, source: "linkedin", url: "https://x" };
+  const files = { resumePath: null, coverLetterPath: null, coverLetterText: null };
+  const ask = (field: FormField, cand = withPersonal("en"), where = job) => resolveField(field, classifyField(field), cand, where, files);
+  const YN = ["Yes", "No"];
+
+  const auth = ask(mk("Are you legally authorized to work in Canada?", "radio", YN));
+  check(auth.status === "manual" && auth.value === "Yes", "authorized to work in Canada → suggests Yes, still yours to confirm", auth);
+  check(ask(mk("Are you legally authorized to work in the United States?", "radio", YN)).value === null, "the same question about the United States is not answered from a Canadian citizenship");
+  check(ask(mk("Are you a citizen of another country?", "radio", YN)).value === null, "'citizen of another country' is not answered");
+  check(ask(mk("Do you require a work permit to work in Canada?", "radio", YN)).value === null, "'do you require a work permit' is a different question");
+  check(ask(mk("Work authorization status", "select", ["Canadian citizen", "Permanent resident", "Work permit", "Study permit"])).value === "Canadian citizen", "a status list gets the status itself");
+  check(ask(mk("Are you authorized to work for any employer?", "radio", YN), withPersonal("en"), { ...job, location: "Remote" }).value === null, "no country named and a job outside Canada: nothing suggested");
+  check(ask(mk("Will you now or in the future require sponsorship to work in Canada?", "radio", YN)).value === "No", "no sponsorship needed → suggests No");
+  check(ask(mk("Will you now or in the future require visa sponsorship to work in the United States?", "radio", YN)).value === null, "sponsorship for the United States is not answered");
+  check(ask(mk("Do you hold a valid visa?", "radio", YN)).value === null, "a visa question that is not about sponsorship is not answered");
+
+  const disability = ask(mk("Do you have a disability?", "radio", ["Yes, I have a disability, or have had one in the past", "No, I do not have a disability and have not had one in the past", "I do not want to answer"]));
+  check(disability.value?.startsWith("No, I do not have a disability") === true && disability.status === "manual", "disability: 'No, I do not...' is picked, not 'I do not want to answer'", disability);
+  check(ask(mk("Veteran Status", "select", ["I identify as one or more of the classifications of protected veteran", "I am not a protected veteran", "I don't wish to answer"])).value === "I am not a protected veteran", "veteran: 'I am not a protected veteran'");
+  check(ask(mk("Gender", "select", ["Male", "Female", "Non-binary", "Decline to self-identify"])).value === "Male", "gender: Man → Male");
+  check(ask(mk("Genre", "select", ["Homme", "Femme", "Non binaire"]), withPersonal("fr")).value === "Homme", "genre (French)");
+  check(ask(mk("Race / Ethnicity", "select", ["Hispanic or Latino", "White (Not Hispanic or Latino)", "Black or African American", "Asian", "Two or More Races", "Decline to self-identify"])).value === "White (Not Hispanic or Latino)", "ethnicity: White");
+  check(ask(mk("Are you Hispanic/Latino?", "radio", ["Yes", "No", "Prefer not to answer"])).value === "No", "Hispanic/Latino → No, never 'Prefer not to answer'");
+  check(ask(mk("Do you identify as Indigenous?", "radio", YN)).value === "No", "Indigenous → No");
+  check(ask(mk("Are you a member of a visible minority group?", "radio", YN)).value === "No", "visible minority → No");
+  check(ask(mk("Do you identify as LGBTQ2S+?", "radio", YN)).value === "No", "LGBTQ2S+ → No");
+  check(ask(mk("Sexual orientation", "select", ["Heterosexual", "Gay or lesbian", "Bisexual", "Prefer not to say"])).value === null, "a list of orientations is not guessed from a 'No'");
+  check(ask(mk("Gender identity and sexual orientation")).value === null, "two topics in one question: nothing suggested");
+  check(ask(mk("I am not a protected veteran", "checkbox")).value === null, "a single tick-box is never suggested");
+
+  const salary = ask(mk("Salary expectations"));
+  check(salary.value === "Negotiable" && salary.status === "manual", "salary on a text field → Negotiable");
+  check(ask(mk("Expected salary", "number")).value === null, "salary on a number field is not guessed");
+  check(ask(mk("Have you previously worked at Acme?", "radio", YN)).value === "No", "previous employment → No");
+  check(ask(mk("Are you bound by a non-compete agreement?", "radio", YN)).value === null, "non-compete is a different question");
+  check(ask(mk("Êtes-vous autorisé à travailler au Canada?", "radio", ["Oui", "Non"]), withPersonal("fr")).value === "Oui", "authorized to work (French) → Oui");
+
+  console.log("\nwhen nothing is stored");
+  check(ask(mk("Gender", "select", ["Male", "Female"]), bare).value === null && ask(mk("Gender", "select", ["Male", "Female"]), bare).status === "manual", "required and not stored → yours, no suggestion");
+  check(ask(mk("Gender", "select", ["Male", "Female"], false), bare).status === "skipped", "optional and not stored → left blank, as before");
+  const everyManual = [
+    mk("Are you legally authorized to work in Canada?", "radio", YN),
+    mk("Do you have a disability?", "radio", YN),
+    mk("Gender", "select", ["Male", "Female"]),
+    mk("Salary expectations"),
+    mk("Have you previously worked at Acme?", "radio", YN),
+  ].every((x) => ask(x).status === "manual");
+  check(everyManual, "a suggestion is never a resolved value: every one stays 'manual' until you confirm");
+  check(matchOption("No", ["Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"])?.option === "No, I do not have a disability", "'I do not want to answer' is not a No");
+}
+
 async function main() {
   unitChecks();
+  personalChecks();
 
   const candidate = buildCandidateProfile({ lang: "en", answers: ANSWERS, projects: PROJECTS, resume: null });
   console.log("\ncandidate profile");
@@ -195,6 +366,8 @@ async function main() {
 
   const goodAnswer =
     "Acme Robotics builds the fleet-management backend on Node.js and PostgreSQL, and that is the part of the posting I read twice. It is the stack I used for Dossier, where I kept workflow state in PostgreSQL with retries and dead-letter handling so a failed step stayed visible instead of disappearing. Robots in grocery warehouses feel like the same problem with higher stakes: when a job fails, someone needs to see exactly where. I would like to learn how your team keeps that state honest at fleet scale.";
+  await routingChecks({ candidate, corpus, job, goodAnswer });
+
   const calls: string[] = [];
   const fakeLLM: AnswerLLM = async (_system, user) => {
     calls.push(user);
@@ -204,6 +377,14 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const page: Page = await browser.newPage();
   try {
+    console.log("\nAshby-shaped page: no <form>, a small panel shares the form's class");
+    await page.goto(`${base}/ashby-like.html`);
+    const ashbyScope = await scopeSelector(page, adapterFor("https://jobs.ashbyhq.com/acme/1/application"));
+    const ashbyFields = await extractFieldsWithOptions(page, ashbyScope);
+    check(ashbyScope === null, "a class that matches only a piece of the page is not the form: the whole page is read", ashbyScope);
+    check(ashbyFields.length >= 7, "every question is read, not just the autofill panel's one input", ashbyFields.map((x) => x.label));
+    check(ashbyFields.some((x) => x.label === "Name" && x.required) && ashbyFields.some((x) => /location/i.test(x.label) && x.required), "required fields are still recognized");
+
     console.log("\nform extraction (fixture)");
     await page.goto(`${base}/full-form.html`);
     const fields = await extractFieldsWithOptions(page, "#application-form");
@@ -388,6 +569,14 @@ async function main() {
   );
   check(canonicalPostingUrl("https://jobs.lever.co/acme/123/apply?utm_source=x") === canonicalPostingUrl("https://jobs.lever.co/acme/123"), "canonical URL ignores /apply and tracking params");
   check(roleKey("Software Developer Intern (Winter 2027)") === roleKey("Stage - Software Developer"), "same role across postings has one key");
+  check(
+    twinKey("c1", "Intern, Software Developer/ Stagiaire en Développement Logiciel") ===
+      twinKey("c1", "intern software developer, stagiaire en développement logiciel"),
+    "the same posting listed twice (punctuation and word order aside) is one tracked role",
+  );
+  check(twinKey("c1", "Software Developer Intern") !== twinKey("c2", "Software Developer Intern"), "the same title at another company is another role");
+  check(twinKey("c1", "Intern, AI Developer") !== twinKey("c1", "Intern, Software Developer"), "different roles at one company stay apart");
+  check(twinKey("c1", "Intern") === null, "a title with nothing left after the noise is never compared");
   check(!!manualOnlyReason("https://www.linkedin.com/jobs/view/1"), "LinkedIn is never driven");
   check(!!manualOnlyReason("https://acme.wd3.myworkdayjobs.com/x"), "Workday is never driven");
 

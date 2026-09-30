@@ -2,16 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { trackJob } from "../../actions";
 import { SubmitButton } from "../../components/client-ui";
+import { MatchBreakdown } from "../../components/match-breakdown";
 import { DbUnavailable, ExtLink, PageHeader, ScoreMeter, Section, StatusPill } from "../../components/ui";
-import { day, percent, place } from "../../../lib/format";
+import { day, place } from "../../../lib/format";
+import { reportForJob } from "../../../lib/match/for-job";
 import { getJob } from "../../../lib/queries";
-import {
-  COMPONENT_NAMES,
-  explainFr,
-  findSkills,
-  type Components,
-} from "../../../lib/score";
-import { COMPONENT_LABEL_FR } from "../../../lib/status-labels";
 
 export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,21 +23,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   }
   if (!job) notFound();
 
-  const components = {} as Components;
-  for (const name of COMPONENT_NAMES) {
-    const row = job.components.find((c) => c.component === name);
-    components[name] = row ? Number(row.raw_value) : 0;
-  }
   const scored = job.components.length > 0;
-  const pct = scored ? Math.round(Number(job.score) * 100) : null;
   const gated = Boolean(job.gated);
-  const explanationFr = scored ? explainFr(components, pct ?? 0) : null;
-  const found = findSkills(
-    [job.title, job.location, job.workplace_type, job.company_city, job.description]
-      .filter(Boolean)
-      .join("\n"),
-  );
-  const haveCount = found.filter((s) => s.have).length;
+  // Computed now, against the CVs that are active now: the page shows the reasoning behind the number, not a number alone.
+  const report = await reportForJob(job);
+  const storedPercent = scored ? Math.round(Number(job.score) * 1000) / 10 : null;
 
   return (
     <>
@@ -75,69 +60,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
       <div className="split">
         <div className="stack">
-          {scored ? (
-            <Section title="Composantes du score" id="composantes">
-              <div className="table-wrap stackable">
-                <table>
-                  <caption className="visually-hidden">
-                    Détail du score de correspondance par composante
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Composante</th>
-                      <th scope="col">Valeur</th>
-                      <th scope="col" className="tight">
-                        Poids
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {COMPONENT_NAMES.map((name) => {
-                      const row = job.components.find((c) => c.component === name);
-                      return (
-                        <tr key={name}>
-                          <td data-label="Composante">
-                            <span className="cell-main">{COMPONENT_LABEL_FR[name] ?? name}</span>
-                          </td>
-                          <td data-label="Valeur">{percent(row?.raw_value ?? null)}</td>
-                          <td data-label="Poids" className="tight num muted">
-                            {row ? percent(row.weight) : "n/d"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              {explanationFr ? <p className="lede" style={{ marginTop: "var(--s-3)" }}>{explanationFr}</p> : null}
-            </Section>
-          ) : (
-            <div className="panel panel-quiet">
-              <p className="empty" style={{ margin: 0 }}>
-                Pas encore scorée. Lance <code>npm run score</code>.
-              </p>
-            </div>
-          )}
-
-          <Section
-            title="Mots-clés dans l'offre"
-            note={found.length ? `${haveCount}/${found.length} présents dans ton CV` : undefined}
-            id="mots-cles"
-          >
-            {found.length === 0 ? (
-              <p className="empty">
-                Aucun des mots-clés du dictionnaire n&apos;apparaît dans le texte.
-              </p>
-            ) : (
-              <p className="tag-list">
-                {found.map((s) => (
-                  <span key={s.name} className={`badge ${s.have ? "green" : "neutral"}`}>
-                    {s.name}
-                    {s.have ? "" : " (manquant)"}
-                  </span>
-                ))}
-              </p>
-            )}
+          <Section title="Pourquoi ce pourcentage" id="composantes">
+            <MatchBreakdown report={report} storedPercent={storedPercent} />
           </Section>
 
           <Section title="Texte de l'offre" id="texte">
@@ -172,7 +96,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
                   <>
                     <ScoreMeter score={job.score} gated={gated} />
                     {gated ? (
-                      <span className="field-hint">Lieu ou période à 0 : offre écartée.</span>
+                      <span className="field-hint">Lieu, période ou poste à 0 : offre écartée.</span>
                     ) : null}
                   </>
                 ) : (

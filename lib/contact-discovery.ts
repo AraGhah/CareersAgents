@@ -41,6 +41,9 @@ const SEARCH_BUDGET_MS = 40_000;
 
 type Page = { url: string; html: string };
 
+/** A page read from a company's site: where it ended up and its HTML. */
+export type SitePage = Page;
+
 type Plain = { page: Page | null; blocked: boolean };
 
 /** Errors that mean "nothing lives here", as opposed to "this site will not talk to a script". */
@@ -119,7 +122,7 @@ class Renderer {
  * Fetches pages: plainly first, and in the headless browser when the site refuses scripts or draws its
  * content with JavaScript. Once a host has refused a plain request, its other pages go straight to the browser.
  */
-class Fetcher {
+export class Fetcher {
   private renderer = new Renderer();
   private refusing = new Set<string>();
   private readonly deadline = Date.now() + SEARCH_BUDGET_MS;
@@ -238,6 +241,29 @@ async function readSite(home: Page, postingUrl: string | null, fetcher: Fetcher)
   return pages;
 }
 
+export type SiteRead = { website: string; websiteSource: WebsiteSource; pages: Page[] };
+
+/**
+ * The company's own website and the pages read on it (home, careers, contact, what those link to). A domain
+ * guessed from the name is only kept when what is on it fits (this is what keeps giro.com, helmets, from
+ * standing in for GIRO, the software company, and lets giro.ca through).
+ */
+export async function readCompanySite(
+  opts: { companyName: string; website: string | null; postingUrl: string | null },
+  fetcher: Fetcher,
+): Promise<{ read: SiteRead | null; note?: string }> {
+  let note: string | undefined;
+  for (const candidate of await websiteCandidates(opts, fetcher)) {
+    const pages = await readSite(candidate.home, opts.postingUrl, fetcher);
+    if (candidate.source === "guess" && !corroboratesCompany(pages)) {
+      note ??= `${candidate.website} looks like a different company: nothing on it points to Québec, Canada or software`;
+      continue;
+    }
+    return { read: { website: candidate.website, websiteSource: candidate.source, pages }, note };
+  }
+  return { read: null, note };
+}
+
 export async function discoverCompanyContacts(opts: {
   companyName: string;
   website: string | null;
@@ -245,7 +271,6 @@ export async function discoverCompanyContacts(opts: {
 }): Promise<Discovery> {
   const fetcher = new Fetcher();
   try {
-    let note: string | undefined;
     const rank = (pages: Page[], siteHost: string | null) =>
       rankFoundEmails(
         pages.map((p) => ({ url: p.url, emails: extractEmails(p.html) })),
@@ -253,19 +278,13 @@ export async function discoverCompanyContacts(opts: {
         siteHost,
       );
 
-    for (const candidate of await websiteCandidates(opts, fetcher)) {
-      const pages = await readSite(candidate.home, opts.postingUrl, fetcher);
-      // A domain guessed from the name is only kept when what is on it fits (this is what keeps giro.com,
-      // helmets, from standing in for GIRO, the software company, and lets giro.ca through).
-      if (candidate.source === "guess" && !corroboratesCompany(pages)) {
-        note ??= `${candidate.website} looks like a different company: nothing on it points to Québec, Canada or software`;
-        continue;
-      }
+    const { read, note } = await readCompanySite(opts, fetcher);
+    if (read) {
       return {
-        website: candidate.website,
-        websiteSource: candidate.source,
-        pagesScanned: pages.map((p) => p.url),
-        found: rank(pages, hostOf(candidate.website)),
+        website: read.website,
+        websiteSource: read.websiteSource,
+        pagesScanned: read.pages.map((p) => p.url),
+        found: rank(read.pages, hostOf(read.website)),
       };
     }
 

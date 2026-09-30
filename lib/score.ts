@@ -1,25 +1,28 @@
+// The match between a posting and the CV. The work is in lib/match/ (the CV profile, the lexicon, the analyzer); this
+// module keeps the API the rest of the app already uses: scoreJob() gives the components that are stored in
+// job_scores plus the full report, and the pages read the same report the number came from.
+
 import Decimal from "decimal.js";
 import skillsFile from "../skills.json";
 import weightsFile from "../weights.json";
-import type { WorkplaceType } from "./types";
+import { fallbackHaveSkills, skillDictionary } from "./profile";
+import { analyzePosting, bandOf as bandFor } from "./match/analyze";
+import { buildCvProfile, cvFromSkillNames, type CvProfile, type CvSource } from "./match/cv";
+import {
+  COMPONENT_NAMES,
+  GATING_COMPONENTS,
+  type Band,
+  type ComponentName,
+  type Components,
+  type MatchReport,
+  type ScoreInput,
+  type SkillHit,
+  type Weights,
+} from "./match/types";
 
-export const COMPONENT_NAMES = ["skills", "location", "timing", "language", "level"] as const;
-export type ComponentName = (typeof COMPONENT_NAMES)[number];
-
-export type ScoreInput = {
-  title: string;
-  location: string | null;
-  workplaceType: WorkplaceType | null;
-  description: string | null;
-  companyCity: string | null;
-};
-
-export type SkillHit = { name: string; have: boolean };
-
-export type Components = Record<ComponentName, number>;
-export type Weights = Record<ComponentName, number>;
-
-export type Band = "high" | "mid" | "ok" | "low" | "skip";
+export { COMPONENT_NAMES, GATING_COMPONENTS };
+export type { Band, ComponentName, Components, MatchReport, ScoreInput, SkillHit, Weights };
+export const bandOf = bandFor;
 
 export type ScoreResult = {
   components: Components;
@@ -27,34 +30,45 @@ export type ScoreResult = {
   found: SkillHit[];
   total: Decimal;
   percent: number;
+  /** One decimal: the number the breakdown adds up to. */
+  percentPrecise: number;
   gated: boolean;
   band: Band;
   explanation: string;
+  report: MatchReport;
 };
 
-type DictionaryEntry = { name: string; patterns: string[] };
+// ---------------------------------------------------------------------------
+// The CV being matched against
+// ---------------------------------------------------------------------------
 
-const dictionary = (skillsFile.dictionary as DictionaryEntry[]).map((entry) => ({
-  name: entry.name,
-  regexes: entry.patterns.map((pattern) => new RegExp(pattern, "i")),
-}));
+let cv: CvProfile = cvFromSkillNames(skillsFile.have as string[]);
 
-const defaultHave = new Set(skillsFile.have as string[]);
+/** The CV the next scores are computed against: what the active CVs say, level by level. */
+export function setCvProfile(profile: CvProfile) {
+  cv = profile;
+}
 
-/** Skills the candidate actually has — from the active resume profile when available. */
-let haveSkills: Set<string> = defaultHave;
+export function setCvFromSources(sources: CvSource[]) {
+  cv = buildCvProfile(sources);
+}
 
+export function getCvProfile(): CvProfile {
+  return cv;
+}
+
+/** A plain list of skills, when nothing richer is known (each counts as "listed"). */
 export function setHaveSkills(skills: string[] | null | undefined) {
-  if (!skills || skills.length === 0) {
-    haveSkills = defaultHave;
-    return;
-  }
-  haveSkills = new Set(skills);
+  cv = cvFromSkillNames(skills && skills.length > 0 ? skills : fallbackHaveSkills());
 }
 
 export function getHaveSkills(): string[] {
-  return [...haveSkills];
+  return [...cv.skills.keys()];
 }
+
+// ---------------------------------------------------------------------------
+// Weights
+// ---------------------------------------------------------------------------
 
 function asWeights(raw: Record<string, number>): Weights {
   const weights = {} as Weights;
@@ -75,144 +89,23 @@ function asWeights(raw: Record<string, number>): Weights {
 
 export const defaultWeights = asWeights(weightsFile);
 
-function haystack(input: ScoreInput): string {
-  return [input.title, input.location, input.workplaceType, input.companyCity, input.description]
-    .filter(Boolean)
-    .join("\n");
+/**
+ * SQL for "this posting is skipped, whatever its total": one of the gating components is 0. `alias` is the job_scores
+ * alias in the query. Shared by every query that lists postings, so a new gate cannot be added in one place only.
+ */
+export function gatedSql(alias = "s"): string {
+  return GATING_COMPONENTS.map((c) => `BOOL_OR(${alias}.component = '${c}' AND ${alias}.raw_value = 0)`).join("\n             OR ");
 }
 
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+
+/** The technologies a text names, and whether the CV has them. */
 export function findSkills(text: string): SkillHit[] {
-  const found: SkillHit[] = [];
-  for (const entry of dictionary) {
-    if (entry.regexes.some((re) => re.test(text))) {
-      found.push({ name: entry.name, have: haveSkills.has(entry.name) });
-    }
-  }
-  return found;
-}
-
-function skillsScore(found: SkillHit[]): number {
-  if (found.length === 0) return 0.5;
-  const matched = found.filter((s) => s.have).length;
-  return new Decimal(matched).div(found.length).toDecimalPlaces(4).toNumber();
-}
-
-function locationScore(input: ScoreInput, text: string): number {
-  const local =
-    /montr[eé]al|laval|saint-?laurent|st[ .\-]?laurent|vaudreuil/i.test(text) ||
-    (input.companyCity != null &&
-      /montr[eé]al|laval|saint-?laurent|st[ .\-]?laurent|vaudreuil/i.test(input.companyCity));
-
-  const elsewhere =
-    /toronto|vancouver|calgary|ottawa|mississauga|waterloo|edmonton|winnipeg|quebec city|ville de qu[eé]bec|halifax|victoria|saskatoon|regina|kitchener|hamilton/i.test(
-      text,
-    );
-
-  const us =
-    /\bunited states\b|\busa\b|\bu\.s\.a?\b|new york|san francisco|seattle|austin|boston|chicago|denver|los angeles/i.test(
-      text,
-    );
-
-  const remote =
-    input.workplaceType === "remote" ||
-    /\bremote\b|t[eé]l[eé]travail|\bwfh\b|work from home/i.test(text);
-
-  if (local) return 1;
-  if (remote && !us) return 1;
-  if (remote && us && /canada|qu[eé]bec|ontario/i.test(text)) return 1;
-  if (elsewhere || us) return 0;
-  if (!input.location && !input.companyCity) return 0.5;
-  return 0.5;
-}
-
-function yearsNear(text: string, keyword: RegExp): number[] {
-  const years: number[] = [];
-  const copy = new RegExp(keyword.source, keyword.flags.includes("g") ? keyword.flags : `${keyword.flags}g`);
-  let match: RegExpExecArray | null;
-  while ((match = copy.exec(text)) !== null) {
-    const from = Math.max(0, match.index - 20);
-    const to = Math.min(text.length, match.index + match[0].length + 20);
-    for (const year of text.slice(from, to).matchAll(/\b(20\d{2})\b/g)) {
-      years.push(Number(year[1]));
-    }
-  }
-  return years;
-}
-
-function timingScore(input: ScoreInput, text: string): number {
-  const winter = /\bwinter\b|\bhiver\b|\bjanuary\b|\bjanvier\b/i;
-  const otherTerm =
-    /\bsummer\b|\b[eé]t[eé]\b|\bspring\b|\bprintemps\b|\bfall\b|\bautumn\b|\bautomne\b/i.test(text);
-
-  if (winter.test(text)) {
-    const years = yearsNear(text, winter);
-    const covers2027 = years.includes(2027) || (years.includes(2026) && years.includes(2027));
-    if (covers2027) return 1;
-    if (years.length > 0 && years.every((y) => y < 2027)) return 0;
-    return 1;
-  }
-
-  if (otherTerm) return 0;
-
-  if (/\bintern(?:s|ship|ships)?\b|\bstages?\b|\bstagiaires?\b|\bco-?ops?\b/i.test(input.title)) {
-    return 1;
-  }
-  return 0.5;
-}
-
-function languageScore(text: string): number {
-  const other =
-    /\b(?:spanish|espagnol|german|allemand|mandarin|chinese|chinois|japanese|japonais|arabic|arabe|italian|italien|portuguese|portugais|dutch|n[eé]erlandais|russian|russe|korean|cor[eé]en|hindi|cantonese|cantonais)\b/gi;
-
-  let match: RegExpExecArray | null;
-  while ((match = other.exec(text)) !== null) {
-    const from = Math.max(0, match.index - 48);
-    const to = Math.min(text.length, match.index + match[0].length + 48);
-    const window = text.slice(from, to);
-    if (
-      /\b(?:required|obligatoire|must|mandatory|fluent|courant|native|langue maternelle)\b/i.test(
-        window,
-      )
-    ) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-function levelScore(input: ScoreInput, text: string): number {
-  if (
-    /\bintern(?:s|ship|ships)?\b|\bstages?\b|\bstagiaires?\b|\binternes?\b|\bco-?ops?\b|\bjunior\b|\bentry[- ]level\b/i.test(
-      input.title,
-    )
-  ) {
-    return 1;
-  }
-
-  if (
-    /\b(?:senior|staff|principal|director|directeur|manager|gestionnaire|lead|vp|head of)\b/i.test(
-      input.title,
-    )
-  ) {
-    return 0;
-  }
-
-  const years = [
-    ...text.matchAll(
-      /(\d+)\s*\+?\s*(?:years?|ans)\s+(?:of\s+)?(?:experience|exp[eé]rience)/gi,
-    ),
-  ];
-  if (years.some((m) => Number(m[1]) >= 3)) return 0;
-
-  return 0.5;
-}
-
-export function bandOf(percent: number, gated: boolean): Band {
-  if (gated) return "skip";
-  if (percent >= 85) return "high";
-  if (percent >= 70) return "mid";
-  if (percent >= 60) return "ok";
-  return "low";
+  return skillDictionary
+    .filter((entry) => entry.regexes.some((re) => re.test(text)))
+    .map((entry) => ({ name: entry.name, have: cv.skills.has(entry.name) }));
 }
 
 function fmt(value: number): string {
@@ -222,86 +115,67 @@ function fmt(value: number): string {
 
 export function explain(components: Components, percent: number): string {
   const parts = COMPONENT_NAMES.map((name) => `${name} ${fmt(components[name])}`);
-  const first = `The five inputs are ${parts.join(", ")}.`;
-
-  if (components.location === 0 && components.timing === 0) {
-    return `${first} Location and timing are both 0, so it is skipped no matter what the total is.`;
-  }
-  if (components.location === 0) {
-    return `${first} Location is 0, so it is skipped no matter what the total is.`;
-  }
-  if (components.timing === 0) {
-    return `${first} Timing is 0, so it is skipped no matter what the total is.`;
-  }
+  const first = `The components are ${parts.join(", ")}.`;
+  const gate = GATING_COMPONENTS.filter((name) => components[name] === 0);
+  if (gate.length > 0) return `${first} ${gate.join(" and ")} ${gate.length > 1 ? "are" : "is"} 0, so it is skipped no matter what the total is.`;
   if (percent >= 85) return `${first} Total ${percent}, first band.`;
   if (percent >= 70) return `${first} Total ${percent}, second band.`;
-  if (percent >= 60) {
-    return `${first} Total ${percent}, on the board but behind the first two bands.`;
-  }
+  if (percent >= 60) return `${first} Total ${percent}, on the board but behind the first two bands.`;
   return `${first} Total ${percent}, under 60, so it stays hidden by default and is not deleted.`;
 }
 
-export function explainFr(components: Components, percent: number): string {
-  const labels: Record<ComponentName, string> = {
-    skills: "compétences",
-    location: "lieu",
-    timing: "période",
-    language: "langue",
-    level: "niveau",
-  };
-  const parts = COMPONENT_NAMES.map((name) => `${labels[name]} ${fmt(components[name])}`);
-  const first = `Les cinq composantes : ${parts.join(", ")}.`;
+const LABEL_FR: Record<ComponentName, string> = {
+  skills: "compétences",
+  concepts: "pratiques",
+  role: "poste",
+  level: "niveau",
+  timing: "période",
+  location: "lieu",
+  language: "langue",
+};
 
-  if (components.location === 0 && components.timing === 0) {
-    return `${first} Lieu et période à 0 : offre rejetée, peu importe le total.`;
-  }
-  if (components.location === 0) {
-    return `${first} Lieu à 0 : offre rejetée, peu importe le total.`;
-  }
-  if (components.timing === 0) {
-    return `${first} Période à 0 : offre rejetée, peu importe le total.`;
-  }
-  if (percent >= 85) {
-    return `${first} Total ${percent} : priorité.`;
-  }
-  if (percent >= 70) {
-    return `${first} Total ${percent} : postuler.`;
-  }
-  if (percent >= 60) {
-    return `${first} Total ${percent} : à revoir.`;
-  }
+export function explainFr(components: Components, percent: number): string {
+  const parts = COMPONENT_NAMES.map((name) => `${LABEL_FR[name]} ${fmt(components[name])}`);
+  const first = `Les composantes : ${parts.join(", ")}.`;
+  const gate = GATING_COMPONENTS.filter((name) => components[name] === 0);
+  if (gate.length > 0) return `${first} ${gate.map((g) => LABEL_FR[g]).join(" et ")} à 0 : offre rejetée, peu importe le total.`;
+  if (percent >= 85) return `${first} Total ${percent} : priorité.`;
+  if (percent >= 70) return `${first} Total ${percent} : postuler.`;
+  if (percent >= 60) return `${first} Total ${percent} : à revoir.`;
   return `${first} Total ${percent} : sous 60, masqué par défaut (non supprimé).`;
 }
 
 export function scoreJob(input: ScoreInput, weights: Weights = defaultWeights): ScoreResult {
-  const text = haystack(input);
-  const found = findSkills(text);
-  const components: Components = {
-    skills: skillsScore(found),
-    location: locationScore(input, text),
-    timing: timingScore(input, text),
-    language: languageScore(text),
-    level: levelScore(input, text),
-  };
+  const report = analyzePosting(input, cv, weights);
+  const components = {} as Components;
+  for (const c of report.criteria) components[c.id] = c.score;
 
   let total = new Decimal(0);
-  for (const name of COMPONENT_NAMES) {
-    total = total.plus(new Decimal(components[name]).times(weights[name]));
-  }
-  const percent = total.times(100).toDecimalPlaces(0).toNumber();
-  const gated = components.location === 0 || components.timing === 0;
+  for (const name of COMPONENT_NAMES) total = total.plus(new Decimal(components[name]).times(weights[name]));
+
+  const found: SkillHit[] = [
+    ...report.skills.matched.map((s) => ({ name: s.name, have: true })),
+    ...report.skills.related.map((s) => ({ name: s.name, have: false })),
+    ...report.skills.missing.map((s) => ({ name: s.name, have: false })),
+  ];
 
   return {
     components,
     weights,
     found,
     total,
-    percent,
-    gated,
-    band: bandOf(percent, gated),
-    explanation: explain(components, percent),
+    percent: report.percent,
+    percentPrecise: report.percentPrecise,
+    gated: report.gated,
+    band: report.band,
+    explanation: explain(components, report.percent),
+    report,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Invariants (npm run score:check: no database)
+// ---------------------------------------------------------------------------
 
 export function checkScoring(): string[] {
   const lines: string[] = [];
@@ -310,8 +184,7 @@ export function checkScoring(): string[] {
     location: "Montréal",
     workplaceType: "hybrid",
     companyCity: "Montréal",
-    description:
-      "TypeScript, React and PostgreSQL. Winter 2027. English and French. Internship.",
+    description: "TypeScript, React and PostgreSQL. Winter 2027. English and French. Internship.",
   };
 
   const a = scoreJob(sample);
@@ -340,24 +213,14 @@ export function checkScoring(): string[] {
   if (!defaultOrder[0].total.greaterThan(defaultOrder[1].total)) {
     throw new Error("expected the skills-heavy posting to rank first with default weights");
   }
-  lines.push(
-    `default weights: skills-heavy ${defaultOrder[0].percent} > location-heavy ${defaultOrder[1].percent}`,
-  );
+  lines.push(`default weights: skills-heavy ${defaultOrder[0].percent} > location-heavy ${defaultOrder[1].percent}`);
 
-  const swapped: Weights = {
-    skills: 0.1,
-    location: 0.55,
-    timing: 0.15,
-    language: 0.1,
-    level: 0.1,
-  };
+  const swapped: Weights = { skills: 0.05, concepts: 0.05, role: 0.1, level: 0.05, timing: 0.1, location: 0.6, language: 0.05 };
   const swappedOrder = [scoreJob(skillsHeavy, swapped), scoreJob(locationHeavy, swapped)];
   if (!swappedOrder[1].total.greaterThan(swappedOrder[0].total)) {
     throw new Error("expected the location-heavy posting to rank first after swapping weights");
   }
-  lines.push(
-    `location-weighted: location-heavy ${swappedOrder[1].percent} > skills-heavy ${swappedOrder[0].percent}`,
-  );
+  lines.push(`location-weighted: location-heavy ${swappedOrder[1].percent} > skills-heavy ${swappedOrder[0].percent}`);
 
   return lines;
 }

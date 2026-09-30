@@ -5,16 +5,21 @@
 //      company site", captured at discovery)
 //   2. the same role at the same company found on another source (a Greenhouse
 //      board, or the Indeed copy of a LinkedIn posting)
-//   3. the posting URL itself
+//   3. the same role looked up on the company's own careers site and job board
+//      (lib/apply/careers.ts), kept on the job when found
+//   4. the posting URL itself
 
 import { pool } from "../db";
 import type { ApplicationDetail } from "../types";
+import { findCompanyPosting, saveCompanyPosting } from "./careers";
 import { roleKey } from "./dedupe";
 
 export type ApplyTarget = {
   url: string;
-  via: "posting" | "company-link" | "same-role-elsewhere";
+  via: "posting" | "company-link" | "same-role-elsewhere" | "company-careers";
   note: string;
+  /** For a person, when the desk could not find or drive the company's form: what it looked at and where the careers page is. */
+  hint?: string | null;
 };
 
 const JOB_BOARD = /(^|\.)(linkedin|indeed)\.[a-z.]+$/i;
@@ -46,7 +51,8 @@ function formUrlOf(job: JobLinks): string | null {
   return null;
 }
 
-export async function resolveApplyTarget(app: ApplicationDetail): Promise<ApplyTarget> {
+/** `save: false` looks without writing anything (a company posting found is otherwise kept on the job). */
+export async function resolveApplyTarget(app: ApplicationDetail, opts: { save?: boolean } = {}): Promise<ApplyTarget> {
   const [own] = await jobLinks(`SELECT id, title, url, apply_url, source FROM jobs WHERE id = $1`, [app.job_id]);
   if (own?.apply_url && !isJobBoardUrl(own.apply_url)) {
     return { url: own.apply_url, via: "company-link", note: "The posting's link to the company's own application form." };
@@ -69,5 +75,16 @@ export async function resolveApplyTarget(app: ApplicationDetail): Promise<ApplyT
       }
     }
   }
-  return { url: app.url, via: "posting", note: "Only the job-board posting is known: no company form found." };
+  const found = await findCompanyPosting(app);
+  if (found.hit) {
+    if (opts.save !== false) await saveCompanyPosting(app.job_id, found.hit.url);
+    return { url: found.hit.url, via: "company-careers", note: found.note };
+  }
+  const careers = found.careersUrl ? ` The company's careers page: ${found.careersUrl}.` : "";
+  return {
+    url: app.url,
+    via: "posting",
+    note: `Only the job-board posting is known: no company form found. ${found.note}`,
+    hint: `${found.note}${careers}`,
+  };
 }

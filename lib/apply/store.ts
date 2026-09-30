@@ -2,6 +2,7 @@
 // approvals that feed the writing-style profile. schema-v11.sql.
 
 import { pool } from "../db";
+import { redact } from "./account-config";
 import { recordWritingSample } from "./answers/style";
 import type { Check, FieldDecision, Lang, PlatformId, PreflightItem, QuestionType, RunMode, RunState } from "./types";
 
@@ -166,14 +167,15 @@ export async function logPortalError(opts: {
   error: unknown;
   detail?: Record<string, unknown>;
 }): Promise<void> {
-  const message = opts.error instanceof Error ? opts.error.message : String(opts.error);
+  // What is saved never carries the portal account's password, even if an error message quotes what was typed.
+  const message = redact(opts.error instanceof Error ? opts.error.message : String(opts.error));
   await pool
     .query(`INSERT INTO portal_errors (application_id, run_id, stage, message, detail) VALUES ($1, $2, $3, $4, $5::jsonb)`, [
       opts.applicationId,
       opts.runId,
       opts.stage,
       message.slice(0, 2000),
-      JSON.stringify({ ...(opts.detail ?? {}), stack: opts.error instanceof Error ? opts.error.stack?.split("\n").slice(0, 6) : undefined }),
+      redact(JSON.stringify({ ...(opts.detail ?? {}), stack: opts.error instanceof Error ? opts.error.stack?.split("\n").slice(0, 6) : undefined })),
     ])
     .catch((err) => console.error("[portal] could not log error:", err));
 }

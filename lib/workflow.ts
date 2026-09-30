@@ -8,8 +8,10 @@ import {
 } from "./discover-core";
 import { fetchIndeedJobs, fetchLinkedInJobs, type ExternalJob } from "./sources-external";
 import filtersConfig from "../filters.json";
-import { COMPONENT_NAMES, scoreJob, setHaveSkills, type ComponentName } from "./score";
-import { getActiveSkills, resolveResumeForJob } from "./resumes";
+import { COMPONENT_NAMES, gatedSql, scoreJob, type ComponentName } from "./score";
+import { resolveResumeForJob, loadActiveCv } from "./resumes";
+import { fillDescriptionsFromTwins } from "./match/enrich";
+import { isCybersecurityRole } from "./match/lexicon";
 import { listSourceCapabilities, type SourceCapability } from "./sources";
 import {
   startApplication,
@@ -28,6 +30,7 @@ import type { ApplicationStatus } from "./types";
 import { manualOnlyReason } from "./apply/platforms";
 import { saveChannel } from "./apply/route";
 import { resolveApplyTarget } from "./apply/apply-url";
+import { twinKey } from "./apply/dedupe";
 
 export type DiscoverySummary = {
   runId: string;
@@ -50,6 +53,8 @@ async function upsertJob(
 ): Promise<"inserted" | "updated" | "skipped"> {
   if (!isInternshipTitle(job.title)) return "skipped";
   if (!isSoftwareRelevant(job.title, job.description)) return "skipped";
+  // Cybersecurity is never wanted: not stored, so it is never scored, tracked or prepared.
+  if (isCybersecurityRole(job.title, job.description)) return "skipped";
 
   const result = await pool.query<{ id: string; inserted: boolean }>(
     `INSERT INTO jobs (company_id, external_id, title, location, workplace_type, url, description, posted_at, source)
@@ -70,7 +75,8 @@ async function upsertJob(
           location        = EXCLUDED.location,
           workplace_type  = EXCLUDED.workplace_type,
           url             = EXCLUDED.url,
-          description     = EXCLUDED.description,
+          -- A later run without details must not wipe a description this job already has.
+          description     = COALESCE(EXCLUDED.description, jobs.description),
           posted_at       = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
           source          = EXCLUDED.source,
           closed_at       = NULL
@@ -107,8 +113,9 @@ async function saveApplyUrl(jobId: string, applyUrl: string) {
 }
 
 async function scoreAllOpenJobs(): Promise<number> {
-  const skills = await getActiveSkills();
-  setHaveSkills(skills);
+  // The CV first (its levels and projects), and the text of postings that arrived without any.
+  await loadActiveCv();
+  await fillDescriptionsFromTwins();
   const scoredAt = new Date();
   const { rows } = await pool.query<{
     id: string;
@@ -152,6 +159,8 @@ async function scoreAllOpenJobs(): Promise<number> {
 async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number; newlyQualifiedIds: string[] }> {
   const { rows } = await pool.query<{
     job_id: string;
+    company_id: string;
+    title: string;
     application_id: string | null;
     score: string | null;
     gated: boolean | null;
@@ -162,27 +171,41 @@ async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number
      totals AS (
        SELECT s.job_id,
               SUM(s.raw_value * s.weight) AS score,
-              BOOL_OR(s.component = 'location' AND s.raw_value = 0)
-                OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+              ${gatedSql("s")} AS gated
          FROM job_scores s
          JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
         GROUP BY s.job_id
      )
-     SELECT j.id AS job_id, a.id AS application_id, t.score, t.gated
+     SELECT j.id AS job_id, j.company_id, j.title, a.id AS application_id, t.score, t.gated
        FROM jobs j
        LEFT JOIN applications a ON a.job_id = j.id
        LEFT JOIN totals t ON t.job_id = j.id
       WHERE j.closed_at IS NULL
         AND t.gated IS NOT TRUE
-        AND t.score >= $1`,
+        AND t.score >= $1
+      ORDER BY j.first_seen_at, j.id`,
     [minPercent / 100],
   );
+
+  // One application per role per company. Indeed and LinkedIn list the same posting under different
+  // ids, so a job whose twin is already tracked (or is tracked earlier in this pass) stays a job only.
+  const tracked = new Set<string>();
+  const { rows: existing } = await pool.query<{ company_id: string; title: string }>(
+    `SELECT j.company_id, j.title FROM applications a JOIN jobs j ON j.id = a.job_id`,
+  );
+  for (const e of existing) {
+    const key = twinKey(e.company_id, e.title);
+    if (key) tracked.add(key);
+  }
 
   let qualified = 0;
   const newlyQualifiedIds: string[] = [];
   for (const row of rows) {
     let appId = row.application_id;
     if (!appId) {
+      const key = twinKey(row.company_id, row.title);
+      if (key && tracked.has(key)) continue;
+      if (key) tracked.add(key);
       appId = await startApplication(row.job_id);
       await setApplicationStatus(appId, "discovered", "auto-track from Find Internships");
     }
@@ -463,11 +486,11 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     const target = await resolveApplyTarget(app);
     const manualOnly = manualOnlyReason(target.url);
     await saveChannel(applicationId, manualOnly ? "manual" : "portal");
-    await logWorkflow(applicationId, "route_channel", true, manualOnly ? `manual: ${manualOnly}` : "portal");
+    await logWorkflow(applicationId, "route_channel", true, manualOnly ? `manual: ${manualOnly}` : `portal (${target.via})`);
     steps.push(
       manualOnly
-        ? `No public contact email, and ${manualOnly}`
-        : "No public contact email: routed to the online application form (plan it with npm run portal)",
+        ? `No public contact email, and ${manualOnly}${target.hint ? ` ${target.hint}` : ""}`
+        : `No public contact email: routed to the online application form (${target.note}) — plan it with npm run portal`,
     );
   }
 

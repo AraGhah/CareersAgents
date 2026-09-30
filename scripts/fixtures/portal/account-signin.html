@@ -1,0 +1,26 @@
+<!doctype html>
+<!-- Fixture: the sign-in page of an employer portal. The "server" is localStorage: `acct` holds the one account that exists. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Sign in</title></head>
+  <body>
+    <h1>Sign in to apply</h1>
+    <div id="err" role="alert"></div>
+    <label for="email">Email address</label>
+    <input id="email" name="email" type="email" />
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password" />
+    <button id="go" type="button">Sign In</button>
+    <p>New here? <a id="create" href="/account-signup.html">Create Account</a></p>
+    <script>
+      document.getElementById("create").href = "/account-signup.html" + location.search;
+      document.getElementById("go").onclick = function () {
+        var a = JSON.parse(localStorage.getItem("acct") || "null");
+        var email = document.getElementById("email").value;
+        var pw = document.getElementById("pw").value;
+        var right = a && a.email === email && a.password === pw;
+        if (right && a.verified) location.href = "/account-after.html";
+        else document.getElementById("err").textContent = right ? "Please verify your email first." : "Invalid username or password.";
+      };
+    </script>
+  </body>
+</html>

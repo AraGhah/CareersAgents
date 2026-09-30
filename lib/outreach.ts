@@ -233,7 +233,7 @@ async function resolveAttachments(row: OutreachDraftRow): Promise<GmailAttachmen
   }
   if (resumePath) {
     try {
-      const content = await readFile(resumePath);
+      const content = await readFile(/*turbopackIgnore: true*/ resumePath);
       attachments.push({ filename: "CV - Ara Ghahramanyan.pdf", content, contentType: "application/pdf" });
     } catch (err) {
       console.error(`[outreach] resume attach failed for application ${row.application_id}:`, err);
@@ -252,7 +252,7 @@ async function resolveAttachments(row: OutreachDraftRow): Promise<GmailAttachmen
   }
   if (coverLetterPath) {
     try {
-      const content = await readFile(coverLetterPath);
+      const content = await readFile(/*turbopackIgnore: true*/ coverLetterPath);
       attachments.push({
         filename: `Cover Letter - ${safeCompany}.pdf`,
         content,

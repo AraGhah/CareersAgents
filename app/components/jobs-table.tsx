@@ -138,7 +138,9 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                             {detail.description || "Pas de description disponible."}
                           </p>
                           {detail.explanationFr ? (
-                            <p className="small muted">{detail.explanationFr}</p>
+                            <p className="small muted" style={{ whiteSpace: "pre-line" }}>
+                              {detail.explanationFr}
+                            </p>
                           ) : null}
                           <Link href={`/jobs/${job.id}`} className="small">
                             Détail du score

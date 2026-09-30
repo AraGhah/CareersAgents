@@ -5,6 +5,7 @@
 import { writeFile } from "node:fs/promises";
 import ExcelJS from "exceljs";
 import { pool } from "../lib/db";
+import { gatedSql } from "../lib/score";
 
 const OUT_FR = "Stages_2027.xlsx";
 const OUT_EN = "Internships.xlsx";
@@ -145,8 +146,7 @@ async function buildStagesSheet(book: ExcelJS.Workbook) {
      totals AS (
        SELECT s.job_id,
               ROUND(SUM(s.raw_value * s.weight) * 100) AS score,
-              BOOL_OR(s.component = 'location' AND s.raw_value = 0)
-                OR BOOL_OR(s.component = 'timing' AND s.raw_value = 0) AS gated
+              ${gatedSql("s")} AS gated
          FROM job_scores s
          JOIN latest l ON l.job_id = s.job_id AND l.scored_at = s.scored_at
         GROUP BY s.job_id

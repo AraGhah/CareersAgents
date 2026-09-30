@@ -29,7 +29,7 @@ const PERSON_ONLY: Rule[] = [
   { intent: "sponsorship", test: /sponsor|\bvisa\b|parrainage/ },
   {
     intent: "work_authorization",
-    test: /authori[sz]ed to work|legally (able|eligible|entitled|permitted)|eligible to work|eligibility to work|right to work|work permit|study permit|permis (de travail|d'etudes)|autorisation (de|a) travailler|autorise a travailler|citizen|citoyen|permanent resident|resident permanent|immigration|work status|statut (legal|au canada)/,
+    test: /authori[sz]ed to work|work authori[sz]ation|authori[sz]ation to work|employment (eligibility|authori[sz]ation)|legally (able|eligible|entitled|permitted)|eligible to work|eligibility to work|right to work|work permit|study permit|permis (de travail|d'etudes)|autorisation (de|a) travailler|autorisation de travail|autorise a travailler|citizen|citoyen|permanent resident|resident permanent|immigration|work status|statut (legal|au canada)/,
   },
   {
     intent: "legal_declaration",
@@ -93,7 +93,7 @@ const FACT_RULES: Rule[] = [
   { intent: "internship_duration", test: /duration|how long|length of (the )?(internship|term)|duree|nombre de mois|months? (available|long)/ },
   {
     intent: "available_from",
-    test: /start date|available to start|availability|when can you start|earliest (start|date)|date de debut|disponib|date d'entree/,
+    test: /start date|available to start|availability|when can you start|when are you (available|able to start)|earliest (start|date)|date de debut|disponib|date d'entree/,
   },
   {
     intent: "language_level_fr",

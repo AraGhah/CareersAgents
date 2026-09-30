@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Fixture: an account form that wants more than an email and a password. The desk does not invent a name or a phone number. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Create account</title></head>
+  <body>
+    <h1>Create your account</h1>
+    <label for="first">First name *</label><input id="first" name="first" required />
+    <label for="last">Last name *</label><input id="last" name="last" required />
+    <label for="email">Email address *</label><input id="email" name="email" type="email" required />
+    <label for="pw">Password *</label><input id="pw" name="password" type="password" required />
+    <label for="pw2">Confirm password *</label><input id="pw2" name="confirmPassword" type="password" required />
+    <button type="button" onclick="localStorage.setItem('pressed', '1')">Create Account</button>
+  </body>
+</html>

@@ -69,14 +69,22 @@ npm run demo:record   # writes demos/internship-desk-demo.webm at 1080p
 ```
 docker compose up -d
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v6.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v8.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v9.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v10.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v11.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v12.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import
 npm run dev
 ```
+
+Every command in this README that looks like `name:check` is an npm script, so it is run as
+`npm run name:check` (typed alone, PowerShell says the term is not recognized). The database
+container has to be up first (Docker Desktop running) for anything that reads Postgres:
+`followups:check`, `score:check`, `package:check`, `mcp:check`, `discover`, `automate`.
 
 ## Seeds
 
@@ -112,6 +120,22 @@ Raw responses sit in `cache/discover/` for three hours so a rerun is free.
 `npm run discover:loop` repeats that every four hours; `npm run automate` runs this
 alongside inbox sync and follow-ups in one process (see "Automatic mode" above).
 
+**One application per role per company.** Indeed and LinkedIn list the same posting under
+different ids, and a company re-posts, so the same role can arrive several times. Auto-track
+keeps the first one and leaves the others as plain jobs (`twinKey` in `lib/apply/dedupe.ts`,
+the same matcher the portal duplicate check uses: punctuation, word order, the season and
+"intern / stage / co-op" are ignored). If you already applied to a role, its copies are never
+tracked. For copies tracked before that existed:
+
+```
+npm run applications:dedupe            # dry run: lists each role, what it keeps and what it would remove
+npm run applications:dedupe -- --apply # removes the extras, writes them to cache/dedupe-<time>.json
+```
+
+Only applications with nothing of yours on them are removed: an email you approved, put in Gmail
+or sent, a fill or submit portal run, an answer you approved, a reply or a follow-up all protect
+one. Files under `applications/` are left where they are.
+
 ### Filters — three layers, three places to tune
 
 1. **What gets searched.** `APIFY_LINKEDIN_SEARCH_QUERY` / `APIFY_INDEED_SEARCH_QUERY` in
@@ -130,14 +154,59 @@ alongside inbox sync and follow-ups in one process (see "Automatic mode" above).
    cutoff from the weights below. Raise it to auto-track fewer, more certain matches; lower it
    to catch more borderline ones for you to review by hand on `/pipeline`.
 
-## Scoring
+## Scoring: how a posting is matched to your CV
 
-`npm run score` writes five 0–1 components into `job_scores` from the posting text.
-Weights live in `weights.json` (skills 40%, location 20%, timing 20%, language 10%, level 10%).
-If location or timing is 0 the posting is skipped regardless of the total.
-Job detail pages show English and French score explanations.
-`npm run score:check` confirms identical text scores identically, and that a
-weight change reorders two synthetic postings.
+`npm run score` compares every posting with your **active CVs** (English and French) and stores seven
+0–1 components in `job_scores`. The percent is their weighted sum (`weights.json`), so what is stored
+reproduces the number exactly; the job page shows the same reasoning, criterion by criterion, with a
+one-decimal percent, the points each criterion adds, and a reliability level.
+
+| Criterion | Weight | What it looks at |
+|---|---|---|
+| Compétences (skills) | 30% | The technologies the posting names (160 in `skills.json`), each weighted by how much it asks for it: in the title 1.2, a requirement 1, a responsibility 0.8, mentioned 0.7, *nice to have* or "is a plus" 0.35, "familiarity with" 0.6. Against your CV: a technology **used in a project or job** counts 1, **listed with a level** ("Python (beginner)" 0.55, "C# (intermediate)" 0.9, "Rust (learning)" 0.4), plain listed 0.8. A technology you do not have but a related one stands in for gets partial credit (Vue asked, React known: 0.5 × React's credit; MySQL ↔ PostgreSQL; Java ↔ C#; AWS ↔ Azure...). |
+| Pratiques et domaines | 10% | Practices the posting names (testing, agile, authentication, cloud, microservices, AI...) against what the CV text describes. |
+| Adéquation du poste | 20% | What kind of role the title is: software developer 1, AI / cloud / mobile 0.7–0.75, QA 0.4, analyst 0.3, **anything outside software is 0 and skipped** (mechanical, tax, instructional design...). |
+| Niveau et admissibilité | 10% | An internship, not a senior role; and the study it asks for: a master's or doctorate 0.15×, university enrolment with no mention of college 0.65× (you are in a DEC). |
+| Période | 10% | The internship's term: a season **with its year** ("Winter 2027"), or a start month beside an internship word. A terrace "open in summer" or "Spring Boot" is not a term. 0 for another term. |
+| Lieu | 15% | The posting's own place: Montréal 1, the South Shore 0.9, elsewhere in Québec 0.4, remote 1, elsewhere 0. |
+| Langues | 5% | 0 when another language is required. |
+
+Location, term or role at 0 **skips** the posting whatever its total (it stays listed, marked skipped,
+with the reason). What a posting does not say is **neutral (0.5)**, never a guess: a posting with no
+text cannot score like a verified match, and a single technology named in a title is one data point
+that barely moves the skills score (the share earned is smoothed toward neutral by one imaginary
+neutral observation). The job page says when a posting has no description (low reliability).
+
+**No cybersecurity.** A cybersecurity role is never wanted: discovery does not store one (the title
+filter in `filters.json`, which now matches accented words such as "cybersécurité" that `\b` could not),
+scoring gives the role 0 and skips it (a *Security Office*, "Cyber as a Service", a title about security
+whose description is about security work), while a software role at a security company is not affected.
+`npm run applications:prune` lists the applications you already have for cybersecurity and non-software
+roles (dry run; `-- --apply` removes the unsent ones with nothing of yours on them; `-- --all` adds
+wrong-term and wrong-place ones). Applications already sent are never touched, only reported.
+
+**It reads the posting's text, so the text has to be there.** LinkedIn's Apify actor returns no
+description unless it opens every listing, and the desk used to ask it not to; it now asks it to
+(`APIFY_SCRAPE_DETAILS=false` turns that off: faster and cheaper, but LinkedIn postings then match on
+their title alone). Indeed's descriptions arrive nested (`description.text`) and used to be dropped; they
+are read now. For postings already stored without text: `npm run descriptions:backfill` (dry run;
+`-- --apply`) recovers the ones already in `cache/discover/` and copies the text of the same role on
+another source (Indeed's text for a LinkedIn posting), free. `npm run score` does the same copy first.
+
+**Filtering and ordering by score.** The **Offres** list has a *Score minimum* select (default: 60 and
+over; 50, 70, 75, 80, 85, 90 and over; *Tous les scores*) and an order select: best score first (the
+default), worst first, most recent first, company A to Z, or *avec email d'abord* (the earlier order:
+jobs whose company has a known email first). An explicit minimum also applies to skipped jobs when
+*Rejetées* is ticked. Skipped and unscored jobs always come after the scored ones. The **Tracker** has
+the same two controls for your applications (default: every score, grouped by status then best score; or
+best first / worst first), applied to the board and to the table, with "x sur y" shown. Both are in the
+URL (`/?min=80&sort=best`, `/pipeline?min=70`), so a filtered view can be bookmarked; a value that is not
+one of the choices is ignored.
+
+`npm run score:check` (no database) confirms identical text scores identically and that a weight change
+reorders two postings; `npm run match:check` (no database) holds the rules above, each with the case
+that once broke it; `npm run jobs:check` (needs the database) runs the real list query and confirms the
+minimum score and every order hold on your own postings.
 
 ## Application package
 
@@ -297,10 +366,34 @@ npm run portal:check                                  # offline: fixture forms, 
 ```
 
 **Where the form is.** An Indeed or LinkedIn listing is not the form: their own apply flow needs
-your account. Discovery now keeps the posting's link to the company's own form (`jobs.apply_url`,
-Indeed's "apply on company site"); for a LinkedIn posting, whose actor gives no such link, the
-same role at the same company on another source (the Indeed copy, a Greenhouse board) lends its
-form. Only when neither exists does the application go to `manual`.
+your account. Discovery keeps the posting's link to the company's own form (`jobs.apply_url`,
+Indeed's "apply on company site"). A LinkedIn actor gives no such link, so the form is looked for,
+in order:
+
+1. the same role at the same company on another source (the Indeed copy, a Greenhouse board);
+2. **the company's own careers site** (`lib/apply/careers.ts`): its home, careers pages and what
+   they link to are read once and remembered per company for two weeks (`cache/careers/`); a
+   Greenhouse, Lever, Ashby or Workable board found there is read through the platform's public
+   API, and the careers pages' own links are searched too. A match is kept on the job
+   (`jobs.apply_url`) and the application goes through that form like any other portal one.
+   The match is strict: the same role once "intern / stagiaire / co-op" and the season are set
+   aside, an internship (never the full-time job of the same name), the same term and year when
+   both name one, a place in Québec or Canada, and one clear winner (two equal candidates are "not
+   found", never the first). `CAREERS_LOOKUP=false` turns it off.
+3. your own paste: on a blocked application, **J'ai le lien de l'offre sur le site de l'entreprise**
+   takes the company's posting (a LinkedIn or Indeed link is refused) and reads the form from there.
+
+Only when none of these finds it does the application go to `manual`, with what was looked at and
+the company's careers page in the reason, so the last step is one click. Most large employers send
+candidates to an account portal (Workday, iCIMS, SuccessFactors...): those are found and linked
+but stay yours.
+
+```
+npm run careers:find                     # dry run over every LinkedIn/Indeed-only application: what it finds, changes nothing
+npm run careers:find -- --apply          # keep the postings found and re-route (then: npm run portal -- --queue plan)
+npm run careers:find -- --only cohere    # one company (--fresh reads its site again)
+npm run careers:check                    # offline: board spotting and role matching
+```
 
 **What the desk drives, and what it hands to you.** Single-page forms: Greenhouse, Lever,
 Workable, Ashby, and generic company forms (JazzHR, BambooHR, Teamtailor and similar). On the way
@@ -330,8 +423,22 @@ previous employment, referrals, and anything unrecognized that is required. A va
 does not fully support (a full date when you only wrote "January 2027") is a suggestion you
 confirm, not a silent fill.
 
-**Written answers** are drafted by Claude (`ANTHROPIC_API_KEY`, `ANTHROPIC_ANSWER_MODEL`, default
-`claude-opus-5-5`), one question at a time with your material, the posting and the company
+**Suggested, then confirmed by you.** Twelve of those questions (work authorization, sponsorship,
+salary, previous employment, and the self-identification ones: gender, ethnicity, disability,
+Indigenous, visible minority, veteran, Hispanic/Latino, LGBTQ+) read a red entry of your answer bank
+(`work_authorization`, `sponsorship_required`, `salary_expectation`, `previous_employment`, `gender`,
+`ethnicity`, `disability`, `indigenous`, `visible_minority`, `veteran`, `hispanic_latino`, `lgbtq`).
+The plan shows it pre-selected under **À toi** with one *Valider* click; the submit stays blocked until
+you click, so nothing personal reaches a form without you. The values are typed into the database
+(the `/answers` page), never into `seed/answers.ts`, so they stay out of git. A suggestion is made
+only when it is safe: "authorized to work in the United States?" is not answered from a Canadian
+citizenship, "citizen of another country" and "do you require a work permit" are different
+questions, a single tick-box is never suggested (its own text may be the negative), and a choice
+is mapped onto the form's own option: a tie, or "prefer not to answer", is never picked. With
+nothing stored, a required question is yours and an optional voluntary one is left blank.
+
+**Written answers** are drafted by Claude (`ANTHROPIC_API_KEY`), one question at a time with your
+material, the posting and the company
 notes, in your voice: the prompt carries style notes and your closest real answers. Then two
 mechanical checks run, and a failed draft gets one revision with the failures as feedback:
 - *humanize*: no stock phrasing ("passionate about", "leverage", "I am writing to express"…),
@@ -339,6 +446,23 @@ mechanical checks run, and a failed draft gets one revision with the failures as
   rhythm, a length that fits the question and the field's limit;
 - *grounding*: every number, proper noun and technology must be in your material, the posting
   or the company notes; a tool only the posting mentions is flagged so it is never claimed.
+
+**Which Claude model (`lib/claude.ts`).** The model is chosen by how hard the task is, so the strong
+one is paid for only where it changes the outcome:
+
+| Task | Starts on | Moves to the strong model when |
+|---|---|---|
+| Company-specific answers ("why us", "good fit", "why this role"), about you, a challenge, a technical question, any answer over 200 words | **Sonnet 5.5**, high effort | its own draft fails the checks: one revision, still Sonnet 5.5 |
+| Strengths, weakness, teamwork, career goal, a project, any short answer | **Haiku 4.5** (a fraction of the tokens and cost) | the draft fails the checks, the model says the material lacks something, or its confidence is low: redone once by Sonnet 5.5 with what went wrong |
+| Company research (a summary and one fact from a few pages) | **Haiku 4.5** | it returns no fact a letter can use and the heuristic has none either |
+
+Each drafted answer says which model wrote it ("Drafted by Haiku 4.5 …"), and a plan run ends with a
+line of what each model was asked ("Claude: Haiku 4.5 ×4 (3.1k in, 1.2k out) · Sonnet 5.5 ×2 …").
+Haiku takes no effort setting, so none is sent to it; a model that turns out to reject one is
+retried without. Settings in `.env.local`: `ANTHROPIC_MODEL_HARD`, `ANTHROPIC_MODEL_EASY`,
+`ANTHROPIC_EFFORT` (the strong model's; default `high`). One model for everything: set
+`ANTHROPIC_MODEL_EASY` to the same value as `ANTHROPIC_MODEL_HARD`. `ANTHROPIC_ANSWER_MODEL` /
+`ANTHROPIC_RESEARCH_MODEL` pin a whole use to one model.
 
 Still failing, or the model reports it lacks the information → it is yours, with no guess.
 Without an API key, a question the bank answers in your own words (strengths, weakness,
@@ -362,8 +486,47 @@ retried. `PORTAL_DAILY_LIMIT` (10) caps automatic submissions per day, and a que
 at the same company under another posting, or the same canonical posting URL (`/apply` and
 tracking parameters stripped).
 
-**Not driven:** LinkedIn and Indeed's own apply flows, Workday, Taleo, iCIMS, SuccessFactors:
-they need your account. Those applications are marked `manual`.
+**Not driven:** LinkedIn and Indeed's own apply flows (Easy Apply): they need your own LinkedIn or
+Indeed account, and LinkedIn's terms forbid automating its apply flow, which would put your LinkedIn
+account at risk and need your login stored here; the desk applies on the company's own site instead
+(see "Where the form is"). An employer's own account portal (Workday, Taleo, iCIMS, SuccessFactors)
+is marked `manual` unless you start a run for that one application with an account configured, see
+"Employer portal accounts" below. Multi-step wizards (Workday's) always stay yours.
+
+**Employer portal accounts.** When a portal asks for an account on its own site, a run **you start for
+one application** (the *Lire le formulaire* button, or `npm run portal -- --application <uuid>`) signs
+in to it, or creates it first, with the account in `.env.local`:
+
+```
+PORTAL_CREATE_ACCOUNTS=true
+PORTAL_ACCOUNT_EMAIL=you@example.com
+PORTAL_ACCOUNT_PASSWORD="a password used nowhere else"
+```
+
+- **Where the password lives.** `.env.local` only (gitignored). It is typed into a password field and
+  read nowhere else: never logged, never saved (no table, file or plan; `portal_accounts` has no password
+  column), and masked from every run log and saved error. Use a password you use nowhere else: every
+  portal it creates an account on then holds a copy of it.
+- **When.** Never from `--queue` or `automate`, so a discovery run cannot open accounts in your name.
+  `--no-accounts` turns it off for one run.
+- **What it does on the account page:** signs in when it knows an account exists on that portal, else goes
+  to the sign-up form, types the email and the password (twice), ticks the terms box that creating the
+  account requires (job-alert and newsletter boxes stay off) and presses Create Account. If the portal says
+  the account exists it signs in instead. If it asks to verify the email, it reads the link from your Gmail
+  (readonly, only a message that arrived after the account was created, only a link to the portal's own site
+  or a known application system, stored nowhere) and opens it; with no Gmail connected it tells you which
+  email to verify and to run it again.
+- **What it stops on, and says why:** a CAPTCHA (never solved), a form that wants more than an email and a
+  password (a name, a phone number: it invents nothing), a password the portal refuses, a wrong password on
+  an account it already holds. None of the application's own consents, declarations or questions is touched.
+- **Then the application.** A single-page form after the sign-in goes through the usual plan → approve → fill
+  → gated submit. Workday's application is a multi-step wizard: the desk signs you in, recognises it and
+  leaves it to you, never planning its first step as if it were the whole form.
+- **Where they are.** `/portal` lists every portal the desk has an account on (host, email, state).
+  `schema-v12.sql` creates that table. `npm run account:check` (no database, no real site) tests all of
+  this on local pages; `assist:check` holds that every click in the account code goes through one function
+  that refuses unless the account is configured. The Workday automation ids it uses are taken from how Workday
+  is built and have not been checked against a live tenant.
 
 `npm run automate` plans new portal applications after each discovery (`PORTAL_AUTO_PLAN=false`
 turns it off) and, only with `PORTAL_ALLOW_SUBMIT=true`, executes plans you finished approving.
@@ -388,7 +551,7 @@ those by hand. After you submit in the browser, set the status to `submitted` in
 déroulante Statut) and `Internships.xlsx` (short English view). The database is the
 source of truth; the spreadsheets are views of it.
 
-## Build guide status (V1–V7)
+## Build guide status (V1–V11)
 
 | Version | Status |
 |---------|--------|
@@ -400,6 +563,8 @@ source of truth; the spreadsheets are views of it.
 | V6 Inbox + follow-ups (Gmail drafts only) | Done (needs your OAuth + real volume) |
 | V7 Browser assist (Playwright, no Submit) | Done |
 | V8 Resumes + Dossier research + Gmail outreach drafts | Done |
+| V9 Pipeline dashboard + automatic mode | Done |
+| V10 Categories + one CV per (language, category) | Done |
 | V11 Portal applications (plan → approve → fill → preflight → gated submit) | Done (needs schema-v11 + your approvals) |
 
 ## Eight-agent workflow: what is coded vs what stays in chat
@@ -409,7 +574,7 @@ source of truth; the spreadsheets are views of it.
 | 1 Chercheur | `discover`, add job, web search in Cursor | Workday postings, dedup across sources |
 | 2 Analyste | `score`, UI bands, FR explanations | Final judgment on edge cases |
 | 3 Dossier entreprise | Company fact + URL on application page | Full 10-line dossier with dated news |
-| 4 Contact | `contacts` table + seed | Finding recruiter on each new company |
+| 4 Contact | `contacts` table + seed + a search of the company's own public pages (`contacts:find`) | Companies that publish no address take a form (portal) or are manual |
 | 5 Rédacteur | Letter + PDF + **outreach-email.{lang}.txt** | Read every FR letter before sending |
 | 6 Formulaires | `assist-apply`, answer bank on application page | Red / sensitive questions |
 | 7 Excel | `npm run export` → `Stages_2027.xlsx` | Hand-enter rows you sent before the desk existed |
@@ -417,9 +582,12 @@ source of truth; the spreadsheets are views of it.
 
 ## Remaining to complete (recommended order)
 
-1. **Source files (Step 1)** — Add CV PDF (FR + EN) and a single `seed/profile.ts` or markdown profil outside git if you prefer; keep red answers (`work_authorization`, etc.) empty in the bank until you type them yourself.
+The code for V1–V11 is built. What is left is on your side:
+
+1. **Clean up copies tracked before the duplicate guard** — `npm run applications:dedupe`, read the list, then add `-- --apply`.
 2. **Backfill tracker** — Export Excel, add past applications by hand, or insert via SQL; re-export so Agent 7 matches reality.
-3. **Gmail** — Run `gmail:auth` once; use `sync:inbox:loop` after ~15 submissions.
-4. **Daily routine (Step 9)** — `followups:dry` then read drafts; update status when replies arrive.
-5. **Optional code later** — Workday discover helper; import Excel → DB; company dossier table; interview prep button (posting + letter + projects, no auto-send).
-6. **Do not build yet** — Auto-send mail, LinkedIn scraping, eight separate MCP servers (explicitly cut in the build guide). Auto-submit exists for portal forms only (V11): off by default and behind the preflight.
+3. **Portal answers** — `ANTHROPIC_API_KEY` is what drafts written form answers; approve or rewrite the drafts on each application (`/portal`). Turn on `PORTAL_ALLOW_SUBMIT=true` only once you trust that flow.
+4. **Daily routine** — `followups:dry` then read drafts; update status when replies arrive (`sync:inbox:loop` does the matching). Gmail is connected with `gmail:auth` (once).
+5. **Keep red answers empty** — `work_authorization` and the rest of the sensitive bank stay empty until you type them yourself.
+6. **Optional code later** — Workday discover helper; import Excel → DB; company dossier table; interview prep button (posting + letter + projects, no auto-send).
+7. **Do not build yet** — Auto-send mail, LinkedIn scraping, eight separate MCP servers (explicitly cut in the build guide). Auto-submit exists for portal forms only (V11): off by default and behind the preflight.

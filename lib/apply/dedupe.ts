@@ -23,6 +23,15 @@ export function roleKey(title: string): string {
     .trim();
 }
 
+/**
+ * One key per (company, role): the same role listed under several postings (Indeed and LinkedIn give
+ * one job two ids) shares it. Null when the title is too generic to compare.
+ */
+export function twinKey(companyId: string, title: string): string | null {
+  const key = roleKey(title);
+  return key.length > 3 ? `${companyId}|${key}` : null;
+}
+
 export async function duplicateReason(app: ApplicationDetail, alsoUrls: string[] = []): Promise<string | null> {
   if (DONE_STATUSES.includes(app.status)) return `Already marked "${app.status}" on ${app.submitted_at ? new Date(app.submitted_at).toISOString().slice(0, 10) : "an earlier date"}.`;
 

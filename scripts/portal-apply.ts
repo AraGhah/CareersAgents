@@ -5,12 +5,16 @@
 //   npm run portal -- --queue plan                         plan every portal application without a plan
 //   npm run portal -- --queue submit                       execute every complete (approved) plan
 //   npm run portal -- --route                              set email / portal / manual on every waiting application (no browser)
+// An employer portal that asks for an account (Workday, iCIMS...): a run for ONE application (--application) signs in to, or
+// creates, the account in .env.local (PORTAL_ACCOUNT_EMAIL / PORTAL_ACCOUNT_PASSWORD, PORTAL_CREATE_ACCOUNTS=true);
+// --no-accounts turns that off for the run. --queue and `automate` never open accounts.
 // Flags: --headed (show the browser in plan mode), --force-portal (use the form even if a contact exists),
 //        --keep-open (no terminal: keep the browser until you close its window; used by the desk's buttons).
 // Submit also needs PORTAL_ALLOW_SUBMIT=true in .env.local; without it, "submit" behaves like "review".
 
 import type { Page } from "playwright";
 import { pool } from "../lib/db";
+import { usageSummary } from "../lib/claude";
 import { resolveApplyTarget } from "../lib/apply/apply-url";
 import { decideChannel, saveChannel } from "../lib/apply/route";
 import { portalQueue, runPortalApplication, type RunResult } from "../lib/apply/runner";
@@ -67,6 +71,8 @@ async function one(applicationId: string, mode: RunMode) {
     mode,
     headed: flag("headed"),
     forcePortal: flag("force-portal"),
+    // One application you named: it may sign in to, or create, the portal account in .env.local. The queue never does.
+    allowAccounts: !flag("no-accounts"),
     beforeClose: !interactive
       ? undefined
       : flag("keep-open")
@@ -88,7 +94,7 @@ async function routeAll() {
     const app = await getApplication(id);
     if (!app) continue;
     const target = await resolveApplyTarget(app);
-    const decision = await decideChannel(app, { applyUrl: target.url });
+    const decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint });
     await saveChannel(id, decision.channel);
     const key = decision.channel === "portal" ? `portal (${target.via})` : decision.channel;
     tally.set(key, (tally.get(key) ?? 0) + 1);
@@ -139,4 +145,9 @@ main()
     console.error(err);
     process.exitCode = 1;
   })
-  .finally(() => pool.end().catch(() => undefined));
+  .finally(() => {
+    // What this run asked of Claude, by model: the cheap model for easy tasks, the strong one where it was needed.
+    const used = usageSummary();
+    if (used) console.log(`\n${used}`);
+    return pool.end().catch(() => undefined);
+  });

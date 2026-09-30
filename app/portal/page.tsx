@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { DbUnavailable, EmptyState, ExtLink, PageHeader, Section, Stat, TableWrap } from "../components/ui";
 import { day } from "../../lib/format";
+import { listPortalAccounts } from "../../lib/apply/account";
 import { listPortalErrors } from "../../lib/apply/store";
 import { listPortalRunsForTracking } from "../../lib/apply/view";
+
+const ACCOUNT_STATE_FR: Record<string, { label: string; tone: string }> = {
+  created: { label: "Créé", tone: "green" },
+  signed_in: { label: "Connecté", tone: "green" },
+  verify_email: { label: "À vérifier par courriel", tone: "yellow" },
+  failed: { label: "Échec", tone: "red" },
+};
 
 export const metadata = { title: "Portails" };
 
@@ -34,9 +42,9 @@ const PLATFORM_FR: Record<string, string> = {
 const file = (p: string | null) => (p ? p.split(/[\\/]/).pop() : "—");
 
 export default async function PortalPage() {
-  let runs, errors;
+  let runs, errors, accounts;
   try {
-    [runs, errors] = await Promise.all([listPortalRunsForTracking(), listPortalErrors(30).catch(() => [])]);
+    [runs, errors, accounts] = await Promise.all([listPortalRunsForTracking(), listPortalErrors(30).catch(() => []), listPortalAccounts().catch(() => [])]);
   } catch (err) {
     return (
       <>
@@ -143,6 +151,39 @@ export default async function PortalPage() {
           </TableWrap>
         )}
       </Section>
+
+      {accounts.length ? (
+        <Section title="Comptes sur les portails" note="Créés ou ouverts à ta demande, avec l’adresse configurée. Le mot de passe n’est jamais enregistré ici.">
+          <TableWrap>
+            <table>
+              <thead>
+                <tr>
+                  <th>Portail</th>
+                  <th>Compte</th>
+                  <th>État</th>
+                  <th>Mis à jour</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((a) => {
+                  const s = ACCOUNT_STATE_FR[a.state] ?? { label: a.state, tone: "accent" };
+                  return (
+                    <tr key={a.host}>
+                      <td data-label="Portail">{a.host}</td>
+                      <td data-label="Compte">{a.email}</td>
+                      <td data-label="État">
+                        <span className={`badge ${s.tone}`}>{s.label}</span>
+                        {a.note ? <span className="field-hint">{a.note}</span> : null}
+                      </td>
+                      <td data-label="Mis à jour">{day(a.updated_at)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </TableWrap>
+        </Section>
+      ) : null}
 
       {errors.length ? (
         <Section title="Erreurs récentes" note="Aussi dans portal_errors">

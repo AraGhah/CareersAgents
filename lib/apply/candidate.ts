@@ -8,6 +8,7 @@ import { pool } from "../db";
 import { extractSkillsFromText, fallbackHaveSkills, type ProfileExperience, type ResumeRow } from "../profile";
 import { projectFacts, type ProjectFacts } from "../project-facts";
 import type { Answer, AnswerCategory, Project } from "../types";
+import { PERSONAL_BANK_KEYS, type PersonalTopic } from "./personal";
 import type { Lang } from "./types";
 
 export type BankEntry = { category: AnswerCategory; en: string | null; fr: string | null };
@@ -46,6 +47,11 @@ export type CandidateProfile = {
   projects: CandidateProject[];
   experience: ProfileExperience[];
   bank: Record<string, BankEntry>;
+  /**
+   * Red answers you wrote (work authorization, self-identification, pay...). They are only ever offered as a
+   * suggestion you confirm (lib/apply/personal.ts), never filled as a value.
+   */
+  personal: Partial<Record<PersonalTopic, string>>;
   resumeText: string | null;
 };
 
@@ -123,6 +129,11 @@ export function buildCandidateProfile(opts: {
   const lang = opts.lang;
   // Only green answers are facts that can be pasted; yellow and red never feed a form field directly.
   const green = (key: string) => (bank[key]?.category === "green" ? pick(bank, key, lang) : null);
+  const personal: CandidateProfile["personal"] = {};
+  for (const [topic, key] of Object.entries(PERSONAL_BANK_KEYS) as Array<[PersonalTopic, string]>) {
+    const value = bank[key]?.category === "red" ? pick(bank, key, lang) : null;
+    if (value) personal[topic] = value;
+  }
 
   const profile = opts.resume?.profile_json ?? null;
   const fullName = green("full_name") ?? profile?.fullName ?? null;
@@ -189,6 +200,7 @@ export function buildCandidateProfile(opts: {
     projects: opts.projects.map((p) => ({ ...p, facts: projectFacts(p) })),
     experience: profile?.experience ?? [],
     bank,
+    personal,
     resumeText: opts.resume?.raw_text ?? null,
   };
 }

@@ -1,8 +1,9 @@
-import { approvePortalFieldAction, planPortalAction, runPortalAction } from "../../portal-actions";
+import { approvePortalFieldAction, planPortalAction, runPortalAction, setFormUrlAction } from "../../portal-actions";
 import { Select, SubmitButton } from "../../components/client-ui";
 import { Disclosure } from "../../components/disclosure";
 import { ExtLink } from "../../components/ui";
 import { day } from "../../../lib/format";
+import { accountCredentials } from "../../../lib/apply/account-config";
 import { realOptions } from "../../../lib/apply/options";
 import type { PortalFieldRow } from "../../../lib/apply/store";
 import type { PortalView } from "../../../lib/apply/view";
@@ -51,6 +52,8 @@ const PORTAL_FLASH: Record<string, { text: string; tone: "success" | "info" | "e
   "launched-review": { text: "Une fenêtre de navigateur s’ouvre et remplit le formulaire. Tu soumets toi-même.", tone: "info" },
   "launched-submit": { text: "Une fenêtre s’ouvre, remplit, vérifie et soumet seulement si tout est vert.", tone: "info" },
   approved: { text: "Réponse enregistrée. Une réponse écrite que tu approuves sert aussi d’exemple de ton style.", tone: "success" },
+  "form-invalid": { text: "Ce lien n’est pas utilisable : colle l’adresse de l’offre sur le site de l’entreprise, pas celle de LinkedIn ou d’Indeed.", tone: "error" },
+  "form-manual": { text: "Lien enregistré. Ce portail demande un compte : ouvre-le et postule toi-même, l’adresse est rappelée ci-dessous.", tone: "info" },
 };
 
 export { PORTAL_FLASH };
@@ -165,7 +168,9 @@ export function PortalPanel({
           {view.channel === "portal"
             ? "Aucune adresse de recruteur publiée : la candidature passe par le formulaire de l’entreprise."
             : view.channel === "manual"
-              ? "Ce portail demande ton compte : à faire toi-même."
+              ? accountCredentials()
+                ? "Si ce portail demande un compte, « Lire le formulaire » s’y connecte ou le crée avec l’adresse configurée ; un formulaire en plusieurs étapes reste à faire toi-même."
+                : "Ce portail demande ton compte : à faire toi-même."
               : "Utilisable même si une adresse existe."}
         </span>
       </div>
@@ -281,6 +286,25 @@ export function PortalPanel({
               </li>
             ))}
           </ul>
+        </Disclosure>
+      ) : null}
+
+      {!run || run.state === "blocked" ? (
+        <Disclosure label="J’ai le lien de l’offre sur le site de l’entreprise" defaultOpen={run?.state === "blocked"}>
+          <form action={setFormUrlAction} className="form-grid">
+            <input type="hidden" name="applicationId" value={applicationId} />
+            <div className="field">
+              <label htmlFor="formUrl">Adresse de l’offre ou du formulaire (pas LinkedIn ni Indeed)</label>
+              <input id="formUrl" name="formUrl" type="url" required placeholder="https://…" />
+              <span className="field-hint">
+                Le bureau cherche déjà l’offre sur le site de l’entreprise. Si tu l’as trouvée toi-même, colle-la ici : il lit le
+                formulaire à partir de là.
+              </span>
+            </div>
+            <div className="form-actions">
+              <SubmitButton pendingLabel="Lecture du formulaire…">Utiliser ce lien</SubmitButton>
+            </div>
+          </form>
         </Disclosure>
       ) : null}
 

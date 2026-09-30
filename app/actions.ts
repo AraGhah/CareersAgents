@@ -225,10 +225,10 @@ export async function previewJobMatch(input: {
   workplaceType: string;
   description: string;
 }): Promise<JobMatchPreview> {
-  const { scoreJob, setHaveSkills } = await import("../lib/score");
-  const { getActiveSkills } = await import("../lib/resumes");
+  const { scoreJob } = await import("../lib/score");
+  const { loadActiveCv } = await import("../lib/resumes");
 
-  setHaveSkills(await getActiveSkills());
+  await loadActiveCv();
 
   const workplaceType =
     input.workplaceType && (WORKPLACE_TYPES as readonly string[]).includes(input.workplaceType)
@@ -259,15 +259,9 @@ export async function getJobDetailAction(jobId: string): Promise<JobRowDetail | 
   const job = await getJob(jobId);
   if (!job) return null;
 
-  const { COMPONENT_NAMES, explainFr } = await import("../lib/score");
-  const components = {} as Record<(typeof COMPONENT_NAMES)[number], number>;
-  for (const name of COMPONENT_NAMES) {
-    const row = job.components.find((c) => c.component === name);
-    components[name] = row ? Number(row.raw_value) : 0;
-  }
-  const pct = job.components.length > 0 ? Math.round(Number(job.score) * 100) : 0;
-  const explanationFr =
-    job.components.length > 0 ? explainFr(components, pct) : null;
+  // The reasoning behind the number, computed now: the percent, each criterion, what the CV has and lacks.
+  const { reportForJob, summaryFr } = await import("../lib/match/for-job");
+  const explanationFr = summaryFr(await reportForJob(job)).join("\n");
 
   return { description: job.description, companyCity: job.company_city, explanationFr };
 }

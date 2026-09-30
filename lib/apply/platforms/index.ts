@@ -263,9 +263,36 @@ export function adapterFor(url: string): PlatformAdapter {
   return ADAPTERS.find((a) => a.id !== "generic" && a.matches(url)) ?? generic;
 }
 
+/**
+ * The element the form's questions live in: the adapter's first scope whose first match holds most of the page's
+ * controls. A class can match only a piece of the page (on Ashby "application-form" is also the class of the
+ * resume-autofill panel, which comes first and holds one input, and the page has no <form> at all), so a scope
+ * that holds a minority of the controls is skipped; when none holds most, the whole page is read.
+ */
 export async function scopeSelector(page: Page, adapter: PlatformAdapter): Promise<string | null> {
-  for (const sel of adapter.scopes) {
-    if ((await page.locator(sel).count().catch(() => 0)) > 0) return sel;
+  await ensureShim(page);
+  const counts = await page.evaluate((scopes: string[]) => {
+    const n = (root: Element | null) =>
+      root
+        ? Array.from(root.querySelectorAll("input, textarea, select")).filter(
+            (el) => !["hidden", "submit", "button", "search"].includes((el.getAttribute("type") ?? "").toLowerCase()),
+          ).length
+        : -1;
+    return {
+      total: n(document.body),
+      inside: scopes.map((s) => {
+        try {
+          return n(document.querySelector(s));
+        } catch {
+          return -1;
+        }
+      }),
+    };
+  }, adapter.scopes);
+  for (let i = 0; i < adapter.scopes.length; i++) {
+    const inside = counts.inside[i];
+    if (inside < 0) continue;
+    if (counts.total <= 3 || inside >= counts.total * 0.6) return adapter.scopes[i];
   }
   return null;
 }
@@ -278,12 +305,40 @@ export async function confirmationText(page: Page, adapter: PlatformAdapter): Pr
   return null;
 }
 
-/** Sites the desk never drives: they need your account. */
-export function manualOnlyReason(url: string): string | null {
+/** Sites the desk never drives, whatever account is configured: they need your own LinkedIn or Indeed account. */
+export function neverDrivenReason(url: string): string | null {
   if (/linkedin\.com/i.test(url)) return "LinkedIn postings need your LinkedIn account (Easy Apply). Apply there yourself, or add the company's own posting.";
   if (/indeed\.(com|ca)/i.test(url)) return "Indeed applications need your Indeed account. Apply there yourself, or add the company's own posting.";
+  return null;
+}
+
+/**
+ * An employer's own portal that asks for an account on its site. The desk signs in to, or creates, such an account only on
+ * a run you start for one application, with the account in .env.local (lib/apply/account.ts); otherwise it stays yours.
+ */
+export function accountPortalReason(url: string): string | null {
   if (/myworkdayjobs\.com|\.workday\.com/i.test(url)) return "Workday portals need an account per company. Create it and apply yourself.";
   if (/taleo\.net|successfactors|icims\.com|brassring|oraclecloud\.com\/hcmUI/i.test(url)) return "This portal needs an account. Apply yourself.";
+  return null;
+}
+
+/** Sites the desk does not drive by itself: LinkedIn and Indeed always, an employer's account portal unless allowed. */
+export function manualOnlyReason(url: string): string | null {
+  return neverDrivenReason(url) ?? accountPortalReason(url);
+}
+
+/**
+ * The page is one step of a wizard (Workday's "My Information → My Experience → ... → Review", or "Step 1 of 4"), not a whole
+ * application. The desk reads and fills a single page, so a first step must never be planned as if it were the form.
+ */
+export async function wizardReason(page: Page): Promise<string | null> {
+  const workday = await page.locator("[data-automation-id='progressBar']").count().catch(() => 0);
+  const body = ((await page.locator("body").innerText().catch(() => "")) || "").replace(/\s+/g, " ").slice(0, 6000);
+  if (workday > 0 || /my information[\s\S]{0,600}my experience/i.test(body)) {
+    return "Workday's application is a multi-step wizard (My Information, My Experience, Application Questions, Voluntary Disclosures, Review): the desk does not drive it. You are signed in: complete it yourself.";
+  }
+  const steps = body.match(/(?:step|[ée]tape)\s*(\d+)\s*(?:of|sur|de|\/)\s*(\d+)/i);
+  if (steps && Number(steps[2]) >= 2) return `The portal is a ${steps[2]}-step wizard the desk does not drive: complete it yourself.`;
   return null;
 }
 

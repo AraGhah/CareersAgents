@@ -6,7 +6,6 @@ import {
   COMPONENT_NAMES,
   checkScoring,
   scoreJob,
-  setHaveSkills,
   type ComponentName,
 } from "../lib/score";
 import type { WorkplaceType } from "../lib/types";
@@ -25,10 +24,12 @@ type JobToScore = {
 
 async function run() {
   const { pool } = await import("../lib/db");
-  const { getActiveSkills } = await import("../lib/resumes");
-  const skills = await getActiveSkills();
-  setHaveSkills(skills);
-  console.log(`Using ${skills.length} skills from active resume profile`);
+  const { loadActiveCv } = await import("../lib/resumes");
+  const { fillDescriptionsFromTwins } = await import("../lib/match/enrich");
+  const cv = await loadActiveCv();
+  console.log(`Matching against the active CVs: ${cv.skills.size} technologies, ${cv.concepts.size} practices`);
+  const filled = await fillDescriptionsFromTwins();
+  if (filled) console.log(`Filled ${filled} posting(s) with the text of the same role on another source`);
 
   const scoredAt = new Date();
   const { rows } = await pool.query<JobToScore>(
@@ -76,11 +77,12 @@ async function run() {
     else if (result.band === "low") low += 1;
     else skipped += 1;
 
-    const gate = result.gated ? " skip" : "";
+    const gate = result.gated ? ` skip (${result.report.gateReasons.join(", ")})` : "";
+    const c = result.components;
     console.log(
-      `${job.company_name} · ${job.title} → ${result.percent}${gate}` +
-        `  (skills ${result.components.skills}, loc ${result.components.location}, ` +
-        `time ${result.components.timing})`,
+      `${job.company_name} · ${job.title} → ${result.percentPrecise}${gate}` +
+        `  (skills ${c.skills.toFixed(2)}, practices ${c.concepts.toFixed(2)}, role ${c.role.toFixed(2)}, ` +
+        `level ${c.level.toFixed(2)}, loc ${c.location.toFixed(2)}, time ${c.timing.toFixed(2)})`,
     );
   }
 

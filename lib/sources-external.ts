@@ -59,6 +59,25 @@ function pick(record: Record<string, unknown>, keys: string[]): string | null {
   return null;
 }
 
+/**
+ * The posting's text. Actors return it as a string (`descriptionText`, `descriptionHtml`) or, like Indeed's,
+ * as an object holding both forms (`description: { text, html }`). A plain string lookup misses the second, and
+ * a posting with no text cannot be matched against a CV at all.
+ */
+export function descriptionOf(item: Record<string, unknown>): string | null {
+  for (const key of ["description", "jobDescription", "descriptionText", "descriptionHtml", "snippet"]) {
+    const value = item[key];
+    const text = str(value);
+    if (text) return text;
+    if (value !== null && typeof value === "object") {
+      const nested = value as Record<string, unknown>;
+      const inner = str(nested.text) ?? str(nested.html) ?? str(nested.plain) ?? str(nested.value);
+      if (inner) return inner;
+    }
+  }
+  return null;
+}
+
 function parseDate(value: string | null): Date | null {
   if (!value) return null;
   const d = new Date(value);
@@ -112,13 +131,7 @@ export function normalizeJobItem(raw: unknown, source: string): ExternalJob | nu
       .filter(Boolean)
       .join(", ") || null;
   const location = pick(item, ["location", "jobLocation", "place", "formattedLocation"]) ?? nestedLocation;
-  const descriptionHtml = pick(item, [
-    "description",
-    "jobDescription",
-    "descriptionText",
-    "descriptionHtml",
-    "snippet",
-  ]);
+  const descriptionHtml = descriptionOf(item);
   const employmentType = pick(item, ["employmentType", "workType", "jobType", "workplaceType"]);
   const postedRaw = pick(item, [
     "postedAt",
@@ -175,7 +188,7 @@ async function callApifyActor(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
-      signal: AbortSignal.timeout(120000), // actor runs can take a while
+      signal: AbortSignal.timeout(300000), // actor runs can take a while, and longer when it opens every listing
     },
   );
   if (!res.ok) {
@@ -238,7 +251,9 @@ async function runApifyActorJobs(
           rows: rowsPerQuery,
           maxJobs: rowsPerQuery,
           limit: rowsPerQuery,
-          scrapeJobDetails: false,
+          // The CV match reads the posting's text, and LinkedIn's actor only returns it when it opens each listing.
+          // That is slower and costs more Apify credits per run: APIFY_SCRAPE_DETAILS=false turns it off.
+          scrapeJobDetails: process.env.APIFY_SCRAPE_DETAILS?.trim().toLowerCase() !== "false",
         },
       }));
 

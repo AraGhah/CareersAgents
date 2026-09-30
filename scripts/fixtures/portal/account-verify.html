@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- Fixture: "check your email" after creating an account. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Verify your email</title></head>
+  <body>
+    <h1>Check your email</h1>
+    <p>We've sent you a link to verify your account. Open it, then sign in.</p>
+    <p><a id="signin" href="/account-signin.html">Sign in</a></p>
+    <script>document.getElementById("signin").href = "/account-signin.html" + location.search;</script>
+  </body>
+</html>

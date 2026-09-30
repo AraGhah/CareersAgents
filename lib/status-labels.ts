@@ -47,6 +47,8 @@ export const LANG_LABEL_FR: Record<"en" | "fr", string> = {
 
 export const COMPONENT_LABEL_FR: Record<string, string> = {
   skills: "Compétences",
+  concepts: "Pratiques et domaines",
+  role: "Adéquation du poste",
   location: "Lieu",
   timing: "Période",
   language: "Langue",

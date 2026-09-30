@@ -29,7 +29,11 @@ import { ensureCoverLetter, type CoverLetter } from "./cover-letter";
 import { resolveApplyTarget } from "./apply-url";
 import { duplicateReason } from "./dedupe";
 import { companyNotes, mergeApprovals, planField, planFields, type PlanContext } from "./planner";
-import { adapterFor, confirmationText, manualOnlyReason, revealApplicationForm, scopeSelector, whyNoForm, type PlatformAdapter } from "./platforms";
+import { gmailIsConnected } from "../gmail";
+import { gmailVerificationLink } from "./account-mail";
+import { accountCredentials, portalHost, redact } from "./account-config";
+import { knownAccountState, passAccountWall } from "./account";
+import { accountPortalReason, adapterFor, confirmationText, manualOnlyReason, neverDrivenReason, revealApplicationForm, scopeSelector, whyNoForm, wizardReason, type PlatformAdapter } from "./platforms";
 import { preflightPasses, runPreflight } from "./preflight";
 import { selectResume } from "./resume-select";
 import { decideChannel, saveChannel } from "./route";
@@ -51,6 +55,12 @@ export type RunOptions = {
   /** Show the browser. Plan runs are headless unless this is set. */
   headed?: boolean;
   forcePortal?: boolean;
+  /**
+   * May this run sign in to, or create, an account on the employer's portal (lib/apply/account.ts)? True only for a run you
+   * started for one application; the queue and `automate` leave it off, so nothing opens accounts by itself. Also needs
+   * PORTAL_CREATE_ACCOUNTS=true and the account email and password in .env.local.
+   */
+  allowAccounts?: boolean;
   /** Called with the page before closing, e.g. the CLI waiting for Enter so a person can finish by hand. */
   beforeClose?: (page: Page) => Promise<void>;
   llm?: AnswerLLM | null;
@@ -130,7 +140,9 @@ async function readFields(page: Page, adapter: PlatformAdapter): Promise<FormFie
 }
 
 export async function runPortalApplication(applicationId: string, opts: RunOptions): Promise<RunResult> {
-  const log = opts.log ?? (() => undefined);
+  const creds = opts.allowAccounts ? accountCredentials() : null;
+  // Whatever is logged may carry the account's password (a page error quoting what was typed): it never does.
+  const log = (line: string) => (opts.log ?? (() => undefined))(redact(line, creds));
   const app = await getApplication(applicationId);
   if (!app) throw new Error(`application not found: ${applicationId}`);
   const board = await boardContext(app);
@@ -144,7 +156,7 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
     return { runId, state: "duplicate", reason: dup, preflight: [], decisions: [] };
   }
 
-  const channel = await decideChannel(app, { forcePortal: opts.forcePortal, applyUrl: target.url });
+  const channel = await decideChannel(app, { forcePortal: opts.forcePortal, applyUrl: target.url, hint: target.hint, allowAccountPortals: !!creds });
   await saveChannel(app.id, channel.channel);
   if (channel.channel === "email") {
     log(`email channel: ${channel.reason}`);
@@ -184,7 +196,7 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
 
     stage = "open";
     log(`form source: ${target.via} (${target.note}) ${target.url}`);
-    const manualOnly = manualOnlyReason(target.url);
+    const manualOnly = (creds ? neverDrivenReason : manualOnlyReason)(target.url);
     if (manualOnly) {
       await finishRun(runId, "blocked", { blocked_reason: manualOnly, lang });
       return { runId, state: "blocked", reason: manualOnly, preflight: [], decisions: [] };
@@ -202,17 +214,43 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
 
     stage = "guards";
     // "Apply" may have led to a portal that needs an account (a Phenom page handing off to Workday).
-    const landedManual = manualOnlyReason(page.url());
+    const landedManual = (creds ? neverDrivenReason : manualOnlyReason)(page.url());
     if (landedManual) {
       await saveChannel(app.id, "manual");
       await finishRun(runId, "blocked", { blocked_reason: `${landedManual} (reached from ${target.url})`, screenshot_path: await screenshot(page, runId, "manual") });
       return { runId, state: "blocked", reason: landedManual, preflight: [], decisions: [] };
     }
-    const wall = await detectLoginWall(page);
+    let wall = await detectLoginWall(page);
+    // An employer's portal that wants an account: sign in, or create it, with the account in .env.local. Only on a run you
+    // started for this application; anything it should not decide (a CAPTCHA, a form wanting more) stops here with why.
+    if ((wall || accountPortalReason(page.url())) && creds) {
+      stage = "account";
+      const outcome = await passAccountWall(page, {
+        creds,
+        log,
+        known: await knownAccountState(portalHost(page.url())),
+        verificationLink: (await gmailIsConnected().catch(() => false)) ? gmailVerificationLink : undefined,
+      });
+      if (!outcome.ok) {
+        await saveChannel(app.id, "manual");
+        await finishRun(runId, "blocked", { blocked_reason: redact(outcome.reason, creds), screenshot_path: await screenshot(page, runId, "account") });
+        return { runId, state: "blocked", reason: outcome.reason, preflight: [], decisions: [] };
+      }
+      log(outcome.action === "none" ? "no account step needed" : `account ${outcome.action === "created" ? "created" : "signed in"} on ${portalHost(page.url())}`);
+      wall = await detectLoginWall(page);
+      stage = "guards";
+    }
     if (wall) {
       await saveChannel(app.id, "manual");
       await finishRun(runId, "blocked", { blocked_reason: wall, screenshot_path: await screenshot(page, runId, "blocked") });
       return { runId, state: "blocked", reason: wall, preflight: [], decisions: [] };
+    }
+    // One step of a wizard is not a whole application: stop before planning it as if it were.
+    const wizard = await wizardReason(page);
+    if (wizard) {
+      await saveChannel(app.id, "manual");
+      await finishRun(runId, "blocked", { blocked_reason: wizard, screenshot_path: await screenshot(page, runId, "wizard") });
+      return { runId, state: "blocked", reason: wizard, preflight: [], decisions: [] };
     }
     // A CAPTCHA only stands between the form and Submit: the form is still read and filled, the preflight's
     // "no CAPTCHA" item keeps the submit for a person, who solves it in the open window. Never solved here.
@@ -436,8 +474,8 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
   } catch (err) {
     await logPortalError({ applicationId: app.id, runId, stage, error: err, detail: { url: page?.url() } });
     const shot = page ? await screenshot(page, runId, "error") : null;
-    await finishRun(runId, "failed", { error: `${stage}: ${err instanceof Error ? err.message : String(err)}`.slice(0, 1000), screenshot_path: shot });
-    await logWorkflow(app.id, "portal_error", false, `${stage}: ${err instanceof Error ? err.message : String(err)}`);
+    await finishRun(runId, "failed", { error: redact(`${stage}: ${err instanceof Error ? err.message : String(err)}`, creds).slice(0, 1000), screenshot_path: shot });
+    await logWorkflow(app.id, "portal_error", false, redact(`${stage}: ${err instanceof Error ? err.message : String(err)}`, creds));
     throw err;
   } finally {
     await browser?.close().catch(() => undefined);

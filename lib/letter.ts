@@ -332,7 +332,8 @@ function buildContext(input: LetterInput): Ctx {
     matchFacts: projectFacts(match),
     skills: matchedSkills(input, input.projects),
     growing: findSkills(`${input.roleTitle}\n${input.postingDescription ?? ""}`)
-      .filter((skill) => !skill.have)
+      // The employer's own name is not a skill the internship would teach ("...my SAP skills at SAP").
+      .filter((skill) => !skill.have && skill.name.toLowerCase() !== input.companyName.trim().toLowerCase())
       .map((skill) => skill.name)
       .slice(0, 2),
     // French months are lower-case mid-sentence; the answer bank stores "Janvier 2027".

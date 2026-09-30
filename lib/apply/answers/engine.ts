@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { createMessage, modelLabel, pickModel, tokenLimit, type Tier } from "../../claude";
 import { questionTypeOf } from "../classify";
 import type { CandidateProfile } from "../candidate";
 import { norm, words } from "../text";
@@ -27,26 +28,39 @@ const Draft = z.object({
 });
 export type DraftAnswer = z.infer<typeof Draft>;
 
-/** The model call, injectable so the checks can run offline. */
-export type AnswerLLM = (system: string, user: string) => Promise<DraftAnswer>;
+/** The model call, injectable so the checks can run offline. `tier` is the strength the question calls for. */
+export type AnswerLLM = (system: string, user: string, opts?: { tier?: Tier }) => Promise<DraftAnswer & { model?: string }>;
 
 export function anthropicLLM(): AnswerLLM | null {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
   if (!key) return null;
   const client = new Anthropic({ apiKey: key });
-  const model = process.env.ANTHROPIC_ANSWER_MODEL?.trim() || "claude-opus-5-5";
-  return async (system, user) => {
-    const response = await client.messages.create({
-      model,
-      max_tokens: 2000,
+  return async (system, user, opts) => {
+    const pick = pickModel(opts?.tier ?? "hard", process.env.ANTHROPIC_ANSWER_MODEL);
+    const response = await createMessage(client, pick, {
+      max_tokens: tokenLimit(2000, pick.tier),
       system,
       messages: [{ role: "user", content: user }],
       output_config: { format: { type: "json_schema", schema: ANSWER_SCHEMA as unknown as Record<string, unknown> } },
     });
     const text = response.content.find((c) => c.type === "text");
     if (!text || text.type !== "text") throw new Error("answer model returned no text");
-    return Draft.parse(JSON.parse(text.text));
+    // A reply cut off by the token limit is broken JSON: say so, rather than a parse error nobody can act on.
+    if (response.stop_reason === "max_tokens") throw new Error("answer model ran out of tokens before finishing the answer");
+    return { ...Draft.parse(JSON.parse(text.text)), model: pick.model };
   };
+}
+
+/**
+ * Questions that have to reason across the posting, the company and the candidate's projects without inventing
+ * anything, or that are open-ended, go to the strong model. The rest reword material the desk already holds
+ * (strengths, weakness, teamwork, career goal, a short answer) and start on the cheap one.
+ */
+const HARD_TYPES: ReadonlySet<QuestionType> = new Set(["why_company", "why_fit", "why_role", "about_you", "challenge", "technical"]);
+const LONG_ANSWER_WORDS = 200;
+
+export function answerTier(questionType: QuestionType, maxWords: number): Tier {
+  return HARD_TYPES.has(questionType) || maxWords > LONG_ANSWER_WORDS ? "hard" : "easy";
 }
 
 export type AnswerContext = {
@@ -163,9 +177,16 @@ export async function answerQuestion(field: FormField, ctx: AnswerContext): Prom
   const style = buildStyleProfile({ samples: ctx.samples, candidate: ctx.candidate, questionType: qt, question: field.label, lang });
   const system = systemPrompt(lang, ctx.candidate.fullName ?? "the candidate");
   let feedback: string[] | undefined;
-  let last: { text: string; checks: LintCheck[] } | null = null;
+  let last: { text: string; checks: LintCheck[]; by: string } | null = null;
+
+  // Start with the strength the question calls for. A quick first pass that comes back unusable is redone, once,
+  // by the strong model (with what went wrong): that second attempt is the only place the strong model is paid for
+  // on a question that looked easy.
+  const startTier = answerTier(qt, lengthTarget(field).max);
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    const tier: Tier = attempt === 0 ? startTier : "hard";
+    const quickFirstPass = attempt === 0 && tier === "easy";
     const draft = await ctx.llm(
       system,
       userPrompt({
@@ -182,28 +203,40 @@ export async function answerQuestion(field: FormField, ctx: AnswerContext): Prom
         style,
         feedback,
       }),
+      { tier },
     );
+    const by = draft.model ? ` by ${modelLabel(draft.model)}` : "";
     if (draft.missing_info || !draft.answer.trim()) {
+      if (quickFirstPass) {
+        feedback = [
+          `A quicker first pass said the material lacks something (${draft.missing_info ?? "no answer"}). Read the material again: answer only if it truly supports one, otherwise say exactly what is missing.`,
+        ];
+        continue;
+      }
       return {
         value: null,
         status: "manual",
         source: "none",
-        reason: `Your material does not cover this: ${draft.missing_info ?? "no answer possible"}. Answer it yourself.`,
+        reason: `Your material does not cover this${by}: ${draft.missing_info ?? "no answer possible"}. Answer it yourself.`,
         checks: [],
         questionType: qt,
       };
     }
     const text = tidy(draft.answer);
     const checks = check(text);
-    last = { text, checks };
+    last = { text, checks, by };
     const failing = checks.filter((c) => !c.ok && (c.severity === "block" || ["length", "no_stock_phrases", "names_company"].includes(c.id)));
     if (failing.length === 0) {
       if (draft.confidence === "low") {
-        return { value: text, status: "manual", source: "generated", reason: "Drafted with low confidence: check every claim, then approve.", checks, questionType: qt };
+        if (quickFirstPass) {
+          feedback = ["The first pass had low confidence. Verify every claim against the material and keep only what it supports."];
+          continue;
+        }
+        return { value: text, status: "manual", source: "generated", reason: `Drafted${by} with low confidence: check every claim, then approve.`, checks, questionType: qt };
       }
-      return verdict(text, checks, "generated", `Drafted from your material (${draft.facts_used.length} facts used). Review, edit if needed, approve.`, qt);
+      return verdict(text, checks, "generated", `Drafted${by} from your material (${draft.facts_used.length} facts used). Review, edit if needed, approve.`, qt);
     }
     feedback = failing.map((c) => `${c.label}${c.detail ? `: ${c.detail}` : ""}`);
   }
-  return verdict(last!.text, last!.checks, "generated", "Drafted from your material after one revision. Review, edit if needed, approve.", qt);
+  return verdict(last!.text, last!.checks, "generated", `Drafted${last!.by} from your material after one revision. Review, edit if needed, approve.`, qt);
 }
