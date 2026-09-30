@@ -1,0 +1,153 @@
+<!doctype html>
+<!-- Offline fixture shaped like a Greenhouse job board application. Used by scripts/portal-check.ts only. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Software Developer Intern - Acme Robotics</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 2rem auto; }
+    .field { margin: 1rem 0; }
+    label, legend { display: block; font-weight: 600; }
+    .listbox { border: 1px solid #999; }
+    .listbox [role=option] { padding: 4px; cursor: pointer; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  </style>
+</head>
+<body>
+  <h1>Software Developer Intern</h1>
+  <form id="application-form" action="/thanks" method="get">
+    <input type="hidden" name="authenticity_token" value="abc123" />
+
+    <div class="field"><label for="first_name">First Name *</label><input id="first_name" name="first_name" required /></div>
+    <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="last_name" required /></div>
+    <div class="field"><label for="email">Email *</label><input id="email" name="email" type="email" required /></div>
+    <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel" /></div>
+
+    <div class="field">
+      <label id="loc-label">Location (City) *</label>
+      <input id="loc" role="combobox" aria-labelledby="loc-label" aria-autocomplete="list" aria-controls="loc-list" aria-required="true" autocomplete="off" />
+      <div id="loc-list" class="listbox" role="listbox" hidden></div>
+    </div>
+
+    <div class="field">
+      <label for="resume">Resume/CV *</label>
+      <span class="visually-hidden"><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx" required /></span>
+      <button type="button" onclick="document.getElementById('resume').click()">Attach</button>
+    </div>
+    <div class="field">
+      <label for="cover_letter">Cover Letter</label>
+      <input id="cover_letter" name="cover_letter" type="file" />
+    </div>
+
+    <div class="field"><label for="linkedin">LinkedIn Profile</label><input id="linkedin" name="linkedin" type="url" /></div>
+    <div class="field"><label for="website">Website</label><input id="website" name="website" /></div>
+
+    <div class="field">
+      <label for="school">School *</label>
+      <select id="school" name="school" required>
+        <option value="">Select...</option>
+        <option>McGill University</option>
+        <option>Collège de Bois-de-Boulogne</option>
+        <option>Concordia University</option>
+        <option>Other</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="degree">Degree</label>
+      <select id="degree" name="degree">
+        <option value="">Select...</option>
+        <option>High School</option>
+        <option>DEC (Diplôme d'études collégiales)</option>
+        <option>Bachelor's Degree</option>
+      </select>
+    </div>
+    <div class="field"><label for="grad">Expected graduation date</label><input id="grad" name="grad" type="date" /></div>
+
+    <fieldset class="field">
+      <legend>Are you legally authorized to work in Canada? *</legend>
+      <label><input type="radio" name="auth" value="yes" required /> Yes</label>
+      <label><input type="radio" name="auth" value="no" /> No</label>
+    </fieldset>
+
+    <div class="field">
+      <label for="term">Which internship term are you applying for? *</label>
+      <select id="term" name="term" required>
+        <option value="">Select...</option>
+        <option>Summer 2026</option>
+        <option>Fall 2026</option>
+        <option>Winter 2027</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="heard">How did you hear about us?</label>
+      <select id="heard" name="heard">
+        <option value="">Select...</option>
+        <option>LinkedIn</option>
+        <option>Company careers page</option>
+        <option>Referral</option>
+      </select>
+    </div>
+
+    <fieldset class="field">
+      <legend>Do you have experience with React?</legend>
+      <label><input type="radio" name="react" value="Yes" /> Yes</label>
+      <label><input type="radio" name="react" value="No" /> No</label>
+    </fieldset>
+    <fieldset class="field">
+      <legend>Do you have experience with Kafka?</legend>
+      <label><input type="radio" name="kafka" value="Yes" /> Yes</label>
+      <label><input type="radio" name="kafka" value="No" /> No</label>
+    </fieldset>
+
+    <fieldset class="field">
+      <legend>Languages spoken</legend>
+      <label><input type="checkbox" name="langs" value="en" /> English</label>
+      <label><input type="checkbox" name="langs" value="fr" /> French</label>
+      <label><input type="checkbox" name="langs" value="es" /> Spanish</label>
+    </fieldset>
+
+    <div class="field">
+      <label for="why">Why do you want to work at Acme Robotics? *</label>
+      <textarea id="why" name="why" rows="6" maxlength="1500" required></textarea>
+    </div>
+    <div class="field">
+      <label for="extra">Anything else you would like to share?</label>
+      <textarea id="extra" name="extra" rows="3"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="gender">Gender (voluntary)</label>
+      <select id="gender" name="gender">
+        <option value="">Select...</option>
+        <option>Man</option><option>Woman</option><option>Decline to self-identify</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label><input type="checkbox" name="privacy" required /> I have read and agree to the Privacy Policy *</label>
+    </div>
+
+    <button type="submit" id="submit_app">Submit application</button>
+  </form>
+
+  <script>
+    const cities = ["Montreal, Quebec, Canada", "Montreal West, Quebec, Canada", "Toronto, Ontario, Canada"];
+    const input = document.getElementById("loc");
+    const list = document.getElementById("loc-list");
+    input.addEventListener("input", () => {
+      const q = input.value.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      list.innerHTML = "";
+      cities.filter((c) => c.toLowerCase().includes(q)).forEach((c) => {
+        const o = document.createElement("div");
+        o.setAttribute("role", "option");
+        o.textContent = c;
+        o.addEventListener("click", () => { input.value = c; list.hidden = true; });
+        list.appendChild(o);
+      });
+      list.hidden = list.children.length === 0;
+    });
+    input.addEventListener("click", () => input.dispatchEvent(new Event("input")));
+  </script>
+</body>
+</html>

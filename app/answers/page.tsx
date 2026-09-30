@@ -3,6 +3,9 @@ import { DbUnavailable, EmptyState, ExtLink, PageHeader, Section, Stat, TableWra
 
 export const metadata = { title: "Banque de réponses" };
 
+// Reads the database: render per request, never freeze it at build time.
+export const dynamic = "force-dynamic";
+
 const CATEGORY_LABEL: Record<string, string> = {
   green: "coller tel quel",
   yellow: "reformuler",

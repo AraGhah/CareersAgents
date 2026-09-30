@@ -267,7 +267,7 @@ export async function getJobDetailAction(jobId: string): Promise<JobRowDetail | 
   }
   const pct = job.components.length > 0 ? Math.round(Number(job.score) * 100) : 0;
   const explanationFr =
-    job.components.length > 0 ? explainFr(components, pct, Boolean(job.gated)) : null;
+    job.components.length > 0 ? explainFr(components, pct) : null;
 
   return { description: job.description, companyCity: job.company_city, explanationFr };
 }

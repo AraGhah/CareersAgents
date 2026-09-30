@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Offline fixture shaped like a real bilingual JazzHR form (the Grass Valley posting seen in testing):
+     an Address group over several inputs told apart only by placeholder, bilingual yes/no selects whose
+     wording mentions a school or a program, and experience-level dropdowns. Used by scripts/portal-check.ts. -->
+<html lang="fr">
+<head><meta charset="utf-8" /><title>Stagiaire, développement de logiciel</title></head>
+<body>
+  <form id="resumator-form" action="/thanks" method="get">
+    <div class="field"><label for="fn">First Name *</label><input id="fn" name="resumator-firstname-value" required /></div>
+    <div class="field"><label for="ln">Last Name *</label><input id="ln" name="resumator-lastname-value" required /></div>
+    <div class="field"><label for="em">Email Address *</label><input id="em" type="email" name="resumator-email-value" required /></div>
+    <div class="field">
+      <label>Address</label>
+      <input name="resumator-address-value" placeholder="Street Address" />
+      <input name="resumator-city-value" placeholder="City" />
+      <input name="resumator-state-value" placeholder="State / Province" />
+      <input name="resumator-postal-value" placeholder="Postal Code" />
+    </div>
+    <div class="field"><label for="cv">Resume *</label><input id="cv" type="file" name="resumator-resume-value" required /></div>
+    <div class="field">
+      <label for="credit">Votre stage comptera-t-il pour des crédits académiques dans votre établissement? Will your internship count for academic credit at your school? *</label>
+      <select id="credit" name="q1" required><option>-- No answer --</option><option>Oui/Yes</option><option>Non/No</option></select>
+    </div>
+    <div class="field">
+      <label for="enrolled">Êtes-vous actuellement inscrit(e) à un programme d'études au Québec ? Are you enrolled in a program in Quebec? *</label>
+      <select id="enrolled" name="q2" required><option>-- No answer --</option><option>Oui/Yes</option><option>Non/No</option></select>
+    </div>
+    <div class="field">
+      <label for="cpp">Quel est votre niveau d'expérience en C++ ? What is your level of experience in C++? *</label>
+      <select id="cpp" name="q3" required><option>-- No answer --</option><option>Aucun / None</option><option>Débutant / Beginner</option><option>Intermédiaire / Intermediate</option></select>
+    </div>
+    <button type="submit">Submit Application</button>
+  </form>
+</body>
+</html>

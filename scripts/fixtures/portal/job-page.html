@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Offline fixture shaped like a company careers page (Phenom / DigitalRecruiters style): site search,
+     a newsletter box, a cookie banner over everything, a chat widget over the Apply button, and an Apply
+     link that opens the form in a new tab. Used by scripts/portal-check.ts only. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Software Intern - Careers</title>
+  <style>
+    #cookie-banner { position: fixed; inset: 0; background: rgb(0 0 0 / 0.5); z-index: 50; }
+    #cookie-banner .box { background: #fff; margin: 20vh auto; width: 420px; padding: 1rem; }
+    #chat { position: fixed; right: 0; bottom: 0; width: 60vw; height: 60vh; background: #eef; z-index: 40; }
+    .apply { position: fixed; right: 20px; bottom: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <form role="search"><input type="search" name="q" placeholder="Search jobs" /><input name="where" placeholder="Location" /><input name="radius" /></form>
+  </header>
+  <main>
+    <h1>Software Intern</h1>
+    <p>Build internal tools in TypeScript and PostgreSQL.</p>
+    <a class="apply" href="bilingual-form.html" target="_blank">Apply Now</a>
+  </main>
+  <footer><form><input type="email" name="newsletter" placeholder="Newsletter email" /></form></footer>
+  <div id="chat" aria-label="Chat with us">Hi! Ask me anything.</div>
+  <div id="cookie-banner" role="dialog" aria-modal="true">
+    <div class="box">
+      <p>We use cookies.</p>
+      <button onclick="window.__consent = 'accept'; document.getElementById('cookie-banner').remove()">Accept all</button>
+      <button onclick="window.__consent = 'reject'; document.getElementById('cookie-banner').remove()">Reject all</button>
+    </div>
+  </div>
+</body>
+</html>

@@ -21,7 +21,9 @@ import { rankContacts } from "../../../lib/recruiter";
 import { getLatestDossier } from "../../../lib/research";
 import { resolveResumeForJob } from "../../../lib/resumes";
 import { LANG_LABEL_FR } from "../../../lib/status-labels";
+import { loadPortalView } from "../../../lib/apply/view";
 import { MoreOptions } from "./more-options";
+import { PORTAL_FLASH, PortalPanel } from "./portal-panel";
 import { SendPanel, type Suggestion } from "./send-panel";
 
 type Search = {
@@ -37,6 +39,7 @@ type Search = {
   draft?: string;
   searched?: string;
   found?: string;
+  portal?: string;
 };
 
 /** What each failed check means, in plain words. Checks not listed here fall back to their own label. */
@@ -95,6 +98,7 @@ export default async function ApplicationPage({
   let attachmentNames: string[] = [];
   let downloadableFiles: Awaited<ReturnType<typeof existingApplicationFiles>> = [];
   let extrasError: string | null = null;
+  let portal: Awaited<ReturnType<typeof loadPortalView>> = null;
 
   try {
     bank = await loadAnswerBank(lang);
@@ -112,6 +116,7 @@ export default async function ApplicationPage({
     // be shown for one that would just 404.
     downloadableFiles = await existingApplicationFiles(app);
     attachmentNames = downloadableFiles.map((f) => f.filename);
+    portal = await loadPortalView(app.id);
   } catch (err) {
     extrasError = (err as Error).message;
   }
@@ -137,6 +142,10 @@ export default async function ApplicationPage({
           when: day(draftRow.approved_at ?? draftRow.created_at),
         }
       : null;
+
+  // The online-form path shows when there is no published address to write to, or once it has been used.
+  const showPortal = !portal || portal.channel === "portal" || portal.channel === "manual" || !!portal.run || suggestions.length === 0;
+  const portalFlash = sp.portal ? PORTAL_FLASH[sp.portal] : undefined;
 
   const FILE_LABEL: Record<"cv" | "letter", string> = {
     letter: "Télécharger la lettre (PDF)",
@@ -212,6 +221,7 @@ export default async function ApplicationPage({
           </Flash>
         ) : null}
         {sp.drafted ? <Flash tone="info">Brouillon créé dans Gmail.</Flash> : null}
+        {portalFlash ? <Flash tone={portalFlash.tone}>{portalFlash.text}</Flash> : null}
       </div>
 
       <ol className="apply-steps">
@@ -381,6 +391,16 @@ export default async function ApplicationPage({
           </div>
         </li>
       </ol>
+
+      {showPortal ? (
+        <PortalPanel
+          applicationId={app.id}
+          lang={lang}
+          view={portal}
+          postingUrl={app.url}
+          submitEnabled={process.env.PORTAL_ALLOW_SUBMIT?.trim().toLowerCase() === "true"}
+        />
+      ) : null}
 
       <MoreOptions
         app={app}

@@ -2,9 +2,11 @@
 // follow-ups on their own schedule so nobody has to click "Find Internships"
 // or run a script by hand. Every qualifying job is auto-tracked, researched,
 // matched to a real published contact, and has a personalized email drafted
-// — see lib/workflow.ts's runFindInternships. Nothing here ever sends an
-// email or submits a form: drafts wait in Gmail for you to approve, exactly
-// like the manual buttons in the app. Stop it any time with Ctrl+C.
+// — see lib/workflow.ts's runFindInternships. Jobs with no published contact
+// get their online form read and their answers drafted (portal plan, headless,
+// read-only). Nothing here sends an email; a portal form is submitted only when
+// PORTAL_ALLOW_SUBMIT=true AND every field of its plan was decided (approved by
+// you) AND the preflight passes. Stop it any time with Ctrl+C.
 //
 //   npx tsx scripts/automate.ts
 //   npm run automate
@@ -47,23 +49,35 @@ async function runDiscover() {
   }
 }
 
+const portalPlanOn = () => process.env.PORTAL_AUTO_PLAN?.trim().toLowerCase() !== "false";
+const portalSubmitOn = () => process.env.PORTAL_ALLOW_SUBMIT?.trim().toLowerCase() === "true";
+
+async function runPortal() {
+  if (portalPlanOn()) await runScript("portal-plan", "scripts/portal-apply.ts --queue plan");
+  if (portalSubmitOn()) await runScript("portal-submit", "scripts/portal-apply.ts --queue submit");
+}
+
 const runSyncInbox = () => runScript("sync-inbox", "scripts/sync-inbox.ts");
 const runFollowups = () => runScript("followups", "scripts/process-followups.ts");
 
 async function main() {
   console.log("Automatic mode.");
   console.log("  discover   — every 4h  (postings, matching, auto-track, research, draft)");
+  console.log(`  portal     — after each discover: plan forms ${portalPlanOn() ? "on" : "off"}, submit approved plans ${portalSubmitOn() ? "ON" : "off"}`);
   console.log("  inbox sync — every 30m (Gmail replies matched to applications)");
   console.log("  follow-ups — daily 08:00 (day-7 / day-14 drafts)");
-  console.log("Drafts wait for your approval in the app — nothing sends itself. Ctrl+C to stop.\n");
+  console.log("Drafts wait for your approval in the app. Ctrl+C to stop.\n");
 
   // Run each once immediately so results show up right away, then schedule.
   await runDiscover();
+  await runPortal();
   await runSyncInbox();
   await runFollowups();
 
   cron.schedule("0 */4 * * *", () => {
-    runDiscover().catch((err) => console.error("[discover]", err));
+    runDiscover()
+      .then(runPortal)
+      .catch((err) => console.error("[discover]", err));
   });
   cron.schedule("*/30 * * * *", () => {
     runSyncInbox().catch((err) => console.error("[sync-inbox]", err));

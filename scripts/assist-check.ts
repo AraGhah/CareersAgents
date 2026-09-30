@@ -1,4 +1,5 @@
-// Guards for the browser assist: no Submit clicks in the repo, field planning works.
+// Guards for the browser assist: no Submit clicks in the repo outside the one gated
+// portal submit (lib/apply/submit.ts), and field planning works.
 //   npx tsx scripts/assist-check.ts
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -42,12 +43,31 @@ function main() {
     }
   }
 
+  // The portal system has exactly one place allowed to press a final Submit: lib/apply/submit.ts. Only that
+  // file (and the adapters that describe where the button is) may touch the adapters' submit selectors, and
+  // submit.ts must check the opt-in flag and the preflight before any click.
+  const SUBMIT_MODULE = path.join("lib", "apply", "submit.ts");
+  const SELECTOR_OWNERS = new Set([SUBMIT_MODULE, path.join("lib", "apply", "platforms", "index.ts"), path.join("scripts", "assist-check.ts")]);
+  for (const file of files) {
+    const rel = path.relative(root, file);
+    if (/submitSelectors/.test(readFileSync(file, "utf8")) && !SELECTOR_OWNERS.has(rel)) {
+      offenders.push(`${rel} ~ uses submitSelectors outside ${SUBMIT_MODULE}`);
+    }
+  }
+  const submitCode = readFileSync(path.join(root, SUBMIT_MODULE), "utf8");
+  const firstClick = submitCode.indexOf(".click(");
+  for (const gate of ["if (!submitEnabled())", "if (!preflightPasses(preflight))"]) {
+    const at = submitCode.indexOf(gate);
+    if (at === -1 || (firstClick !== -1 && at > firstClick)) offenders.push(`${SUBMIT_MODULE} ~ "${gate}" must come before any click`);
+  }
+
   if (offenders.length) {
     console.error("Forbidden submit-click patterns found:");
     for (const o of offenders) console.error(`  ${o}`);
     process.exit(1);
   }
   console.log(`no submit-click patterns in ${files.length} source files`);
+  console.log(`the only submit path (${SUBMIT_MODULE}) is gated by PORTAL_ALLOW_SUBMIT and the preflight`);
 
   if (!looksLikeSubmit("Submit") || !looksLikeSubmit("Submit application")) {
     throw new Error("Submit labels should be blocked");

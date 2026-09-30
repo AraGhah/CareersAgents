@@ -173,7 +173,7 @@ async function linkStatuses(urls: string[]): Promise<Array<{ url: string; ok: bo
         });
       }
       out.push({ url, ok: res.ok || res.status === 999, status: String(res.status) });
-    } catch (err) {
+    } catch {
       // LinkedIn and some hosts refuse automated checks; try a bare GET once more.
       try {
         const res = await fetch(url, {

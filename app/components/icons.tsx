@@ -164,6 +164,15 @@ export function IconFile({ className, style }: IconProps) {
   );
 }
 
+export function IconForm({ className, style }: IconProps) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M5 6h6M5 8.5h6M5 11h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconQuote({ className, style }: IconProps) {
   return (
     <svg className={className} style={style} viewBox="0 0 16 16" fill="none" aria-hidden="true">

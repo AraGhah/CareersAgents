@@ -10,6 +10,8 @@ BEGIN
     ADD CONSTRAINT messages_gmail_message_id_key UNIQUE (gmail_message_id);
 EXCEPTION
   WHEN duplicate_object THEN NULL;
+  -- The index behind an existing UNIQUE constraint reports "relation already exists".
+  WHEN duplicate_table THEN NULL;
   WHEN unique_violation THEN NULL;
 END $$;
 
@@ -19,6 +21,8 @@ BEGIN
     ADD CONSTRAINT followups_application_due_key UNIQUE (application_id, due_on);
 EXCEPTION
   WHEN duplicate_object THEN NULL;
+  -- The index behind an existing UNIQUE constraint reports "relation already exists".
+  WHEN duplicate_table THEN NULL;
   WHEN unique_violation THEN NULL;
 END $$;
 

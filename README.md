@@ -2,7 +2,9 @@
 
 A CRM for my Winter 2027 stage search. It tracks openings, applications and their status.
 Finding, matching, tracking, researching and drafting all run themselves (see "Automatic
-mode"). It stops at the submit button: nothing is submitted or emailed without a click.
+mode"). Nothing is emailed without a click. An online application form is submitted by the
+desk only if you turn that on (`PORTAL_ALLOW_SUBMIT=true`), only after you approved every
+answer, and only when every preflight check passes (see "Portal applications").
 
 ## Pipeline & Find Internships (V9)
 
@@ -69,6 +71,7 @@ docker compose up -d
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v8.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v10.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v11.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import
@@ -262,6 +265,109 @@ An inbound reply cancels pending follow-ups. Drafts only go to addresses already
 in `contacts` with a real `source_url`. You press send in Gmail yourself.
 `npm run followups:check` verifies the day-5 inbound → day-7 cancel path offline.
 
+## Portal applications (V11)
+
+For a posting with no published recruiter or HR address, the application goes through the
+company's own online form. `prepareOutreachWorkflow` routes it (`applications.channel`:
+`email` / `portal` / `manual`), and the rest lives in `lib/apply/`, one concern per module:
+
+| Module | Job |
+|---|---|
+| `platforms/` | Greenhouse, Lever, Workable, Ashby + generic: form URL, form root, submit selectors, confirmation |
+| `browser/extract.ts` | reads every question off the live form (labels, required, options, limits); opens custom dropdowns first |
+| `classify.ts` | label → intent; legal, sensitive and demographic rules run first |
+| `candidate.ts` / `resolve.ts` | one grounded profile from the answer bank, CV and projects → deterministic values |
+| `options.ts` | maps a value onto the form's own option; a tie is "no match", never the first option |
+| `resume-select.ts` / `cover-letter.ts` | the CV by category then language, with the reason; the letter reused or built, checked against company/role/language |
+| `answers/` | written answers: prompts, style profile, humanize lint, grounding check |
+| `browser/fill.ts` | writes with real input events and reads every value back |
+| `browser/guards.ts` | CAPTCHA (never solved or evaded), login walls, the form's own errors |
+| `dedupe.ts` / `preflight.ts` / `submit.ts` | duplicate check (twice), the pre-submit gate, the only code that presses Submit |
+| `store.ts` / `runner.ts` | `portal_runs`, `portal_fields`, `portal_errors`, `writing_samples`; the orchestration |
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v11.sql
+npm run portal -- --application <uuid>                # plan: read the form, draft answers (headless)
+npm run portal -- --application <uuid> --mode review  # fill in a visible browser, you press Submit
+npm run portal -- --application <uuid> --mode submit  # fill, validate, submit if every gate passes
+npm run portal -- --queue plan                        # plan every portal application without a plan
+npm run portal -- --route                             # set email / portal / manual on older applications (no browser)
+npm run portal:backfill-urls -- --apply               # store company form links from cached Indeed/LinkedIn results
+npm run portal:check                                  # offline: fixture forms, no DB, no network
+```
+
+**Where the form is.** An Indeed or LinkedIn listing is not the form: their own apply flow needs
+your account. Discovery now keeps the posting's link to the company's own form (`jobs.apply_url`,
+Indeed's "apply on company site"); for a LinkedIn posting, whose actor gives no such link, the
+same role at the same company on another source (the Indeed copy, a Greenhouse board) lends its
+form. Only when neither exists does the application go to `manual`.
+
+**What the desk drives, and what it hands to you.** Single-page forms: Greenhouse, Lever,
+Workable, Ashby, and generic company forms (JazzHR, BambooHR, Teamtailor and similar). On the way
+it closes cookie banners with the least consent offered ("Reject all" before "Accept"), clicks
+past chat widgets, and follows an "Apply" that opens a new tab. It stops, marks the application
+`manual`, and says why, on: account portals (Workday, SuccessFactors, iCIMS, Taleo, UltiPro
+sign-in), a privacy / data-consent step before the form, multi-step wizards, a page with no CV
+upload (the first step of a multi-step portal, such as ADP), and closed postings ("Job not
+found", a redirect to `/closed`), which are also marked closed so they leave the queue. A CAPTCHA
+does not stop the plan: the form is still read and filled, and the submit waits for you to
+solve it in the open window.
+
+The application page has the same three buttons under **Postuler par le formulaire en ligne**,
+and `/portal` lists every attempt: company, role, form URL, date, CV and letter used, written
+answers, state, and errors.
+
+**Plan, then execute.** A plan run reads the form without filling it and decides every field:
+*resolved* from your data, *drafted* (a written answer waiting for your approval), *à toi*
+(yours to answer), or *left blank* (optional, nothing true to put there). You approve or rewrite
+drafts on the application page; the execute run keeps those approvals field by field. Anything
+that appears only after filling (an "If yes, explain" question) is planned on the spot and, if
+it needs you, blocks the submit.
+
+**Never filled by the desk:** work authorization, sponsorship, legal declarations, consent and
+privacy terms, date of birth and other sensitive data, salary, voluntary self-identification,
+previous employment, referrals, and anything unrecognized that is required. A value the data
+does not fully support (a full date when you only wrote "January 2027") is a suggestion you
+confirm, not a silent fill.
+
+**Written answers** are drafted by Claude (`ANTHROPIC_API_KEY`, `ANTHROPIC_ANSWER_MODEL`, default
+`claude-opus-5-5`), one question at a time with your material, the posting and the company
+notes, in your voice: the prompt carries style notes and your closest real answers. Then two
+mechanical checks run, and a failed draft gets one revision with the failures as feedback:
+- *humanize*: no stock phrasing ("passionate about", "leverage", "I am writing to express"…),
+  no mention of AI or of how it was written, no placeholders, no bullets, varied openers and
+  rhythm, a length that fits the question and the field's limit;
+- *grounding*: every number, proper noun and technology must be in your material, the posting
+  or the company notes; a tool only the posting mentions is flagged so it is never claimed.
+
+Still failing, or the model reports it lacks the information → it is yours, with no guess.
+Without an API key, a question the bank answers in your own words (strengths, weakness,
+teamwork, project, career goal) reuses that text for your approval; the rest is yours.
+
+**Your style profile** grows from `writing_samples`: every answer you approve is stored, and a
+rewritten one counts most. The yellow bank answers seed it. Later drafts read the closest ones.
+
+**Preflight before submit:** not a duplicate (re-checked), required fields filled on the live
+page, every value reads back, nothing pending, the form takes a CV at all (a page without one is
+a first step, never a whole application), the right CV on disk and attached, the letter
+names this company and role in the posting's language, drafted answers grounded, no
+placeholder, no CAPTCHA challenge, no validation error. Then two permissions: not an
+`is_target` company (those are always submitted by hand) and `PORTAL_ALLOW_SUBMIT=true`.
+One red item and the browser stays filled for you instead. After Submit, only a confirmation
+page it can read counts as submitted; an unconfirmed click is recorded as blocked and never
+retried. `PORTAL_DAILY_LIMIT` (10) caps automatic submissions per day, and a queue waits
+`PORTAL_DELAY_SECONDS` (90) between applications.
+
+**Duplicates:** an application past "ready", a submitted portal run, a sent email, the same role
+at the same company under another posting, or the same canonical posting URL (`/apply` and
+tracking parameters stripped).
+
+**Not driven:** LinkedIn and Indeed's own apply flows, Workday, Taleo, iCIMS, SuccessFactors:
+they need your account. Those applications are marked `manual`.
+
+`npm run automate` plans new portal applications after each discovery (`PORTAL_AUTO_PLAN=false`
+turns it off) and, only with `PORTAL_ALLOW_SUBMIT=true`, executes plans you finished approving.
+
 ## Browser assist
 
 Deliberately incomplete. Playwright opens the posting in a **headed** window, fills
@@ -294,6 +400,7 @@ source of truth; the spreadsheets are views of it.
 | V6 Inbox + follow-ups (Gmail drafts only) | Done (needs your OAuth + real volume) |
 | V7 Browser assist (Playwright, no Submit) | Done |
 | V8 Resumes + Dossier research + Gmail outreach drafts | Done |
+| V11 Portal applications (plan → approve → fill → preflight → gated submit) | Done (needs schema-v11 + your approvals) |
 
 ## Eight-agent workflow: what is coded vs what stays in chat
 
@@ -315,4 +422,4 @@ source of truth; the spreadsheets are views of it.
 3. **Gmail** — Run `gmail:auth` once; use `sync:inbox:loop` after ~15 submissions.
 4. **Daily routine (Step 9)** — `followups:dry` then read drafts; update status when replies arrive.
 5. **Optional code later** — Workday discover helper; import Excel → DB; company dossier table; interview prep button (posting + letter + projects, no auto-send).
-6. **Do not build yet** — Auto-submit, auto-send mail, LinkedIn scraping, eight separate MCP servers (explicitly cut in the build guide).
+6. **Do not build yet** — Auto-send mail, LinkedIn scraping, eight separate MCP servers (explicitly cut in the build guide). Auto-submit exists for portal forms only (V11): off by default and behind the preflight.

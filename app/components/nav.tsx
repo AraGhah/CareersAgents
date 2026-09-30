@@ -7,6 +7,7 @@ import {
   IconBell,
   IconBoard,
   IconFile,
+  IconForm,
   IconOffers,
   IconPipeline,
   IconPlus,
@@ -20,6 +21,7 @@ const ICONS: Record<NavIconKey, React.ComponentType<{ className?: string }>> = {
   board: IconBoard,
   bell: IconBell,
   file: IconFile,
+  form: IconForm,
   quote: IconQuote,
   plus: IconPlus,
 };

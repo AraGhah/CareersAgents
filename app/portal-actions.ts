@@ -1,0 +1,103 @@
+"use server";
+
+// Buttons of the portal panel on an application page. The browser work runs in
+// its own process (scripts/portal-apply.ts) rather than inside the Next server:
+// Playwright does not belong in the app bundle, and a visible browser has to
+// outlive the request that opened it.
+
+import { spawn } from "node:child_process";
+import { mkdirSync, openSync } from "node:fs";
+import path from "node:path";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { approveField, getRun, pendingCount, planIsComplete, updateRun } from "../lib/apply/store";
+import type { Lang } from "../lib/apply/types";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MODES = new Set(["plan", "review", "submit"]);
+
+function field(form: FormData, key: string): string {
+  const v = form.get(key);
+  if (typeof v !== "string" || !v.trim()) throw new Error(`${key} is required`);
+  return v.trim();
+}
+
+function uuid(form: FormData, key: string): string {
+  const v = field(form, key);
+  // The id goes on a command line: only a well-formed UUID is accepted.
+  if (!UUID.test(v)) throw new Error(`${key} is not a valid id`);
+  return v;
+}
+
+function launch(applicationId: string, mode: string, opts: { wait: boolean }): Promise<number | null> {
+  if (!UUID.test(applicationId) || !MODES.has(mode)) throw new Error("invalid portal launch");
+  const dir = path.join("applications", "_portal");
+  mkdirSync(dir, { recursive: true });
+  const logFile = openSync(path.join(dir, `${applicationId}-${mode}.log`), "a");
+  const args = ["tsx", "scripts/portal-apply.ts", "--application", applicationId, "--mode", mode, ...(mode === "plan" ? [] : ["--keep-open"])];
+  const child = spawn("npx", args, {
+    cwd: process.cwd(),
+    shell: true,
+    detached: !opts.wait,
+    stdio: ["ignore", logFile, logFile],
+    env: process.env,
+    windowsHide: mode === "plan",
+  });
+  if (!opts.wait) {
+    child.unref();
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 6 * 60 * 1000);
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+/** Read the form and draft every answer, headless. Waits for the result (a minute or two with written answers). */
+export async function planPortalAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  const code = await launch(applicationId, "plan", { wait: true });
+  revalidatePath(`/applications/${applicationId}`);
+  revalidatePath("/portal");
+  redirect(`/applications/${applicationId}?portal=${code === 0 ? "planned" : "plan-failed"}#portail`);
+}
+
+/** Open a visible browser that fills the form. "review" leaves Submit to you; "submit" submits only if every gate passes. */
+export async function runPortalAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  const mode = field(form, "mode");
+  if (mode !== "review" && mode !== "submit") throw new Error("mode must be review or submit");
+  await launch(applicationId, mode, { wait: false });
+  redirect(`/applications/${applicationId}?portal=launched-${mode}#portail`);
+}
+
+/** Approve one field (a drafted answer as-is or rewritten, or a value you typed for a manual question). */
+export async function approvePortalFieldAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  const runId = uuid(form, "runId");
+  const fieldId = uuid(form, "fieldId");
+  const lang = (field(form, "lang") === "fr" ? "fr" : "en") as Lang;
+  const raw = form.get("value");
+  const value = typeof raw === "string" ? raw : "";
+  if (!value.trim()) throw new Error("An empty answer cannot be approved: leave the field for the form or write something.");
+  await approveField({ fieldId, value, applicationId, lang });
+
+  const run = await getRun(runId);
+  if (run && ["needs_review", "planned"].includes(run.state)) {
+    const autoApprove = process.env.PORTAL_AUTO_APPROVE_ANSWERS?.trim().toLowerCase() === "true";
+    const complete = await planIsComplete(runId, autoApprove);
+    await updateRun(runId, { state: complete ? "planned" : "needs_review", manual_count: await pendingCount(runId, autoApprove) });
+  }
+  revalidatePath(`/applications/${applicationId}`);
+  redirect(`/applications/${applicationId}?portal=approved#portail`);
+}

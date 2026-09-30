@@ -220,7 +220,7 @@ function fmt(value: number): string {
   return new Decimal(value).toDecimalPlaces(2).toString();
 }
 
-export function explain(components: Components, percent: number, gated: boolean): string {
+export function explain(components: Components, percent: number): string {
   const parts = COMPONENT_NAMES.map((name) => `${name} ${fmt(components[name])}`);
   const first = `The five inputs are ${parts.join(", ")}.`;
 
@@ -241,7 +241,7 @@ export function explain(components: Components, percent: number, gated: boolean)
   return `${first} Total ${percent}, under 60, so it stays hidden by default and is not deleted.`;
 }
 
-export function explainFr(components: Components, percent: number, gated: boolean): string {
+export function explainFr(components: Components, percent: number): string {
   const labels: Record<ComponentName, string> = {
     skills: "compétences",
     location: "lieu",
@@ -299,7 +299,7 @@ export function scoreJob(input: ScoreInput, weights: Weights = defaultWeights): 
     percent,
     gated,
     band: bandOf(percent, gated),
-    explanation: explain(components, percent, gated),
+    explanation: explain(components, percent),
   };
 }
 

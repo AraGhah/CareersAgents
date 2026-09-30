@@ -94,7 +94,7 @@ function asRecord(value: unknown): Record<string, unknown> {
  * scrapers) nest company/location under an object instead of a flat string —
  * those fall back to reading the nested shape.
  */
-function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
+export function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
   if (raw === null || typeof raw !== "object") return null;
   const item = raw as Record<string, unknown>;
 
@@ -129,6 +129,11 @@ function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
     "datePublished",
   ]);
   const externalId = pick(item, ["id", "jobId", "postingId"]) ?? url;
+  // Where the company's own form is: the first link that leaves the job board ("apply on company site").
+  const applyUrl =
+    ["jobUrl", "applyUrl", "externalApplyLink", "companyApplyUrl", "applicationUrl", "applyLink"]
+      .map((key) => str(item[key]))
+      .find((v): v is string => !!v && /^https?:\/\//i.test(v) && !/(^|\.)(linkedin|indeed)\.[a-z.]+\//i.test(v)) ?? null;
 
   return {
     externalId: `${source}-${externalId}`,
@@ -140,6 +145,7 @@ function normalizeJobItem(raw: unknown, source: string): ExternalJob | null {
     description: htmlToText(descriptionHtml),
     postedAt: parseDate(postedRaw),
     source,
+    applyUrl,
   };
 }
 

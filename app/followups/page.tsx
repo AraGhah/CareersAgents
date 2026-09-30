@@ -17,6 +17,9 @@ import type { MessageClassification } from "../../lib/classify";
 
 export const metadata = { title: "Relances" };
 
+// Reads the database: render per request, never freeze it at build time.
+export const dynamic = "force-dynamic";
+
 const STATE_LABEL: Record<string, string> = {
   pending: "à préparer",
   drafted: "brouillon prêt",

@@ -36,7 +36,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const scored = job.components.length > 0;
   const pct = scored ? Math.round(Number(job.score) * 100) : null;
   const gated = Boolean(job.gated);
-  const explanationFr = scored ? explainFr(components, pct ?? 0, gated) : null;
+  const explanationFr = scored ? explainFr(components, pct ?? 0) : null;
   const found = findSkills(
     [job.title, job.location, job.workplace_type, job.company_city, job.description]
       .filter(Boolean)

@@ -4552,3 +4552,72 @@ pre.code-block.as-text {
     animation: spin 900ms linear infinite !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Portal applications (app/applications/[id]/portal-panel.tsx)
+   -------------------------------------------------------------------------- */
+
+.portal-group {
+  display: grid;
+  gap: var(--s-3);
+  margin: var(--s-4) 0;
+}
+
+.portal-group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.portal-field {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.portal-field textarea {
+  width: 100%;
+}
+
+.portal-checks {
+  display: grid;
+  gap: var(--s-1);
+  margin: var(--s-2) 0 0;
+  padding-left: 1.1rem;
+  color: var(--amber);
+  font-size: 0.8125rem;
+}
+
+.portal-preflight,
+.portal-done {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.portal-preflight .is-ok > span[aria-hidden] {
+  color: var(--good);
+}
+
+.portal-preflight .is-bad > span[aria-hidden] {
+  color: var(--clay);
+}
+
+.portal-preflight .is-warn > span[aria-hidden] {
+  color: var(--amber);
+}
+
+.portal-preflight .field-hint,
+.portal-done .field-hint {
+  display: block;
+}
+
+.portal-actions {
+  flex-wrap: wrap;
+  margin-top: var(--s-4);
+}

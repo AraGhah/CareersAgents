@@ -6,6 +6,9 @@ import { JobComposer } from "./composer";
 
 export const metadata = { title: "Ajouter une offre" };
 
+// Reads the database: render per request, never freeze it at build time.
+export const dynamic = "force-dynamic";
+
 export default async function NewJobPage() {
   let companies;
   try {

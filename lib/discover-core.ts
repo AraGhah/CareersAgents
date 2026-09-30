@@ -42,6 +42,8 @@ export type NormalizedJob = {
   description: string | null;
   postedAt: Date | null;
   source: string;
+  /** The company's own application form when the posting lives on a job board (Indeed, LinkedIn). */
+  applyUrl?: string | null;
 };
 
 const CACHE_DIR = path.join("cache", "discover");

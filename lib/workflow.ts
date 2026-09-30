@@ -25,6 +25,9 @@ import { detectCategories } from "./category";
 import { detectInternshipCategories } from "./internship-category";
 import { detectLetterLang, parseLinks } from "./letter";
 import type { ApplicationStatus } from "./types";
+import { manualOnlyReason } from "./apply/platforms";
+import { saveChannel } from "./apply/route";
+import { resolveApplyTarget } from "./apply/apply-url";
 
 export type DiscoverySummary = {
   runId: string;
@@ -48,7 +51,7 @@ async function upsertJob(
   if (!isInternshipTitle(job.title)) return "skipped";
   if (!isSoftwareRelevant(job.title, job.description)) return "skipped";
 
-  const result = await pool.query<{ inserted: boolean }>(
+  const result = await pool.query<{ id: string; inserted: boolean }>(
     `INSERT INTO jobs (company_id, external_id, title, location, workplace_type, url, description, posted_at, source)
      SELECT $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::timestamptz, $9::text
       WHERE (
@@ -71,7 +74,7 @@ async function upsertJob(
           posted_at       = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
           source          = EXCLUDED.source,
           closed_at       = NULL
-     RETURNING (xmax = 0) AS inserted`,
+     RETURNING id, (xmax = 0) AS inserted`,
     [
       companyId,
       job.externalId,
@@ -86,7 +89,21 @@ async function upsertJob(
   );
 
   if (result.rowCount === 0) return "skipped";
+  if (job.applyUrl) await saveApplyUrl(result.rows[0].id, job.applyUrl);
   return result.rows[0].inserted ? "inserted" : "updated";
+}
+
+let warnedNoApplyUrl = false;
+
+/** Kept apart from the upsert so discovery still runs on a database without schema-v11.sql. */
+async function saveApplyUrl(jobId: string, applyUrl: string) {
+  try {
+    await pool.query(`UPDATE jobs SET apply_url = $2 WHERE id = $1`, [jobId, applyUrl]);
+  } catch (err) {
+    if ((err as { code?: string }).code !== "42703") throw err;
+    if (!warnedNoApplyUrl) console.warn("[discover] jobs.apply_url missing: apply schema-v11.sql");
+    warnedNoApplyUrl = true;
+  }
 }
 
 async function scoreAllOpenJobs(): Promise<number> {
@@ -439,8 +456,19 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     } else {
       steps.push(`Open outreach already exists for ${contact.email}, skipped duplicate`);
     }
+    await saveChannel(applicationId, "email");
   } else {
-    steps.push("Cannot generate email yet: no verified public contact email");
+    // No published recruiter or HR address: this one goes through the company's own form
+    // (lib/apply). A posting that needs the candidate's account is marked manual instead.
+    const target = await resolveApplyTarget(app);
+    const manualOnly = manualOnlyReason(target.url);
+    await saveChannel(applicationId, manualOnly ? "manual" : "portal");
+    await logWorkflow(applicationId, "route_channel", true, manualOnly ? `manual: ${manualOnly}` : "portal");
+    steps.push(
+      manualOnly
+        ? `No public contact email, and ${manualOnly}`
+        : "No public contact email: routed to the online application form (plan it with npm run portal)",
+    );
   }
 
   if (resume) {

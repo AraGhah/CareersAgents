@@ -10,6 +10,9 @@ import { DbUnavailable, EmptyState, HeroMetric, PageHeader } from "../components
 
 export const metadata = { title: "Board" };
 
+// Reads the database: render per request, never freeze it at build time.
+export const dynamic = "force-dynamic";
+
 const CLOSED: string[] = ["rejected", "withdrawn"];
 
 export default async function BoardPage() {

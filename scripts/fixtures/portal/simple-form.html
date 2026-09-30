@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- Offline fixture: a form whose every question is answerable from the candidate's data, for the submit path. -->
+<html lang="en">
+<head><meta charset="utf-8" /><title>Intern - Beta Systems</title></head>
+<body>
+  <form id="application-form" action="/thanks" method="get">
+    <label for="fn">First name *</label><input id="fn" name="fn" required />
+    <label for="ln">Last name *</label><input id="ln" name="ln" required />
+    <label for="em">Email address *</label><input id="em" name="em" type="email" required />
+    <label for="cv">Resume *</label><input id="cv" name="cv" type="file" required />
+    <label for="city">City</label><input id="city" name="city" />
+    <button type="submit">Submit application</button>
+  </form>
+</body>
+</html>
