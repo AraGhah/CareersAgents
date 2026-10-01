@@ -23,7 +23,7 @@ const PERSON_ONLY: Rule[] = [
   },
   {
     intent: "sensitive",
-    test: /date of birth|birth ?date|date de naissance|\bage\b|how old|social insurance|\bsin\b|\bnas\b|social security|\bssn\b|passport|passeport|driver'?s? licen|permis de conduire|marital|etat civil|religio|criminal|casier|convicted|condamn|background check|antecedents|security clearance|cote de securite|\bhealth\b|medical|medic|sante/,
+    test: /date of birth|birth ?date|date de naissance|\bage\b|how old|social insurance|\bsin\b|\bnas\b|social security|\bssn\b|passport|passeport|driver'?s? licen|permis de conduire|marital|etat civil|religio|criminal|casier|convicted|condamn|background (check|screening|investigation)|antecedents|security (clearance|screening|check|issue|concern|problem)|reliability status|cote de securite|enquete de securite|probleme de securite|\bhealth\b|medical|medic|sante/,
   },
   { intent: "salary", test: /salary|compensation|pay expectation|expected pay|remuneration|salaire|hourly rate|taux horaire|wage/ },
   { intent: "sponsorship", test: /sponsor|\bvisa\b|parrainage/ },

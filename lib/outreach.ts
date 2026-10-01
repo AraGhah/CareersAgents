@@ -171,16 +171,21 @@ export async function createOutreachDraft(opts: {
   return rows[0];
 }
 
-/** Mark outreach as sent when inbox sync sees a matching outbound message. */
+/**
+ * Mark outreach as sent when inbox sync sees a matching outbound message, and move the application to "applied"
+ * (shown as "Envoyé") if it was still waiting to go out. Returns whether an unsent draft was matched.
+ */
 export async function markOutreachSentFromOutbound(opts: {
   applicationId: string;
   toOrSubjectHint?: string | null;
   occurredAt: Date;
-}) {
-  await pool.query(
+  gmailMessageId?: string | null;
+}): Promise<boolean> {
+  const { rowCount } = await pool.query(
     `UPDATE outreach_drafts
         SET sent_detected_at = COALESCE(sent_detected_at, $2),
-            sent_at = COALESCE(sent_at, $2)
+            sent_at = COALESCE(sent_at, $2),
+            gmail_message_id = COALESCE($4, gmail_message_id)
       WHERE application_id = $1
         AND sent_detected_at IS NULL
         AND (
@@ -188,8 +193,20 @@ export async function markOutreachSentFromOutbound(opts: {
           OR lower(to_email) = lower($3)
           OR lower(subject) = lower($3)
         )`,
-    [opts.applicationId, opts.occurredAt, opts.toOrSubjectHint ?? null],
+    [opts.applicationId, opts.occurredAt, opts.toOrSubjectHint ?? null, opts.gmailMessageId ?? null],
   );
+  if (!rowCount) return false;
+  await markApplicationSent(opts.applicationId, "sent from Gmail (detected in the Sent folder)");
+  return true;
+}
+
+/** An application still waiting to go out becomes "applied" once its email is out; later statuses are left alone. */
+export async function markApplicationSent(applicationId: string, reason: string) {
+  const { setApplicationStatus } = await import("./queries");
+  const { rows } = await pool.query<{ status: string }>(`SELECT status FROM applications WHERE id = $1`, [applicationId]);
+  if (rows[0] && ["discovered", "qualified", "ready"].includes(rows[0].status)) {
+    await setApplicationStatus(applicationId, "applied", reason);
+  }
 }
 
 export async function getOutreachDraft(id: string): Promise<OutreachDraftRow | null> {

@@ -10,6 +10,10 @@
 //   - "are you a citizen of another country?" and "do you require a work permit?" are different questions
 //   - a single tick-box is never suggested: its own text may be the negative ("I am not a protected veteran")
 //   - a choice is mapped onto the form's own option, and a tie or "prefer not to answer" is never picked
+//
+// One exception to "you confirm it": the two screening topics (criminal record, security issues). Ara told the desk
+// directly that there is nothing there and asked it to answer them, so once the answer bank holds that statement
+// they are filled without a click. They stay as strict as the rest about *which* questions they answer (below).
 
 import { cleanLabel, norm } from "./text";
 import { isYesNoOptionSet, matchOption, realOptions } from "./options";
@@ -28,7 +32,9 @@ export type PersonalTopic =
   | "indigenous"
   | "visible_minority"
   | "veteran"
-  | "lgbtq";
+  | "lgbtq"
+  | "criminal_record"
+  | "security";
 
 /** Answer-bank keys (category "red") each topic reads. The values live in the database, not in the repository. */
 export const PERSONAL_BANK_KEYS: Record<PersonalTopic, string> = {
@@ -44,7 +50,50 @@ export const PERSONAL_BANK_KEYS: Record<PersonalTopic, string> = {
   visible_minority: "visible_minority",
   veteran: "veteran",
   lgbtq: "lgbtq",
+  criminal_record: "criminal_record_check",
+  security: "security_clearance",
 };
+
+/** Topics the owner pre-confirmed by writing the statement down (see the note at the top). */
+const PRECONFIRMED: ReadonlySet<PersonalTopic> = new Set<PersonalTopic>(["criminal_record", "security"]);
+
+/** The stored statement says "nothing there" ("No criminal record.", "No security issues.", "Aucun ..."). Anything else is not used. */
+const NOTHING_THERE = /^\s*(no|none|non|aucun|aucune|sans|nil)\b/i;
+
+const CRIMINAL_TERM = /criminal|casier|convict|condamn|felony|judicial record|antecedents judiciaires/;
+const SECURITY_TERM =
+  /security (clearance|screening|check|issue|concern|problem)|reliability status|background (check|screening|investigation)|cote de securite|enquete de securite|verification (des antecedents|de securite)|probleme de securite/;
+
+/** Wording that turns a screening question around or asks for something else (clean record, willing to undergo, provide, hold, pending charges). */
+const NOT_PLAIN =
+  /\b(clean|vierge|free (of|from)|without|willing|consent|agree|authori[sz]e|undergo|submit|provide|supply|certify|attest|declare|accept|charges?|pending|hold|possess|detenez|possedez|disposee?|accepte|fournir|traffic|speeding|parking|driving|impaired|dui)\b|aucun casier|sans casier|no criminal|code de la route/;
+
+/**
+ * For the two screening topics: which one the question is, and what Ara's statement answers. `l` is norm()ed.
+ *   "Do you have a criminal record?" / "Have you ever been convicted of ...?"               → No
+ *   "Is there any security issue / reason that would prevent a clearance?"                  → No
+ *   "Are you able to obtain / pass a security clearance or a background check?"             → Yes
+ * Anything else (willing to undergo a check, "do you hold a clearance", a clean-record certificate, a pending
+ * charge, "unable to ...") is not answered: null, so a person decides.
+ */
+export function screeningQuestion(l: string): { topic: "criminal_record" | "security"; want: "Yes" | "No" } | null {
+  const criminal = CRIMINAL_TERM.test(l);
+  const security = SECURITY_TERM.test(l);
+  if (!criminal && !security) return null;
+  if (NOT_PLAIN.test(l)) return null;
+
+  const topic = criminal ? "criminal_record" : "security";
+  const asks = /\b(do you|have you|has|are you|were you|did you|is there|are there|avez vous|etes vous|as tu|y a t il)\b/.test(l);
+  const issue = /\b(issues?|concerns?|problems?|reasons?|prevent|barriers?|obstacles?|impediments?|disqualif\w*|probleme|empech\w*|raison)\b/.test(l);
+  const able = /\b(able to|eligible|capable of|qualify|can you|could you|pouvez vous|admissible)\b/.test(l) && (security || /\b(obtain|pass|get)\b/.test(l));
+  const negated = /\b(not|unable|cannot|can't|never|pas)\b/.test(l);
+
+  // "Is there any reason you would not be able to ..." is about a problem, so it is checked before the ability form.
+  if (asks && issue) return { topic, want: "No" };
+  if (able) return negated ? null : { topic, want: "Yes" };
+  if (criminal && asks) return { topic, want: "No" };
+  return null;
+}
 
 const label = (f: FormField) => norm(cleanLabel(f.label));
 
@@ -90,6 +139,8 @@ export function personalTopic(intent: FieldIntent, field: FormField): PersonalTo
       if (topics.has("ethnicity")) topics.delete("hispanic");
       return topics.size === 1 ? [...topics][0] : null;
     }
+    case "sensitive":
+      return screeningQuestion(l)?.topic ?? null;
     default:
       return null;
   }
@@ -109,7 +160,8 @@ function aboutCanada(l: string, jobLocation: string | null): boolean {
 
 const CHOICE = new Set<FormField["kind"]>(["select", "radio", "combobox"]);
 
-export type PersonalSuggestion = { value: string; what: string };
+/** `confirmed`: the owner already vouched for this one (the screening topics), so it needs no click. */
+export type PersonalSuggestion = { value: string; what: string; confirmed?: boolean };
 
 /** The value to offer for this question, already mapped onto the form's own option, or null. */
 export function personalSuggestion(
@@ -129,6 +181,15 @@ export function personalSuggestion(
   const choice = CHOICE.has(field.kind) && realOptions(field.options).length > 0;
   const text = field.kind === "text" || field.kind === "textarea";
   if (!choice && !text) return null;
+
+  if (PRECONFIRMED.has(topic)) {
+    // Only a yes/no choice, and only while the stored statement still says "nothing there": if it is ever
+    // changed to something else, these go back to being the person's to answer.
+    if (!NOTHING_THERE.test(stored) || !choice || !isYesNoOptionSet(field.options)) return null;
+    const want = screeningQuestion(l)?.want;
+    const m = want ? matchOption(want, field.options) : null;
+    return m ? { value: m.option, what: `${topic.replace(/_/g, " ")}: "${stored}"`, confirmed: true } : null;
+  }
 
   if ((topic === "work_authorization" || topic === "sponsorship") && !aboutCanada(l, jobLocation)) return null;
 

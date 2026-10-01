@@ -32,6 +32,8 @@
     "assist:check": "tsx scripts/assist-check.ts",
     "portal": "tsx scripts/portal-apply.ts",
     "portal:check": "tsx scripts/portal-check.ts",
+    "auto-apply": "tsx scripts/auto-apply.ts",
+    "auto-apply:check": "tsx scripts/auto-apply-check.ts",
     "portal:backfill-urls": "tsx scripts/backfill-apply-urls.ts",
     "resumes:import": "tsx scripts/import-resumes.ts",
     "dossier:check": "tsx scripts/dossier-check.ts",

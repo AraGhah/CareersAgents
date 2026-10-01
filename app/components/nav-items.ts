@@ -15,6 +15,7 @@ export const NAV_ITEMS: NavEntry[] = [
   { href: "/", label: "Jobs", icon: "offers", group: "Search" },
   { href: "/pipeline", label: "Tracker", icon: "pipeline", group: "Search" },
   { href: "/board", label: "Board", icon: "board", group: "Search" },
+  { href: "/auto-apply", label: "Auto-apply", icon: "plus", group: "Search" },
   { href: "/followups", label: "Follow-ups", icon: "bell", group: "Search" },
   { href: "/portal", label: "Portals", icon: "form", group: "Search" },
   { href: "/resumes", label: "Resume", icon: "file", group: "Profile" },

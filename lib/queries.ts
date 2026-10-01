@@ -14,7 +14,7 @@ import type {
   WorkplaceType,
 } from "./types";
 
-const SCORE_CTE = `
+export const SCORE_CTE = `
   WITH latest AS (
     SELECT job_id, MAX(scored_at) AS scored_at
       FROM job_scores

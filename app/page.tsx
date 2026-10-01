@@ -1,6 +1,7 @@
 import Form from "next/form";
 import Link from "next/link";
 import { findInternshipsFromJobsAction } from "./actions";
+import { AutoApplyAction } from "./components/auto-apply-action";
 import { AutoSubmit, Flash, Select, SubmitButton } from "./components/client-ui";
 import { FlowStrip } from "./components/flow-strip";
 import { DbUnavailable, EmptyState, HeroMetric, PageHeader, TableWrap } from "./components/ui";
@@ -120,6 +121,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
                 Chercher des stages
               </SubmitButton>
             </form>
+            <AutoApplyAction />
             <Link href="/jobs/new" className="btn">
               Ajouter une offre
             </Link>

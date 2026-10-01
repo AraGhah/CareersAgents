@@ -1,6 +1,7 @@
 import Form from "next/form";
 import Link from "next/link";
 import { changeStatus, findInternshipsAction, setActiveCategoryAction } from "../actions";
+import { AutoApplyAction } from "../components/auto-apply-action";
 import { AutoSubmit, Flash, Select, SubmitButton } from "../components/client-ui";
 import { FlowStrip } from "../components/flow-strip";
 import { KanbanBoard, type KanbanCard } from "../components/kanban-board";
@@ -76,11 +77,14 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         title="Tracker"
         lede="Prepare your applications and send them out."
         actions={
-          <form action={findInternshipsAction} id="recherche">
-            <SubmitButton className="primary" pendingLabel="Recherche en cours…">
-              Chercher des stages
-            </SubmitButton>
-          </form>
+          <>
+            <form action={findInternshipsAction} id="recherche">
+              <SubmitButton className="primary" pendingLabel="Recherche en cours…">
+                Chercher des stages
+              </SubmitButton>
+            </form>
+            <AutoApplyAction />
+          </>
         }
       />
 

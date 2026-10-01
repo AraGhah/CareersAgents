@@ -300,7 +300,21 @@ export async function gmailIsConnected(): Promise<boolean> {
   return Boolean(tokens?.refresh_token || tokens?.access_token);
 }
 
-function isNotFound(err: unknown): boolean {
+/**
+ * Asks Google whose mailbox the stored token opens. gmailIsConnected() only says a token file exists; this says
+ * whether Google still accepts it (a refresh token that was revoked or expired answers "invalid_grant").
+ */
+export async function gmailWorks(): Promise<{ ok: true } | { ok: false; reason: string }> {
+  try {
+    const gmail = await getGmail();
+    await gmail.users.getProfile({ userId: "me" });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function isNotFound(err: unknown): boolean {
   const e = err as { code?: number | string; response?: { status?: number } };
   return e?.code === 404 || e?.code === "404" || e?.response?.status === 404;
 }

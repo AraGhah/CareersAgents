@@ -106,6 +106,9 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
     const reason = REASON_BY_INTENT[intent] ?? PERSON_ONLY_REASON;
     // What you wrote in your answer bank is offered pre-selected, never filled: it stays yours to confirm.
     const suggestion = personalSuggestion(field, intent, c, job.location);
+    if (suggestion?.confirmed) {
+      return resolved(suggestion.value, "bank", `From your answer bank (${suggestion.what}): you told the desk this yourself.`);
+    }
     if (suggestion) {
       return {
         value: suggestion.value,

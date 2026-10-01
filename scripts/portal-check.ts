@@ -307,6 +307,52 @@ function personalChecks() {
   ].every((x) => ask(x).status === "manual");
   check(everyManual, "a suggestion is never a resolved value: every one stays 'manual' until you confirm");
   check(matchOption("No", ["Yes, I have a disability", "No, I do not have a disability", "I do not want to answer"])?.option === "No, I do not have a disability", "'I do not want to answer' is not a No");
+
+  // The two screening topics are the exception: Ara told the desk there is nothing there, so a plain yes/no is filled.
+  console.log("\nscreening questions (criminal record, security issues): answered from what you told the desk");
+  const screening = [
+    answer("criminal_record_check", "red", "No criminal record.", "Aucun casier judiciaire."),
+    answer("security_clearance", "red", "No security issues.", "Aucun problème de sécurité."),
+  ];
+  const screened = (lang: "en" | "fr", extra: Answer[] = screening) =>
+    buildCandidateProfile({ lang, answers: [...ANSWERS, ...extra], projects: PROJECTS, resume: null });
+  const say = (label: string, options: string[] = YN, lang: "en" | "fr" = "en", kind: FormField["kind"] = "radio") =>
+    ask(mk(label, kind, options), screened(lang));
+
+  const crim = say("Do you have a criminal record?");
+  check(crim.status === "resolved" && crim.value === "No" && crim.source === "bank", "criminal record → No, filled (no click needed)", crim);
+  check(say("Have you ever been convicted of a criminal offence for which you have not received a pardon?").value === "No", "convicted of a criminal offence → No");
+  check(say("Avez-vous un casier judiciaire?", ["Oui", "Non"], "fr").value === "Non", "casier judiciaire (French) → Non");
+  check(say("Are you able to obtain a security clearance?").value === "Yes", "able to obtain a security clearance → Yes");
+  check(say("Are you able to pass a criminal background check?").value === "Yes", "able to pass a criminal background check → Yes");
+  check(say("Is there any reason that would prevent you from obtaining a security clearance?").value === "No", "a reason that would prevent a clearance → No");
+  check(say("Do you have any security concerns or issues?").value === "No", "security concerns → No");
+  check(say("Do you have a criminal record?", ["Yes", "No", "Prefer not to answer"]).value === "No", "never 'Prefer not to answer'");
+
+  console.log("\n…and only those questions");
+  const stays = (label: string, options: string[] = YN, kind: FormField["kind"] = "radio") => {
+    const r = say(label, options, "en", kind);
+    return r.status === "manual" && r.value === null;
+  };
+  check(stays("Are you willing to undergo a criminal background check?"), "'willing to undergo a check' is a consent: yours");
+  check(stays("Do you hold a valid security clearance?"), "'do you hold a clearance' is not 'no problems': yours");
+  check(stays("Do you have a clean criminal record?"), "'clean record' turns the question around: yours");
+  check(stays("Are you currently facing any criminal charges?"), "pending charges are not a 'record': yours");
+  check(stays("Have you ever been convicted of a traffic offence?"), "a traffic offence is not a criminal record: yours");
+  check(stays("Are you unable to obtain a security clearance?"), "'unable to' is not answered");
+  check(stays("Are you not able to obtain a security clearance?"), "a negated ability question is not answered");
+  check(stays("Please provide a certificate of your criminal record"), "asking for a document is not a yes/no: yours");
+  check(stays("Do you have a criminal record? If yes, please explain", [], "textarea"), "an explain box is not a yes/no: yours");
+  check(stays("I have no criminal record", [], "checkbox"), "a single tick-box is never suggested");
+  check(stays("Date of birth", [], "text"), "other sensitive data is untouched");
+
+  const unstored = ask(mk("Do you have a criminal record?", "radio", YN), bare);
+  check(unstored.status === "manual" && unstored.value === null, "nothing stored → yours, as before");
+  const changed = ask(mk("Do you have a criminal record?", "radio", YN), screened("en", [answer("criminal_record_check", "red", "Yes, one minor offence in 2019.")]));
+  check(changed.status === "manual" && changed.value === null, "if the stored statement is ever anything but 'No ...', it goes back to being yours");
+  const asGreen = ask(mk("Do you have a criminal record?", "radio", YN), screened("en", [answer("criminal_record_check", "green", "No criminal record.")]));
+  check(asGreen.status === "manual", "only a red bank entry counts");
+  check(classifyField(mk("Do you have any security concerns or issues?", "radio", YN)) === "sensitive", "a security question is classified as sensitive, so it is never guessed by another rule");
 }
 
 async function main() {

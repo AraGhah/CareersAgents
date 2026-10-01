@@ -2,7 +2,8 @@
 
 A CRM for my Winter 2027 stage search. It tracks openings, applications and their status.
 Finding, matching, tracking, researching and drafting all run themselves (see "Automatic
-mode"). Nothing is emailed without a click. An online application form is submitted by the
+mode"), and one button, **Postuler automatiquement**, applies to the N best offers for me (see
+"Postuler automatiquement"). Nothing is emailed without a click. An online application form is submitted by the
 desk only if you turn that on (`PORTAL_ALLOW_SUBMIT=true`), only after you approved every
 answer, and only when every preflight check passes (see "Portal applications").
 
@@ -15,7 +16,7 @@ docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < s
 npm run discover          # ATS boards + score vs active CV (no fake LinkedIn/Indeed)
 ```
 
-Pipeline: Discovered → Qualified → Ready → Applied → Follow-Up → Interview → Accepted/Rejected.
+Pipeline: Discovered → Qualified → Ready → Applied (shown as "Envoyé") → Follow-Up → Interview → Accepted/Rejected.
 
 Every job that qualifies (score ≥ 70, not gated) is auto-tracked **and** auto-prepared: company
 dossier researched, a real published contact found on the company's own site, a personalized
@@ -34,6 +35,52 @@ personalized email by hand, for anything auto-prepare missed or you want to redo
 creates a Gmail draft for `ara.ghahramanyan07@gmail.com` (send-yourself). Optional
 `GMAIL_ALLOW_SEND=true` + re-auth with `gmail.send` enables approve-and-send — still one click,
 still never automatic.
+
+## Postuler automatiquement (V13)
+
+The button on **Offres** and **Tracker** (and `/auto-apply`) asks "À combien de stages veux-tu postuler ?" and
+then goes down the list from the best score to the worst until that many applications are done.
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v13.sql
+npm run auto-apply -- --dry --count 5   # who would be picked, best first. Changes nothing.
+npm run auto-apply -- --count 5         # the same as the button, in the terminal
+npm run auto-apply:check                # database checks with fake Gmail: no email, no browser, deletes its own rows
+```
+
+- **Which postings.** Open, scored 60 or more (`AUTO_APPLY_MIN_SCORE`), not rejected for location/term/role,
+  nothing of yours on them yet. Left out: an application already sent, one whose Gmail draft is waiting for you,
+  one the desk cannot drive (`manual`: Workday-style account portals), a form blocked or waiting on you in the last
+  7 days, and the twin of a role already applied to (same company, same role under another posting).
+- **N means N applications.** A posting the desk can do nothing with is skipped with its reason and does not use
+  up one of the N, so the batch keeps going down the ranking. It stops at N, at the end of the list (`3N + 10`
+  postings looked at, at most 80), when you press **Arrêter**, or if Gmail stops answering.
+- **Email (a published recruiter address).** The letter and email are built exactly as on the application page (one
+  you already built or edited is kept), then the email goes into **Gmail as a draft with the CV and the cover letter
+  attached**. It is never sent: you read it and press Send. The application becomes **Prêt** until then.
+- **Online form (no published address).** Only with `PORTAL_ALLOW_SUBMIT=true`: the form is filled in a hidden
+  browser and submitted if every preflight gate passes (see "Portal applications"), one at a time with
+  `PORTAL_DELAY_SECONDS` between, and at most `PORTAL_DAILY_LIMIT` a day. A form that waits on you (a written answer
+  to approve, a CAPTCHA) is marked **À finir** and the batch moves on. Without the flag, forms are skipped and
+  nothing is opened. A batch never creates employer-portal accounts.
+- **"Envoyé".** The application's status `applied` is shown as **Envoyé**. It is set when the portal confirms a form,
+  and for an email as soon as the draft is found in Gmail's Sent folder: while `/auto-apply` is open it looks every
+  45 seconds and when you come back to the tab; `npm run sync:inbox` (and `automate`, every 30 minutes) does the same,
+  and also catches an email you sent without going through a draft. A draft you deleted is not marked sent.
+- **Progress.** The work runs in its own process (`scripts/auto-apply.ts`, log in `applications/_auto-apply/`), so
+  the page can be closed. `/auto-apply` shows each posting tried, in order, with its score, route, result and why.
+  One batch at a time; a batch whose process died is closed after 15 minutes.
+- **Gmail has to work.** The button asks Google, not just the token file, before it starts: an expired
+  authorization (`invalid_grant`) means `npm run gmail:auth` once more.
+
+**Criminal record and security questions.** These two are the only "personal" questions the desk answers without
+a confirming click, because Ara told it directly: no criminal record, no security issues. They read the red answer-bank
+entries `criminal_record_check` and `security_clearance` (values live in the database, like the other red ones), and
+only while those still say "No ...". It answers only a plain yes/no choice, and only these shapes: *"Do you have a
+criminal record?"* / *"Have you been convicted of ...?"* → No; *"Is there any reason / issue / concern that would
+prevent a security clearance?"* → No; *"Are you able to obtain / pass a security clearance or background check?"* →
+Yes. Everything near them stays yours: "willing to undergo a check" (a consent), "do you hold a clearance", a "clean
+record" certificate, pending charges, a traffic offence, a negated question, an explain box, a single tick-box.
 
 ## Automatic mode
 
@@ -75,6 +122,7 @@ docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < s
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v10.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v11.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v12.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v13.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import
@@ -551,7 +599,7 @@ those by hand. After you submit in the browser, set the status to `submitted` in
 déroulante Statut) and `Internships.xlsx` (short English view). The database is the
 source of truth; the spreadsheets are views of it.
 
-## Build guide status (V1–V11)
+## Build guide status (V1–V13)
 
 | Version | Status |
 |---------|--------|
@@ -566,6 +614,7 @@ source of truth; the spreadsheets are views of it.
 | V9 Pipeline dashboard + automatic mode | Done |
 | V10 Categories + one CV per (language, category) | Done |
 | V11 Portal applications (plan → approve → fill → preflight → gated submit) | Done (needs schema-v11 + your approvals) |
+| V13 Postuler automatiquement (N best offers: Gmail drafts, gated form submit, "Envoyé" on send) | Done (needs schema-v13 + a working `gmail:auth`) |
 
 ## Eight-agent workflow: what is coded vs what stays in chat
 

@@ -14,6 +14,7 @@ import {
   headerValue,
   websiteHost,
 } from "../lib/gmail";
+import { syncSentDrafts } from "../lib/auto-apply/sent";
 import { markOutreachSentFromOutbound } from "../lib/outreach";
 import { setApplicationStatus } from "../lib/queries";
 
@@ -218,18 +219,25 @@ async function run() {
         [app.id, threadId, ref.id, subject || null, null, internalDate],
       );
 
+      // Also moves the application to "applied" (Envoyé) when it was still waiting to go out.
       await markOutreachSentFromOutbound({
         applicationId: app.id,
         toOrSubjectHint: toEmail ?? subject,
         occurredAt: internalDate,
+        gmailMessageId: ref.id,
       });
       sentMarked += 1;
     }
   }
 
+  // The drafts the desk made (including "Postuler automatiquement"): any that were sent, however long ago, are recorded.
+  const drafts = await syncSentDrafts(gmail);
+  statusChanges += drafts.sent;
+  for (const message of drafts.errors) console.error(`[sent-drafts] ${message}`);
+
   await saveSync(new Date());
   console.log(
-    `Done. ${seen} listed, ${stored} new, ${classified} classified, ${statusChanges} status change(s), ${sentMarked} sent scanned.`,
+    `Done. ${seen} listed, ${stored} new, ${classified} classified, ${statusChanges} status change(s), ${sentMarked} sent scanned, ${drafts.sent} of ${drafts.checked} desk drafts found sent.`,
   );
 }
 

@@ -4621,3 +4621,70 @@ pre.code-block.as-text {
   flex-wrap: wrap;
   margin-top: var(--s-4);
 }
+
+/* --------------------------------------------------------------------------
+   Postuler automatiquement: the "how many?" dialog and the progress page
+   -------------------------------------------------------------------------- */
+
+.auto-apply-dialog {
+  top: 10vh;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: var(--s-5) var(--s-5) var(--s-4);
+}
+
+.auto-apply-title {
+  margin: 0 0 var(--s-1);
+  font-size: 1.15rem;
+}
+
+.auto-apply-lede {
+  margin: 0 0 var(--s-4);
+  color: var(--ink-2);
+}
+
+.auto-apply-dialog .flash {
+  margin: 0 0 var(--s-4);
+}
+
+.auto-apply-form {
+  display: grid;
+  gap: var(--s-4);
+}
+
+.auto-apply-form input[type="number"] {
+  max-width: 8rem;
+}
+
+.auto-apply-facts {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.auto-apply-facts strong {
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+.auto-apply-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0 0 var(--s-4);
+}
+
+.auto-apply-note {
+  margin: 0 0 var(--s-4);
+  color: var(--ink-2);
+}
+
+.auto-apply-detail {
+  max-width: 38rem;
+  white-space: normal;
+  font-size: 0.8125rem;
+}

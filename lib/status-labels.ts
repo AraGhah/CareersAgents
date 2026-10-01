@@ -7,7 +7,8 @@ export const APPLICATION_STATUS_FR: Record<ApplicationStatus, string> = {
   discovered: "Découvert",
   qualified: "Qualifié",
   ready: "Prêt",
-  applied: "Postulé",
+  // "applied" is the stored value for an application that has gone out (an email you sent, or a form the desk submitted).
+  applied: "Envoyé",
   followup: "Relance",
   interview: "Entrevue",
   accepted: "Accepté",
