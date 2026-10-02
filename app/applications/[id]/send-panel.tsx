@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { gmailComposeUrl, looksLikeEmail, mailtoUrl } from "../../../lib/gmail-link";
-import { CopyButton, SubmitButton } from "../../components/client-ui";
+import { CopyButton, Flash, SubmitButton } from "../../components/client-ui";
 
 export type Suggestion = {
   email: string;
@@ -27,7 +27,8 @@ export function SendPanel({
   account,
   companyName,
   postingUrl,
-  gmailConnected,
+  gmail,
+  gmailError,
   draft,
   attachmentNames,
   saveDraftAction,
@@ -42,7 +43,10 @@ export function SendPanel({
   account?: string;
   companyName: string;
   postingUrl: string;
-  gmailConnected: boolean;
+  /** "reconnect": a token is stored but Google no longer accepts it, so a draft cannot be made until `gmail:auth` is run again. */
+  gmail: "off" | "reconnect" | "ok";
+  /** Why the last attempt to make the draft failed, shown here because the page opens below the top banners. */
+  gmailError: string | null;
   /** The draft already made for this application, when there is one. */
   draft: { link: string; when: string } | null;
   attachmentNames: string[];
@@ -55,6 +59,7 @@ export function SendPanel({
   const invalid = address !== "" && !looksLikeEmail(address);
   const message = { to: invalid ? undefined : address || undefined, subject, body, account };
   const known = suggestions.find((s) => s.email.toLowerCase() === address.toLowerCase());
+  const gmailConnected = gmail === "ok";
 
   return (
     <div className="send-panel">
@@ -118,6 +123,7 @@ export function SendPanel({
 
       <div className="send-gmail">
         <h3 className="send-gmail-title">Brouillon Gmail</h3>
+        {gmailError ? <Flash tone="error">{gmailError}</Flash> : null}
         {gmailConnected ? (
           <>
             <p className="send-gmail-lede">
@@ -141,6 +147,12 @@ export function SendPanel({
             </div>
             {draft ? <p className="send-gmail-meta">Brouillon prêt · {draft.when}</p> : null}
           </>
+        ) : gmail === "reconnect" ? (
+          <p className="send-gmail-lede">
+            La connexion à Gmail a expiré : Google n’accepte plus l’autorisation enregistrée, donc aucun brouillon ne peut
+            être créé. Lance <code>npm run gmail:auth</code> et accepte l’accès, puis recharge cette page. En attendant,
+            utilise les boutons ci-dessous.
+          </p>
         ) : (
           <p className="send-gmail-lede">
             Gmail n’est pas connecté. Lance <code>npm run gmail:auth</code> une seule fois : ensuite, le CV et la

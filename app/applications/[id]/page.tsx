@@ -9,7 +9,7 @@ import { day, place } from "../../../lib/format";
 import { existingApplicationFiles } from "../../../lib/attachments";
 import { detectCategories } from "../../../lib/category";
 import { contactKind, hostOf } from "../../../lib/contact-parse";
-import { gmailIsConnected } from "../../../lib/gmail";
+import { gmailStatus } from "../../../lib/gmail";
 import { gmailDraftUrl } from "../../../lib/gmail-link";
 import { detectInternshipCategories } from "../../../lib/internship-category";
 import { detectLetterLang } from "../../../lib/letter";
@@ -94,7 +94,7 @@ export default async function ApplicationPage({
   let outreach = [] as Awaited<ReturnType<typeof listOutreachForApplication>>;
   let resume = null as Awaited<ReturnType<typeof resolveResumeForJob>>;
   let account: string | undefined;
-  let gmailConnected = false;
+  let gmail: Awaited<ReturnType<typeof gmailStatus>> = "off";
   let attachmentNames: string[] = [];
   let downloadableFiles: Awaited<ReturnType<typeof existingApplicationFiles>> = [];
   let extrasError: string | null = null;
@@ -110,7 +110,7 @@ export default async function ApplicationPage({
       resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description)),
     ]);
     account = (await loadApplicantContact(lang)).email;
-    gmailConnected = await gmailIsConnected();
+    gmail = await gmailStatus();
     // Only files that are actually readable right now: a recorded path can point at a file that was
     // since moved or deleted, and a download link (or an "attached automatically" promise) must not
     // be shown for one that would just 404.
@@ -200,7 +200,8 @@ export default async function ApplicationPage({
           <Flash>Brouillon créé dans Gmail, avec le CV et la lettre joints. Ouvre-le, relis, puis clique sur Envoyer.</Flash>
         ) : null}
         {sp.draft === "updated" ? <Flash>Brouillon Gmail mis à jour avec le texte et les fichiers actuels.</Flash> : null}
-        {sp.gmailError && !sp.approved ? <Flash tone="error">{sp.gmailError}</Flash> : null}
+        {/* With a package the error is shown in the send panel itself: this page opens at #envoyer, below this banner. */}
+        {sp.gmailError && !sp.approved && !pkg ? <Flash tone="error">{sp.gmailError}</Flash> : null}
         {sp.searched === "1" ? (
           Number(sp.found) > 0 ? (
             <Flash>Adresse trouvée sur le site de l’entreprise.</Flash>
@@ -367,7 +368,8 @@ export default async function ApplicationPage({
                   account={account}
                   companyName={app.company_name}
                   postingUrl={app.url}
-                  gmailConnected={gmailConnected}
+                  gmail={gmail}
+                  gmailError={sp.approved ? null : (sp.gmailError ?? null)}
                   draft={draft}
                   attachmentNames={attachmentNames}
                   saveDraftAction={saveGmailDraftAction}

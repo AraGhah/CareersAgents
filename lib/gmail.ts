@@ -314,6 +314,36 @@ export async function gmailWorks(): Promise<{ ok: true } | { ok: false; reason: 
   }
 }
 
+/** Google refused the stored authorization itself (revoked, expired, wrong client): only `npm run gmail:auth` fixes it. */
+export function isAuthRejection(message: string): boolean {
+  return /not authorized|invalid_grant|unauthorized_client|No refresh token|invalid_client|insufficient (authentication|permission)/i.test(
+    message,
+  );
+}
+
+/** "off": never connected. "reconnect": a token is stored but Google no longer accepts it. "ok": usable (or not provably broken). */
+export type GmailStatus = "off" | "reconnect" | "ok";
+
+let statusCache: { key: string; at: number; value: GmailStatus } | null = null;
+
+/**
+ * What the page should believe about Gmail. gmailIsConnected() only sees that a token file exists, so a revoked
+ * token still read as "connected" and the draft button failed only after a click. This asks Google, but only counts
+ * a rejection of the authorization itself as broken: a network blip says "ok" and the click shows the real error.
+ * Remembered for a minute per stored refresh token, so a fresh `gmail:auth` is picked up at once.
+ */
+export async function gmailStatus(): Promise<GmailStatus> {
+  const tokens = await loadTokens();
+  const key = tokens?.refresh_token || tokens?.access_token;
+  if (!key) return "off";
+  if (statusCache && statusCache.key === key && Date.now() - statusCache.at < 60_000) return statusCache.value;
+
+  const check = await gmailWorks();
+  const value: GmailStatus = check.ok || !isAuthRejection(check.reason) ? "ok" : "reconnect";
+  statusCache = { key, at: Date.now(), value };
+  return value;
+}
+
 export function isNotFound(err: unknown): boolean {
   const e = err as { code?: number | string; response?: { status?: number } };
   return e?.code === 404 || e?.code === "404" || e?.response?.status === 404;
