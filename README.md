@@ -60,9 +60,22 @@ npm run auto-apply:check                # database checks with fake Gmail: no em
   attached**. It is never sent: you read it and press Send. The application becomes **Prêt** until then.
 - **Online form (no published address).** Only with `PORTAL_ALLOW_SUBMIT=true`: the form is filled in a hidden
   browser and submitted if every preflight gate passes (see "Portal applications"), one at a time with
-  `PORTAL_DELAY_SECONDS` between, and at most `PORTAL_DAILY_LIMIT` a day. A form that waits on you (a written answer
-  to approve, a CAPTCHA) is marked **À finir** and the batch moves on. Without the flag, forms are skipped and
-  nothing is opened. A batch never creates employer-portal accounts.
+  `PORTAL_DELAY_SECONDS` between, and at most `PORTAL_DAILY_LIMIT` a day. A form spread over several pages is filled
+  page by page (`schema-v14.sql`): "Next" is pressed only once the page is complete and nothing waits on you, and the
+  final Submit only on the last page. A form that waits on you (a question only you can answer, a CAPTCHA, a page that
+  refuses to go on) is marked **À finir** with what stopped it, the page it stopped on and how many fields are already
+  filled, and the batch moves on. **Continuer à la main** reopens it in a visible browser, refills everything up to that
+  page, and leaves the window to you; submitting there is recorded as soon as the portal confirms. Without the flag,
+  forms are skipped and nothing is opened. A batch never creates employer-portal accounts.
+- **No clicks for what your bank already says.** `PORTAL_AUTO_APPROVE_ANSWERS=true` lets written answers that pass
+  every truth and style check go in without your approval (an answer with an invented fact, number, employer or tool
+  is never approvable). `PORTAL_AUTO_CONFIRM_PERSONAL=true` fills personal questions from the red answer-bank entries
+  (work authorization and sponsorship for Canada, required self-identification, salary, previous employment) with the
+  same strict matching as the suggestions, and ticks a *required* box that only consents to the application itself
+  (privacy notice for recruiting, "the information I gave is accurate"). Marketing, job alerts, talent pools,
+  background or credit checks, third-party sharing, arbitration and non-competes are never ticked; optional
+  self-identification is left blank. Language level comes from the CV ("French (fluent)" → *Fluent*, never *Native*),
+  and the postal code from the CV header.
 - **"Envoyé".** The application's status `applied` is shown as **Envoyé**. It is set when the portal confirms a form,
   and for an email as soon as the draft is found in Gmail's Sent folder: while `/auto-apply` is open it looks every
   45 seconds and when you come back to the tab; `npm run sync:inbox` (and `automate`, every 30 minutes) does the same,
@@ -123,6 +136,7 @@ docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < s
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v11.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v12.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v13.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v14.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import

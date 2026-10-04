@@ -32,14 +32,60 @@ export type AutoApplyItem = {
   role_title: string;
   /** The application's own status now: a draft you have since sent is "applied". */
   status: ApplicationStatus;
-  /** What to show: a draft whose application has since gone out is "sent". */
+  /** What to show: an application that has since gone out (its draft sent, or applied to by you) is "sent". */
   shown: ItemOutcome;
+  /** When the application went out (status "applied" or later), if it has. */
+  submitted_at: Date | null;
+  /** Where to apply by hand: the company's own form when known, else the posting. */
+  apply_url: string;
+  /** The newest online-form run for this application, when there is one: where it stopped and why. */
+  portal: {
+    state: string;
+    reason: string | null;
+    stop_step: number | null;
+    step_count: number | null;
+    /** Fields written into the form and read back on that run. */
+    filled: number;
+    form_url: string | null;
+  } | null;
 };
 
 /** A run whose process has not touched it for this long is dead (the machine slept, the process was killed). */
 const STALE_MINUTES = 15;
 
 const OPEN = ["discovered", "qualified", "ready"];
+/** Statuses that mean the application went out. ("rejected"/"withdrawn" can also be a posting you turned down.) */
+const SENT = ["applied", "followup", "interview", "accepted"];
+
+/** What one line of the batch shows: an application that went out is "sent", however the batch left it. */
+export function shownOutcome(outcome: ItemOutcome, status: string): ItemOutcome {
+  return outcome !== "working" && SENT.includes(status) ? "sent" : outcome;
+}
+
+/** The batch summary, from what each line shows now (a draft you sent since is counted as sent). */
+export function summarize(counts: Partial<Record<ItemOutcome, number>>, requested: number, stopped: boolean): string {
+  const n = (k: ItemOutcome) => counts[k] ?? 0;
+  const parts = [
+    n("sent") ? `${n("sent")} envoyée${n("sent") > 1 ? "s" : ""}` : null,
+    n("draft") ? `${n("draft")} brouillon${n("draft") > 1 ? "s" : ""} Gmail à envoyer` : null,
+    n("review") ? `${n("review")} à finir toi-même` : null,
+    n("skipped") ? `${n("skipped")} ignorée${n("skipped") > 1 ? "s" : ""}` : null,
+    n("failed") ? `${n("failed")} en erreur` : null,
+  ].filter(Boolean);
+  const done = n("draft") + n("sent");
+  const head = stopped
+    ? "Arrêté."
+    : done >= requested
+      ? `Objectif atteint : ${done} candidature${done > 1 ? "s" : ""}.`
+      : `${done} candidature${done > 1 ? "s" : ""} sur ${requested} demandée${requested > 1 ? "s" : ""} : il n'y avait pas assez d'offres admissibles.`;
+  return [head, parts.join(", ")].filter(Boolean).join(" ");
+}
+
+export function countShown(items: Array<{ shown: ItemOutcome }>): Partial<Record<ItemOutcome, number>> {
+  const counts: Partial<Record<ItemOutcome, number>> = {};
+  for (const i of items) counts[i.shown] = (counts[i.shown] ?? 0) + 1;
+  return counts;
+}
 
 /** Missing table: schema-v13.sql has not been applied. Pages say so instead of failing. */
 export function isMissingSchema(err: unknown): boolean {
@@ -127,19 +173,40 @@ export async function finishItem(
   await touchRun(runId);
 }
 
+type ItemRow = Omit<AutoApplyItem, "shown" | "portal"> & {
+  p_state: string | null;
+  p_reason: string | null;
+  p_stop_step: number | null;
+  p_step_count: number | null;
+  p_filled: string | null;
+  p_form_url: string | null;
+};
+
 export async function listItems(runId: string): Promise<AutoApplyItem[]> {
-  const { rows } = await pool.query<Omit<AutoApplyItem, "shown">>(
+  const { rows } = await pool.query<ItemRow>(
     `SELECT i.id, i.position, i.application_id, i.score, i.channel, i.outcome, i.detail,
-            c.name AS company_name, j.title AS role_title, a.status
+            c.name AS company_name, j.title AS role_title, a.status, a.submitted_at, COALESCE(j.apply_url, j.url) AS apply_url,
+            r.state AS p_state, r.blocked_reason AS p_reason, r.stop_step AS p_stop_step, r.step_count AS p_step_count,
+            r.form_url AS p_form_url,
+            (SELECT count(*) FROM portal_fields f WHERE f.run_id = r.id AND f.status = 'filled')::text AS p_filled
        FROM auto_apply_items i
        JOIN applications a ON a.id = i.application_id
        JOIN jobs j ON j.id = a.job_id
        JOIN companies c ON c.id = j.company_id
+       LEFT JOIN LATERAL (
+         SELECT * FROM portal_runs pr WHERE pr.application_id = a.id ORDER BY pr.started_at DESC LIMIT 1
+       ) r ON true
       WHERE i.run_id = $1
       ORDER BY i.position`,
     [runId],
   );
-  return rows.map((r) => ({ ...r, shown: r.outcome === "draft" && !OPEN.includes(r.status) ? "sent" : r.outcome }));
+  return rows.map(({ p_state, p_reason, p_stop_step, p_step_count, p_filled, p_form_url, ...r }) => ({
+    ...r,
+    shown: shownOutcome(r.outcome, r.status),
+    portal: p_state
+      ? { state: p_state, reason: p_reason, stop_step: p_stop_step, step_count: p_step_count, filled: Number(p_filled ?? 0), form_url: p_form_url }
+      : null,
+  }));
 }
 
 /** Gmail drafts the desk made that you have not sent yet (what "Vérifier les envois" will look for). */

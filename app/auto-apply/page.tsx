@@ -1,19 +1,31 @@
 import Link from "next/link";
-import { stopAutoApplyAction } from "../auto-apply-actions";
+import { markAppliedAction, stopAutoApplyAction } from "../auto-apply-actions";
+import { continuePortalAction } from "../portal-actions";
 import { AutoApplyAction } from "../components/auto-apply-action";
 import { AutoApplyLive } from "../components/auto-apply-live";
 import { Flash, SubmitButton } from "../components/client-ui";
-import { DbUnavailable, EmptyState, PageHeader, ScoreMeter, Section, Stat, StatusPill, TableWrap } from "../components/ui";
+import { DbUnavailable, EmptyState, ExtLink, PageHeader, ScoreMeter, Section, Stat, StatusPill, TableWrap } from "../components/ui";
 import { day } from "../../lib/format";
 import { gmailWorks } from "../../lib/gmail";
-import { getRun, isMissingSchema, latestRun, listItems, countWaitingDrafts, type ItemOutcome, type RunState } from "../../lib/auto-apply/store";
+import {
+  countShown,
+  countWaitingDrafts,
+  getRun,
+  isMissingSchema,
+  latestRun,
+  listItems,
+  summarize,
+  type AutoApplyItem,
+  type ItemOutcome,
+  type RunState,
+} from "../../lib/auto-apply/store";
 
 export const metadata = { title: "Postuler automatiquement" };
 
 // The batch writes here while it runs: never prerender this at build time.
 export const dynamic = "force-dynamic";
 
-type Search = { run?: string; error?: string };
+type Search = { run?: string; error?: string; continued?: string; marked?: string };
 
 const ERROR_FR: Record<string, string> = {
   count: "Choisis un nombre de stages entre 1 et 50.",
@@ -38,6 +50,90 @@ const RUN_STATE_FR: Record<RunState, { label: string; tone: string }> = {
 };
 
 const CHANNEL_FR: Record<string, string> = { email: "Email (Gmail)", portal: "Formulaire", manual: "À la main" };
+
+/** Form runs that a browser can take up again: a form that was opened, filled in part, and stopped. */
+const RESUMABLE = new Set(["needs_review", "ready_to_submit", "planned", "blocked", "failed"]);
+
+/** "J'ai postulé": for an application you finished yourself. */
+function MarkApplied({ item, runId }: { item: AutoApplyItem; runId: string }) {
+  return (
+    <form action={markAppliedAction}>
+      <input type="hidden" name="applicationId" value={item.application_id} />
+      <input type="hidden" name="runId" value={runId} />
+      <SubmitButton className="small ghost" pendingLabel="Enregistrement…">
+        J’ai postulé : marquer comme envoyée
+      </SubmitButton>
+    </form>
+  );
+}
+
+/**
+ * One line's detail. Sent: when and how it went out (never the draft-stage notes). Not finished: what stopped it, on
+ * which page, what is already filled, how to finish it by hand, and a button to mark it sent once you have.
+ */
+function ItemDetail({ item, back, runId }: { item: AutoApplyItem; back: string; runId: string }) {
+  if (item.shown === "sent") {
+    const when = item.submitted_at ? ` le ${day(item.submitted_at)}` : "";
+    if (item.outcome === "sent") return <>{item.detail ?? `Envoyée${when}.`}</>;
+    if (item.outcome === "draft") return <>Email envoyé depuis Gmail{when}, avec le CV et la lettre.</>;
+    return <>Marquée comme envoyée{when} : tu l’as finie toi-même.</>;
+  }
+  if (item.shown === "working") return <>{item.detail ?? ""}</>;
+  if (item.shown === "draft") {
+    return (
+      <>
+        {item.detail ?? ""}
+        <div className="auto-apply-continue">
+          <MarkApplied item={item} runId={runId} />
+        </div>
+      </>
+    );
+  }
+
+  const p = item.portal;
+  const formStarted = !!p && RESUMABLE.has(p.state) && (p.filled > 0 || p.stop_step !== null);
+  const noAddress = item.channel === "email" && item.shown !== "review";
+  return (
+    <>
+      <dl className="auto-apply-stop">
+        <dt>Ce qui bloque</dt>
+        <dd>{(formStarted ? p?.reason : null) ?? item.detail ?? "Raison inconnue."}</dd>
+        {formStarted && p?.stop_step ? (
+          <>
+            <dt>Étape à finir</dt>
+            <dd>
+              Page {p.stop_step}
+              {p.step_count && p.step_count > 1 ? ` (le formulaire a ${p.step_count} pages atteintes)` : " du formulaire"}
+            </dd>
+          </>
+        ) : null}
+        {formStarted ? (
+          <>
+            <dt>Déjà rempli</dt>
+            <dd>
+              {p!.filled} champ{p!.filled > 1 ? "s" : ""}.{" "}
+              <Link href={`/applications/${item.application_id}#portail`}>Voir le détail</Link>
+            </dd>
+          </>
+        ) : null}
+      </dl>
+      <div className="auto-apply-continue form-actions">
+        {formStarted ? (
+          <form action={continuePortalAction}>
+            <input type="hidden" name="applicationId" value={item.application_id} />
+            <input type="hidden" name="back" value={back} />
+            <SubmitButton className="small" pendingLabel="Ouverture…">
+              Continuer à la main
+            </SubmitButton>
+          </form>
+        ) : noAddress ? null : (
+          <ExtLink href={p?.form_url ?? item.apply_url}>Ouvrir le formulaire et postuler toi-même</ExtLink>
+        )}
+        <MarkApplied item={item} runId={runId} />
+      </div>
+    </>
+  );
+}
 
 export default async function AutoApplyPage({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
@@ -75,6 +171,11 @@ export default async function AutoApplyPage({ searchParams }: { searchParams: Pr
   const running = run?.state === "running";
   const finished = items.filter((i) => i.outcome !== "working").length;
   const error = sp.error ? ERROR_FR[sp.error] : undefined;
+  const back = run ? `/auto-apply?run=${run.id}` : "/auto-apply";
+  const continued = sp.continued ? items.find((i) => i.application_id === sp.continued) : undefined;
+  const marked = sp.marked ? items.find((i) => i.application_id === sp.marked) : undefined;
+  // A finished batch's summary is recounted from what each line shows now: drafts you sent since count as sent.
+  const note = run && (run.state === "done" || run.state === "stopped") ? summarize(countShown(items), run.requested, run.state === "stopped") : run?.note;
 
   return (
     <>
@@ -86,6 +187,14 @@ export default async function AutoApplyPage({ searchParams }: { searchParams: Pr
 
       <div className="stack stack-tight flash-stack">
         {error ? <Flash tone="error">{error}</Flash> : null}
+        {marked ? <Flash>« {marked.role_title} » est marquée comme envoyée.</Flash> : null}
+        {continued ? (
+          <Flash tone="info">
+            Une fenêtre de navigateur s’ouvre pour « {continued.role_title} » : le bureau remplit tout ce qu’il sait, passe les pages
+            déjà complètes et s’arrête sur celle qui t’attend. Finis-la et soumets ; la candidature est enregistrée dès que le portail
+            confirme. Ferme la fenêtre quand tu as terminé.
+          </Flash>
+        ) : null}
         {!gmail.ok && !error ? (
           <Flash tone="warn">
             Gmail refuse la connexion : l’autorisation a expiré ou n’a jamais été donnée. Lance « npm run gmail:auth » une fois ;
@@ -104,7 +213,7 @@ export default async function AutoApplyPage({ searchParams }: { searchParams: Pr
       ) : (
         <>
           <div className="stats">
-            <Stat value={`${count("draft") + count("sent")} / ${run.requested}`} label="Candidatures prêtes" tone={count("draft") + count("sent") > 0 ? "good" : undefined} />
+            <Stat value={`${count("draft") + count("sent")} / ${run.requested}`} label="Candidatures faites" tone={count("draft") + count("sent") > 0 ? "good" : undefined} />
             <Stat value={count("draft")} label="Brouillons à envoyer" tone={count("draft") > 0 ? "good" : undefined} />
             <Stat value={count("sent")} label="Envoyées" />
             <Stat value={count("review")} label="À finir toi-même" tone={count("review") > 0 ? "alert" : undefined} />
@@ -121,7 +230,7 @@ export default async function AutoApplyPage({ searchParams }: { searchParams: Pr
             }
             id="lot"
           >
-            {run.note ? <p className="auto-apply-note">{run.note}</p> : null}
+            {note ? <p className="auto-apply-note">{note}</p> : null}
             {running ? (
               <form action={stopAutoApplyAction} className="form-actions">
                 <input type="hidden" name="runId" value={run.id} />
@@ -179,7 +288,7 @@ export default async function AutoApplyPage({ searchParams }: { searchParams: Pr
                           <StatusPill status={i.status} />
                         </td>
                         <td data-label="Détail" className="muted auto-apply-detail">
-                          {i.detail ?? ""}
+                          <ItemDetail item={i} back={back} runId={run.id} />
                         </td>
                       </tr>
                     ))}

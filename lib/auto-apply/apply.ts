@@ -157,6 +157,8 @@ async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<Ap
 
   await ctx.paceNextPortal();
   const run = await runPortalApplication(app.id, { mode: "submit", log: ctx.log });
+  const done = run.filled ? ` ${run.filled} champ${run.filled > 1 ? "s" : ""} déjà rempli${run.filled > 1 ? "s" : ""}.` : "";
+  const where = run.step ? ` à la page ${run.step}` : "";
   switch (run.state) {
     case "submitted":
       return { outcome: "sent", detail: `Formulaire envoyé et confirmé : ${run.reason}`, channel: "portal", counts: true };
@@ -164,13 +166,11 @@ async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<Ap
     case "ready_to_submit":
     case "planned":
       if (/daily limit/i.test(run.reason)) ctx.portalExhausted = true;
-      return {
-        outcome: "review",
-        detail: `Formulaire rempli, il attend une action de ta part : ${run.reason} (voir /portal)`,
-        channel: "portal",
-        counts: false,
-      };
+      return { outcome: "review", detail: `Arrêté${where} : ${run.reason}${done}`, channel: "portal", counts: false };
     case "blocked":
+      // Stopped on a form it had started (a refused or unconfirmed submit) is yours to finish; an account portal, a page
+      // with no form or a closed posting is skipped.
+      if (run.filled) return { outcome: "review", detail: `Arrêté${where} : ${run.reason}${done}`, channel: "portal", counts: false };
       return skipped(`Formulaire non envoyé : ${run.reason}`, "portal");
     case "duplicate":
       return skipped(`Déjà envoyée : ${run.reason}`, "portal");

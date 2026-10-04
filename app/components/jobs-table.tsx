@@ -11,6 +11,8 @@ import { day, place } from "../../lib/format";
 import { isPriorityCompany } from "../../lib/priority-companies";
 import type { JobRow } from "../../lib/types";
 
+const SOURCE_LABEL: Record<string, string> = { linkedin: "LinkedIn", indeed: "Indeed", greenhouse: "Greenhouse", workable: "Workable", lever: "Lever", ashby: "Ashby" };
+
 export function JobsTable({ jobs }: { jobs: JobRow[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, JobRowDetail | null>>({});
@@ -83,6 +85,15 @@ export function JobsTable({ jobs }: { jobs: JobRow[] }) {
                         {job.has_email ? <span className="tag-email">Email trouvé</span> : null}
                         {job.closed_at ? <span className="tag-closed">Fermée</span> : null}
                       </span>
+                      {job.copies && job.copies > 1 ? (
+                        <span className="job-copies">
+                          Offre publiée {job.copies} fois, affichée une seule :{" "}
+                          {Object.entries(job.copy_sources ?? {})
+                            .map(([src, n]) => `${SOURCE_LABEL[src] ?? src} ×${n}`)
+                            .join(", ")}{" "}
+                          en plus
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </td>

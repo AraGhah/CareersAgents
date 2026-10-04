@@ -1,4 +1,6 @@
 import { pool } from "./db";
+import { twinKeys } from "./apply/dedupe";
+import { SENT_STATUSES } from "./apply/activity";
 import { logStatusEvent, scheduleFollowups } from "./followups";
 import type { JobSort } from "./list-filters";
 import { gatedSql } from "./score";
@@ -46,7 +48,7 @@ const JOB_LIST_SELECT = `
   SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.posted_at,
          j.first_seen_at, j.closed_at, j.company_id,
          LEFT(j.description, 600) AS description_preview,
-         c.name AS company_name,
+         c.name AS company_name, j.source,
          a.id AS application_id, a.status,
          t.score, t.gated,
          ${HAS_EMAIL_EXPR} AS has_email
@@ -78,6 +80,8 @@ export async function listJobs(opts: {
    */
   minScore?: number;
   sort?: JobSort;
+  /** Every posting, copies included (true), instead of one row per role (default). */
+  keepCopies?: boolean;
 }): Promise<JobRow[]> {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -124,7 +128,59 @@ export async function listJobs(opts: {
              ${JOB_SORT_SQL[opts.sort ?? "best"]}`;
 
   const { rows } = await pool.query<JobRow>(sql, params);
-  return rows;
+  if (opts.keepCopies) return rows;
+  // Copies of a role you have already applied to (or, in the "untracked" view, one you track) are hidden with it.
+  const { rows: taken } = await pool.query<{ company_id: string; title: string }>(
+    `SELECT j.company_id, j.title FROM applications a JOIN jobs j ON j.id = a.job_id
+      WHERE ${opts.untrackedOnly ? "true" : "a.status = ANY($1::text[])"}`,
+    opts.untrackedOnly ? [] : [[...SENT_STATUSES]],
+  );
+  return collapseCopies(rows, taken);
+}
+
+/** Postings found on the company's own board come first among copies: their form is the one to apply through. */
+const BOARD_SOURCES = new Set(["greenhouse", "lever", "ashby", "workable", "smartrecruiters", "careers", "manual"]);
+const OPEN_RANK: Record<string, number> = { ready: 3, qualified: 2, discovered: 1 };
+
+/**
+ * LinkedIn and Indeed list one role many times (Autodesk's software intern: 12 postings), and a company board adds its
+ * own. One row per role: the copy you already work on, else the company's own posting, else the best score; it keeps
+ * the place of the group's best-listed copy and says how many copies it stands for. Roles whose twin is in `taken`
+ * are left out.
+ */
+export function collapseCopies(rows: JobRow[], taken: Array<{ company_id: string; title: string }> = []): JobRow[] {
+  const keys = twinKeys([...rows, ...taken]);
+  const takenKeys = new Set(taken.map((t) => keys.get(t)).filter((k): k is string => !!k));
+  const groups = new Map<string, JobRow[]>();
+  for (const row of rows) {
+    const key = keys.get(row);
+    if (key && !takenKeys.has(key)) groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const rank = (r: JobRow) => [OPEN_RANK[r.status ?? ""] ?? 0, BOARD_SOURCES.has(r.source ?? "") ? 1 : 0, Number(r.score ?? -1)];
+  const better = (a: JobRow, b: JobRow) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return rb[i] - ra[i];
+    return 0;
+  };
+  const kept = new Map<JobRow, JobRow[]>();
+  for (const group of groups.values()) kept.set([...group].sort(better)[0], group);
+
+  // The list's own order (best, worst, recent, company) is kept: a role sits where the copy shown would sit.
+  const out: JobRow[] = [];
+  for (const row of rows) {
+    const key = keys.get(row);
+    if (!key) {
+      out.push({ ...row, copies: 1 });
+      continue;
+    }
+    const group = kept.get(row);
+    if (!group) continue;
+    const copy_sources: Record<string, number> = {};
+    for (const r of group) if (r !== row) copy_sources[r.source ?? "autre"] = (copy_sources[r.source ?? "autre"] ?? 0) + 1;
+    out.push({ ...row, copies: group.length, copy_sources });
+  }
+  return out;
 }
 
 export async function getJob(id: string): Promise<JobDetail | null> {

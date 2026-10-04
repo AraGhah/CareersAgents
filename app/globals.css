@@ -2550,6 +2550,13 @@ thead th {
   color: var(--ink-2);
 }
 
+/* "Posted 12 times, shown once": the copies listJobs folded into this row. */
+.job-copies {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
 .tag-priority,
 .tag-email,
 .tag-closed {
@@ -4687,4 +4694,24 @@ pre.code-block.as-text {
   max-width: 38rem;
   white-space: normal;
   font-size: 0.8125rem;
+}
+
+/* Where a stopped application is, and the button to finish it by hand. */
+.auto-apply-stop {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+}
+
+.auto-apply-stop dt {
+  font-weight: 600;
+  color: var(--ink-0);
+}
+
+.auto-apply-stop dd {
+  margin: 0 0 var(--s-1);
+}
+
+.auto-apply-continue {
+  margin-top: var(--s-2);
 }

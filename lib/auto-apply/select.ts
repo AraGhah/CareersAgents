@@ -2,7 +2,7 @@
 // can be read here and tested without opening a browser or touching Gmail.
 
 import { pool } from "../db";
-import { twinKey } from "../apply/dedupe";
+import { twinKey, twinKeys } from "../apply/dedupe";
 import { SCORE_CTE } from "../queries";
 import type { ApplicationStatus } from "../types";
 
@@ -87,9 +87,10 @@ async function takenKeys(): Promise<Set<string>> {
  */
 export function dropTwins<T extends { company_id: string; title: string }>(rows: T[], taken: ReadonlySet<string> = new Set()): T[] {
   const seen = new Set(taken);
+  const keys = twinKeys(rows);
   const out: T[] = [];
   for (const row of rows) {
-    const key = twinKey(row.company_id, row.title);
+    const key = keys.get(row) ?? null;
     if (key) {
       if (seen.has(key)) continue;
       seen.add(key);

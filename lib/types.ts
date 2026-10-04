@@ -51,6 +51,12 @@ export type JobRow = {
   gated: boolean | null;
   /** Whether the company has at least one public, sourced contact email on file. */
   has_email: boolean;
+  /** Where the posting was found (greenhouse, lever, linkedin, indeed, manual…). */
+  source?: string | null;
+  /** listJobs shows one row per role: how many postings of this same role it stands for (1 = no copy). */
+  copies?: number;
+  /** Where the other copies were found, e.g. { linkedin: 3, indeed: 2 }. */
+  copy_sources?: Record<string, number>;
 };
 
 export type ScoreComponent = {

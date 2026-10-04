@@ -6,7 +6,7 @@
 
 import type { Page } from "playwright";
 import { detectCaptcha, visibleFormErrors } from "./browser/guards";
-import { confirmationText, type PlatformAdapter } from "./platforms";
+import { confirmationText, isNextStepButton, type PlatformAdapter } from "./platforms";
 import { preflightPasses } from "./preflight";
 import type { PreflightItem } from "./types";
 
@@ -28,7 +28,8 @@ export async function submitApplication(page: Page, adapter: PlatformAdapter, pr
   let button = null;
   for (const sel of adapter.submitSelectors) {
     const candidate = page.locator(sel).filter({ visible: true }).first();
-    if ((await candidate.count()) > 0) {
+    // On a multi-step form "Next" is often a type=submit button too: it is never the final Submit.
+    if ((await candidate.count()) > 0 && !(await isNextStepButton(candidate))) {
       button = candidate;
       break;
     }

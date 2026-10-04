@@ -22,14 +22,26 @@ import { extractFields, extractFieldsWithOptions } from "../lib/apply/browser/ex
 import { currentValue, fillField, type FillResult } from "../lib/apply/browser/fill";
 import { detectCaptcha, detectClosedPosting, detectLoginWall, visibleFormErrors } from "../lib/apply/browser/guards";
 import { planFields, mergeApprovals, type PlanContext } from "../lib/apply/planner";
-import { adapterFor, canonicalPostingUrl, confirmationText, hasApplicationForm, manualOnlyReason, revealApplicationForm, scopeSelector } from "../lib/apply/platforms";
+import {
+  adapterFor,
+  advanceStep,
+  canonicalPostingUrl,
+  confirmationText,
+  findNextStep,
+  hasApplicationForm,
+  isNextStepButton,
+  manualOnlyReason,
+  revealApplicationForm,
+  scopeSelector,
+} from "../lib/apply/platforms";
 import { resolveField } from "../lib/apply/resolve";
 import { preflightPasses, runPreflight } from "../lib/apply/preflight";
 import { submitApplication } from "../lib/apply/submit";
-import { roleKey, twinKey } from "../lib/apply/dedupe";
+import { roleKey, twinKey, twinKeys } from "../lib/apply/dedupe";
+import { collapseCopies } from "../lib/queries";
 import type { ResumeChoice } from "../lib/apply/resume-select";
 import type { FieldDecision, FormField } from "../lib/apply/types";
-import type { Answer, Project } from "../lib/types";
+import type { Answer, JobRow, Project } from "../lib/types";
 
 let failures = 0;
 function check(ok: boolean, label: string, detail?: unknown) {
@@ -353,6 +365,24 @@ function personalChecks() {
   const asGreen = ask(mk("Do you have a criminal record?", "radio", YN), screened("en", [answer("criminal_record_check", "green", "No criminal record.")]));
   check(asGreen.status === "manual", "only a red bank entry counts");
   check(classifyField(mk("Do you have any security concerns or issues?", "radio", YN)) === "sensitive", "a security question is classified as sensitive, so it is never guessed by another rule");
+
+  console.log("\nPORTAL_AUTO_CONFIRM_PERSONAL=true: the bank answers without a click, as strictly as before");
+  const auto = (field: FormField, cand = withPersonal("en"), where = job) => resolveField(field, classifyField(field), cand, where, files, { autoConfirm: true });
+  const authAuto = auto(mk("Are you legally authorized to work in Canada?", "radio", YN));
+  check(authAuto.status === "resolved" && authAuto.value === "Yes" && authAuto.source === "bank", "authorized to work in Canada → Yes, filled", authAuto);
+  check(auto(mk("Will you now or in the future require sponsorship to work in Canada?", "radio", YN)).status === "resolved", "sponsorship → No, filled");
+  check(auto(mk("Are you legally authorized to work in the United States?", "radio", YN)).status === "manual", "a question the bank does not answer (United States) still goes to you");
+  check(auto(mk("Gender", "select", ["Male", "Female", "Decline to self-identify"])).value === "Male", "required self-identification → your stored answer");
+  check(auto(mk("Gender", "select", ["Male", "Female", "Decline to self-identify"], false)).status === "skipped", "optional self-identification → left blank, even with the stored answer");
+  check(auto(mk("Gender", "select", ["Male", "Female"]), bare).status === "manual", "nothing stored → still yours");
+  const privacy = auto(mk("I have read the privacy notice and consent to the processing of my personal data for this application", "checkbox"));
+  check(privacy.status === "resolved" && privacy.value === "Yes", "required consent to process this application → ticked", privacy);
+  check(auto(mk("I certify that the information provided is true and complete", "checkbox")).value === "Yes", "required 'the information is accurate' → ticked");
+  check(auto(mk("I agree to receive marketing emails and job alerts", "checkbox")).status === "manual", "marketing / job alerts are never ticked");
+  check(auto(mk("I consent to a criminal background check", "checkbox")).status === "manual", "a background-check consent stays yours");
+  check(auto(mk("I agree to join the talent community for future opportunities", "checkbox")).status === "manual", "a talent pool stays yours");
+  check(auto(mk("I agree to the privacy policy", "checkbox", [], false)).status === "manual", "an optional consent box is left alone");
+  check(resolveField(mk("I have read the privacy notice", "checkbox"), "consent", withPersonal("en"), job, files).status === "manual", "without the setting, consent stays yours (unchanged)");
 }
 
 async function main() {
@@ -556,6 +586,57 @@ async function main() {
     check(!!(await confirmationText(page, adapterFor(page.url()))), "confirmation page recognized");
     delete process.env.PORTAL_ALLOW_SUBMIT;
 
+    console.log("\nmulti-step form: page 1 → Next → page 2 → Submit (PORTAL_AUTO_CONFIRM_PERSONAL=true)");
+    const wizCandidate = buildCandidateProfile({
+      lang: "en",
+      answers: [...ANSWERS.filter((a) => a.key !== "work_authorization"), answer("work_authorization", "red", "Canadian citizen", "Citoyen canadien")],
+      projects: PROJECTS,
+      resume: { ...resumeChoice.resume!, raw_text: "Ara Ghahramanyan\nMontreal, QC H4N 0C5 | ara.ghahramanyan07@gmail.com\nFrench (fluent) | English (fluent) | Armenian (perfect)" },
+    });
+    const wizCtx: PlanContext = { ...ctx, candidate: wizCandidate, answers: { ...ctx.answers, candidate: wizCandidate }, autoApprove: true, autoConfirm: true, step: 1 };
+    const wizAdapter = adapterFor(`${base}/wizard-form.html`);
+    const okPre = [{ id: "all_ok", ok: true, label: "every gate", blocking: true }];
+    await page.goto(`${base}/wizard-form.html`);
+    const w1 = await extractFieldsWithOptions(page, "#application-form");
+    check(w1.length === 4 && !w1.some((x) => x.kind === "file"), "page 1 is read on its own: the hidden page 2 is not part of it", w1.map((x) => x.label));
+    const early = await findNextStep(page);
+    check(!!early && !early.disabled, "the Next button of page 1 is found");
+    const refused = await advanceStep(page, early!.button);
+    check(!refused.moved && /required field/.test(refused.reason ?? ""), "Next on an empty page: the form stays, and says why", refused);
+    process.env.PORTAL_ALLOW_SUBMIT = "true";
+    const notFinal = await submitApplication(page, wizAdapter, okPre);
+    check(notFinal.state === "blocked" && (await page.locator("#page1").isVisible()), "a type=submit Next button is never pressed as the final Submit", notFinal);
+    const w1d = await planFields(w1, wizCtx);
+    check(w1d.find((x) => /Postal/.test(x.label))?.value === "H4N 0C5", "postal code read from the CV", w1d.find((x) => /Postal/.test(x.label)));
+    for (const f of w1) {
+      const dec = w1d.find((x) => x.signature === f.signature)!;
+      if (dec.value && ["resolved", "approved"].includes(dec.status)) check((await fillField(page, f, dec)).ok, `page 1: fill ${f.label}`);
+    }
+    const next1 = await findNextStep(page);
+    const moved = await advanceStep(page, next1!.button);
+    check(moved.moved && (await page.locator("#page2").isVisible()), "Next moves to page 2", moved);
+    const w2 = await extractFieldsWithOptions(page, "#application-form");
+    check((await page.locator("#page1 [data-desk-field]").count()) === 0, "page 1's old field stamps are cleared, so they cannot collide with page 2's");
+    check(w2.some((x) => x.kind === "file") && !w2.some((x) => /First name/.test(x.label)), "page 2 is read: CV upload, no page-1 field", w2.map((x) => x.label));
+    const w2d = await planFields(w2, { ...wizCtx, step: 2 });
+    const w = (re: RegExp) => w2d.find((x) => re.test(x.label))!;
+    check(w(/authorized/).status === "resolved" && w(/authorized/).value === "Yes", "work authorization answered from the bank", w(/authorized/));
+    check(w(/French/).value === "Fluent", "French level: 'Fluent' from the CV, never 'Native'", w(/French/));
+    check(w(/privacy/).status === "resolved", "required privacy consent for this application → ticked", w(/privacy/));
+    check(w(/job alerts/).status !== "resolved", "the job-alerts box is left alone", w(/job alerts/));
+    check(w2d.every((x) => x.step === 2), "fields planned on page 2 carry their page number");
+    for (const f of w2) {
+      const dec = w2d.find((x) => x.signature === f.signature)!;
+      if (dec.value && ["resolved", "approved"].includes(dec.status)) check((await fillField(page, f, dec)).ok, `page 2: fill ${f.label}`);
+    }
+    check(!(await findNextStep(page)), "page 2 has no Next (Back is not one): it is the last page");
+    check(!(await isNextStepButton(page.locator("#send"))), "'Submit application' is not a Next button");
+    const wizOutcome = await submitApplication(page, wizAdapter, okPre);
+    check(wizOutcome.state === "submitted", "the final Submit is pressed on the last page and the confirmation read", wizOutcome);
+    const sent = await page.evaluate(() => (window as unknown as { __submitted?: Record<string, unknown> }).__submitted);
+    check(sent?.cv === "Ara-Ghahramanyan-CV.pdf" && sent?.auth === "yes" && sent?.privacy === true && sent?.alerts === false, "what the employer received: CV, Yes, privacy ticked, job alerts not", sent);
+    delete process.env.PORTAL_ALLOW_SUBMIT;
+
     console.log("\nreal-world page shapes (found on live portals)");
     const ctxPage = await browser.newContext();
     const jobPage = await ctxPage.newPage();
@@ -623,6 +704,34 @@ async function main() {
   check(twinKey("c1", "Software Developer Intern") !== twinKey("c2", "Software Developer Intern"), "the same title at another company is another role");
   check(twinKey("c1", "Intern, AI Developer") !== twinKey("c1", "Intern, Software Developer"), "different roles at one company stay apart");
   check(twinKey("c1", "Intern") === null, "a title with nothing left after the noise is never compared");
+  check(roleKey("C-GE-112 Stagiaire développeur(se) logiciel – Environnement immersif-EN") === roleKey("C-GE-112 Stagiaire développeur(se) logiciel – Environnement immersif"), "a copy tagged -EN is the same role");
+  const coded = [
+    { company_id: "c1", title: "Stagiaire en Développement Cloud, Intern Cloud Developer – FCAP" },
+    { company_id: "c1", title: "Stagiaire en Développement Cloud, Intern Cloud Developer" },
+    { company_id: "c1", title: "Backend Developer – SAP" },
+    { company_id: "c1", title: "Backend Developer – AWS" },
+  ];
+  const ck = twinKeys(coded);
+  check(ck.get(coded[0]) === ck.get(coded[1]), "a copy that only adds a trailing code (– FCAP) joins the plain posting");
+  check(ck.get(coded[2]) !== ck.get(coded[3]), "two coded titles with no plain one stay two roles (– SAP, – AWS)");
+
+  const jr = (id: string, title: string, source: string, score: string, status: JobRow["status"] = null, company_id = "c1"): JobRow => ({
+    id, title, source, score, status, company_id, company_name: "Acme", location: null, workplace_type: null, url: `https://x/${id}`,
+    posted_at: null, first_seen_at: new Date(), closed_at: null, application_id: status ? `app-${id}` : null, gated: false, has_email: false,
+  });
+  const listed = [
+    jr("1", "Software Developer Intern (Winter 2027)", "linkedin", "0.9"),
+    jr("2", "Data Analyst Intern", "indeed", "0.85"),
+    jr("3", "Stage - Software Developer", "indeed", "0.8", "qualified"),
+    jr("4", "Software Developer Intern", "greenhouse", "0.7"),
+    jr("5", "Cloud Intern", "linkedin", "0.6"),
+  ];
+  const collapsed = collapseCopies(listed, [{ company_id: "c1", title: "Cloud Intern - FR" }]);
+  check(collapsed.length === 2, "three postings of one role become one row; a role already applied to is hidden with its copies", collapsed.map((r) => r.id));
+  check(collapsed.find((r) => r.copies === 3)?.id === "3", "the row kept is the copy you already track", collapsed);
+  check(JSON.stringify(collapsed.find((r) => r.id === "3")?.copy_sources) === JSON.stringify({ linkedin: 1, greenhouse: 1 }), "it says where the other copies were found", collapsed);
+  const untracked = collapseCopies(listed.filter((r) => !r.status));
+  check(untracked.find((r) => /Software/.test(r.title))?.id === "4", "with nothing tracked, the company's own posting is kept over LinkedIn and Indeed");
   check(!!manualOnlyReason("https://www.linkedin.com/jobs/view/1"), "LinkedIn is never driven");
   check(!!manualOnlyReason("https://acme.wd3.myworkdayjobs.com/x"), "Workday is never driven");
 

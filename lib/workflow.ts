@@ -30,7 +30,7 @@ import type { ApplicationStatus } from "./types";
 import { manualOnlyReason } from "./apply/platforms";
 import { saveChannel } from "./apply/route";
 import { resolveApplyTarget } from "./apply/apply-url";
-import { twinKey } from "./apply/dedupe";
+import { twinKeys } from "./apply/dedupe";
 
 export type DiscoverySummary = {
   runId: string;
@@ -193,8 +193,10 @@ async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number
   const { rows: existing } = await pool.query<{ company_id: string; title: string }>(
     `SELECT j.company_id, j.title FROM applications a JOIN jobs j ON j.id = a.job_id`,
   );
+  // Keys over everything at once, so a copy that only adds a trailing code ("– FCAP") matches the plain posting.
+  const keys = twinKeys([...existing, ...rows]);
   for (const e of existing) {
-    const key = twinKey(e.company_id, e.title);
+    const key = keys.get(e);
     if (key) tracked.add(key);
   }
 
@@ -203,7 +205,7 @@ async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number
   for (const row of rows) {
     let appId = row.application_id;
     if (!appId) {
-      const key = twinKey(row.company_id, row.title);
+      const key = keys.get(row) ?? null;
       if (key && tracked.has(key)) continue;
       if (key) tracked.add(key);
       appId = await startApplication(row.job_id);

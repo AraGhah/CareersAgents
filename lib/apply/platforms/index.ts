@@ -4,7 +4,8 @@
 // what the final submit control looks like, and what a confirmation looks like.
 // It never clicks submit itself; lib/apply/submit.ts is the only place that does.
 
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
+import { visibleFormErrors } from "../browser/guards";
 import { ensureEvalShim as ensureShim } from "../browser/shim";
 import type { PlatformId } from "../types";
 
@@ -328,8 +329,9 @@ export function manualOnlyReason(url: string): string | null {
 }
 
 /**
- * The page is one step of a wizard (Workday's "My Information → My Experience → ... → Review", or "Step 1 of 4"), not a whole
- * application. The desk reads and fills a single page, so a first step must never be planned as if it were the form.
+ * Workday's wizard ("My Information → My Experience → ... → Review"): its own widgets (prompt lists, date spinners,
+ * repeatable experience blocks) are not ones the desk can fill and read back, so it stays yours. Other multi-step forms
+ * ("Step 1 of 3", a Next button) are filled page by page (findNextStep / advanceStep).
  */
 export async function wizardReason(page: Page): Promise<string | null> {
   const workday = await page.locator("[data-automation-id='progressBar']").count().catch(() => 0);
@@ -337,9 +339,95 @@ export async function wizardReason(page: Page): Promise<string | null> {
   if (workday > 0 || /my information[\s\S]{0,600}my experience/i.test(body)) {
     return "Workday's application is a multi-step wizard (My Information, My Experience, Application Questions, Voluntary Disclosures, Review): the desk does not drive it. You are signed in: complete it yourself.";
   }
-  const steps = body.match(/(?:step|[ée]tape)\s*(\d+)\s*(?:of|sur|de|\/)\s*(\d+)/i);
-  if (steps && Number(steps[2]) >= 2) return `The portal is a ${steps[2]}-step wizard the desk does not drive: complete it yourself.`;
   return null;
+}
+
+/** "Step 2 of 4" printed on the page, when it is. */
+export async function printedStep(page: Page): Promise<{ at: number; of: number } | null> {
+  const body = ((await page.locator("body").innerText().catch(() => "")) || "").replace(/\s+/g, " ").slice(0, 6000);
+  const m = body.match(/(?:step|[ée]tape|page)\s*(\d+)\s*(?:of|sur|de|\/)\s*(\d+)/i);
+  return m && Number(m[2]) >= 2 ? { at: Number(m[1]), of: Number(m[2]) } : null;
+}
+
+/** The text of a button that moves a multi-step form to its next page, after norm() (no accents, arrows or "&"). */
+export const NEXT_STEP_TEXT =
+  /^(next|next step|next page|continue|continue to next step|continue application|save (and )?continue|save (and )?next|proceed|review|review (my |your )?application|suivant|suivante|etape suivante|page suivante|continuer|poursuivre|(enregistrer|sauvegarder) et continuer|reviser|verifier)$/;
+
+const buttonText = async (el: Locator): Promise<string> =>
+  (
+    (await el.innerText().catch(() => "")) ||
+    (await el.getAttribute("value").catch(() => "")) ||
+    (await el.getAttribute("aria-label").catch(() => "")) ||
+    ""
+  )
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9' ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Is this the control that moves to the next page (as opposed to the final Submit)? */
+export async function isNextStepButton(el: Locator): Promise<boolean> {
+  return NEXT_STEP_TEXT.test(await buttonText(el));
+}
+
+/**
+ * The visible "Next / Continue / Suivant" control of a multi-step form, or null on a single page or on the last page.
+ * `disabled`: the form refuses to move on yet (a required answer is missing on this page).
+ */
+export async function findNextStep(page: Page): Promise<{ button: Locator; disabled: boolean } | null> {
+  const candidates = page.locator("button:visible, input[type='submit']:visible, input[type='button']:visible, [role='button']:visible");
+  const count = Math.min(await candidates.count().catch(() => 0), 120);
+  let disabled: Locator | null = null;
+  for (let i = 0; i < count; i++) {
+    const el = candidates.nth(i);
+    if (!(await isNextStepButton(el))) continue;
+    if (await el.isEnabled().catch(() => false)) return { button: el, disabled: false };
+    disabled ??= el;
+  }
+  return disabled ? { button: disabled, disabled: true } : null;
+}
+
+/** What identifies the page on screen: its URL and the questions visible on it. */
+async function pageFingerprint(page: Page): Promise<string> {
+  await ensureShim(page);
+  const controls = await page
+    .evaluate(() =>
+      Array.from(document.querySelectorAll("input, textarea, select"))
+        .filter((el) => {
+          const r = (el as HTMLElement).getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && !["hidden", "submit", "button"].includes((el.getAttribute("type") ?? "").toLowerCase());
+        })
+        .map((el) => `${el.getAttribute("name") ?? ""}#${el.getAttribute("id") ?? ""}`)
+        .join("|"),
+    )
+    .catch(() => "");
+  return `${page.url()}::${controls}`;
+}
+
+/**
+ * Presses "Next" and waits for the next page of the form. Never a final Submit: a button whose text is not a "Next"
+ * wording is refused. `moved: false` means the form stayed where it was, with the errors it shows when it says why.
+ */
+export async function advanceStep(page: Page, button: Locator): Promise<{ moved: boolean; reason: string | null }> {
+  if (!(await isNextStepButton(button))) return { moved: false, reason: "not a Next button" };
+  const before = await pageFingerprint(page);
+  await button.scrollIntoViewIfNeeded().catch(() => undefined);
+  // A chat widget over the button intercepts a real click; a DOM click still reaches it.
+  await button.click({ timeout: 5000 }).catch(() => button.evaluate((n) => (n as HTMLElement).click()).catch(() => undefined));
+  for (let i = 0; i < 15; i++) {
+    await page.waitForTimeout(700);
+    await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+    if ((await pageFingerprint(page)) !== before) {
+      await page.waitForLoadState("networkidle", { timeout: 6000 }).catch(() => undefined);
+      await dismissOverlays(page);
+      return { moved: true, reason: null };
+    }
+  }
+  const errors = await visibleFormErrors(page).catch(() => [] as string[]);
+  return { moved: false, reason: errors.length ? `the form refused to go on: ${errors.join("; ")}` : "nothing changed after pressing Next" };
 }
 
 /**

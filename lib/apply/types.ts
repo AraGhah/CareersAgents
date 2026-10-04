@@ -128,6 +128,8 @@ export type FieldDecision = {
   reason: string;
   checks: Check[];
   questionType?: QuestionType;
+  /** Page of a multi-step form the field is on (1 = the first). */
+  step?: number;
 };
 
 export type RunMode = "plan" | "review" | "submit";

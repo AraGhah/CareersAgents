@@ -115,6 +115,23 @@ export async function runPortalAction(form: FormData) {
   redirect(`/applications/${applicationId}?portal=launched-${mode}#portail`);
 }
 
+/**
+ * "Continuer à la main": a visible browser re-opens the form, fills again everything already decided, goes through the
+ * pages that were complete, and stops on the page that needs you, leaving the window to you. An application you submit
+ * there is recorded. Back to the page the button was on (the auto-apply batch, or the application).
+ */
+export async function continuePortalAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  const back = typeof form.get("back") === "string" ? String(form.get("back")) : "";
+  await launch(applicationId, "review", { wait: false });
+  revalidatePath("/auto-apply");
+  // Only a path inside the desk is followed back to.
+  if (/^\/auto-apply(\?run=[0-9a-f-]{36})?$/i.test(back)) {
+    redirect(`${back}${back.includes("?") ? "&" : "?"}continued=${applicationId}#lot`);
+  }
+  redirect(`/applications/${applicationId}?portal=launched-review#portail`);
+}
+
 /** Approve one field (a drafted answer as-is or rewritten, or a value you typed for a manual question). */
 export async function approvePortalFieldAction(form: FormData) {
   const applicationId = uuid(form, "applicationId");

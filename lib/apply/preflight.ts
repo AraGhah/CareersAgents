@@ -27,6 +27,8 @@ export type PreflightInput = {
   autoApprove: boolean;
   submitRequested: boolean;
   submitEnabled: boolean;
+  /** A multi-step form the run could not take to its last page, and why (the page that needs you). */
+  stoppedEarly?: string | null;
 };
 
 export function runPreflight(p: PreflightInput): PreflightItem[] {
@@ -35,6 +37,8 @@ export function runPreflight(p: PreflightInput): PreflightItem[] {
     items.push({ id, ok, label, detail, blocking });
 
   add("not_duplicate", !p.duplicate, "Not already applied to", p.duplicate ?? undefined);
+
+  if (p.stoppedEarly) add("all_pages", false, "Every page of the form is completed", p.stoppedEarly);
 
   add("required_filled", p.requiredEmpty.length === 0, "Every required field has a value", p.requiredEmpty.length ? p.requiredEmpty.join("; ") : undefined);
 

@@ -7,7 +7,9 @@ import { startApplication, setApplicationStatus } from "../queries";
 import { submitEnabled } from "../apply/submit";
 import { applyOne, isGmailAuthError, type ApplyContext, type ApplyResult } from "./apply";
 import { rankedCandidates, type Candidate } from "./select";
-import { finishItem, finishRun, getRun, listItems, startItem, stopRequested, touchRun, type ItemOutcome } from "./store";
+import { finishItem, finishRun, getRun, listItems, startItem, stopRequested, summarize, touchRun, type ItemOutcome } from "./store";
+
+export { summarize };
 
 export type RunDeps = {
   candidates?: (opts: { minPercent: number; limit: number }) => Promise<Candidate[]>;
@@ -30,24 +32,6 @@ async function trackCandidate(c: Candidate): Promise<string> {
 /** How far down the list to look: the skipped ones are free, but a list of nothing but forms the desk cannot drive must still end. */
 export function lookLimit(requested: number): number {
   return Math.min(80, requested * 3 + 10);
-}
-
-export function summarize(counts: Partial<Record<ItemOutcome, number>>, requested: number, stopped: boolean): string {
-  const n = (k: ItemOutcome) => counts[k] ?? 0;
-  const parts = [
-    n("draft") ? `${n("draft")} brouillon${n("draft") > 1 ? "s" : ""} Gmail à envoyer` : null,
-    n("sent") ? `${n("sent")} envoyée${n("sent") > 1 ? "s" : ""} par formulaire` : null,
-    n("review") ? `${n("review")} à finir toi-même` : null,
-    n("skipped") ? `${n("skipped")} ignorée${n("skipped") > 1 ? "s" : ""}` : null,
-    n("failed") ? `${n("failed")} en erreur` : null,
-  ].filter(Boolean);
-  const done = n("draft") + n("sent");
-  const head = stopped
-    ? "Arrêté."
-    : done >= requested
-      ? `Objectif atteint : ${done} candidature${done > 1 ? "s" : ""}.`
-      : `${done} candidature${done > 1 ? "s" : ""} sur ${requested} demandée${requested > 1 ? "s" : ""} : il n'y avait pas assez d'offres admissibles.`;
-  return [head, parts.join(", ")].filter(Boolean).join(" ");
 }
 
 export async function runAutoApply(runId: string, deps: RunDeps = {}): Promise<{ counted: number; note: string }> {

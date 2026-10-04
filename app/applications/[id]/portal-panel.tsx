@@ -30,6 +30,7 @@ const PLATFORM_FR: Record<string, string> = {
 
 const PREFLIGHT_FR: Record<string, string> = {
   not_duplicate: "Pas déjà envoyée",
+  all_pages: "Toutes les pages du formulaire sont remplies",
   required_filled: "Tous les champs obligatoires sont remplis",
   read_back: "Chaque valeur écrite se relit correctement",
   nothing_pending: "Aucune question en attente de toi",
@@ -49,7 +50,10 @@ const PREFLIGHT_FR: Record<string, string> = {
 const PORTAL_FLASH: Record<string, { text: string; tone: "success" | "info" | "error" }> = {
   planned: { text: "Formulaire lu et réponses préparées. Relis ce qui est surligné ci-dessous.", tone: "success" },
   "plan-failed": { text: "La lecture du formulaire a échoué. Le détail est dans le journal ci-dessous.", tone: "error" },
-  "launched-review": { text: "Une fenêtre de navigateur s’ouvre et remplit le formulaire. Tu soumets toi-même.", tone: "info" },
+  "launched-review": {
+    text: "Une fenêtre de navigateur s’ouvre, remplit le formulaire page par page et s’arrête là où il faut ta main. Tu soumets toi-même ; la candidature est enregistrée dès que le portail confirme.",
+    tone: "info",
+  },
   "launched-submit": { text: "Une fenêtre s’ouvre, remplit, vérifie et soumet seulement si tout est vert.", tone: "info" },
   approved: { text: "Réponse enregistrée. Une réponse écrite que tu approuves sert aussi d’exemple de ton style.", tone: "success" },
   "form-invalid": { text: "Ce lien n’est pas utilisable : colle l’adresse de l’offre sur le site de l’entreprise, pas celle de LinkedIn ou d’Indeed.", tone: "error" },
@@ -191,6 +195,13 @@ export function PortalPanel({
       )}
 
       {run?.blocked_reason ? <p className="small"><strong>Pourquoi :</strong> {run.blocked_reason}</p> : null}
+      {run && run.state !== "submitted" && run.stop_step ? (
+        <p className="small">
+          <strong>Étape à finir :</strong> page {run.stop_step}
+          {run.step_count && run.step_count > 1 ? ` (${run.step_count} pages atteintes)` : " du formulaire"} · {done.length} champ
+          {done.length > 1 ? "s" : ""} déjà réglé{done.length > 1 ? "s" : ""}
+        </p>
+      ) : null}
       {run?.error ? <p className="small"><strong>Erreur :</strong> {run.error}</p> : null}
       {run?.confirmation_text ? <p className="small"><strong>Confirmation :</strong> {run.confirmation_text}</p> : null}
       {run?.resume_path ? (
@@ -320,8 +331,8 @@ export function PortalPanel({
             <form action={runPortalAction}>
               <input type="hidden" name="applicationId" value={applicationId} />
               <input type="hidden" name="mode" value="review" />
-              <SubmitButton className={planReady && !submitEnabled ? "primary" : ""} pendingLabel="Ouverture…">
-                Remplir dans le navigateur (je soumets)
+              <SubmitButton className={(planReady && !submitEnabled) || run?.stop_step ? "primary" : ""} pendingLabel="Ouverture…">
+                {run?.stop_step ? `Continuer à la main (page ${run.stop_step})` : "Remplir dans le navigateur (je soumets)"}
               </SubmitButton>
             </form>
           ) : null}

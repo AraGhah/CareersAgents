@@ -93,7 +93,7 @@ export function AutoApplyButton({
               <li>
                 <strong>Formulaire en ligne :</strong>{" "}
                 {submitEnabled
-                  ? "il est rempli puis envoyé si toutes les vérifications passent ; sinon il t’attend."
+                  ? "il est rempli page par page puis envoyé si toutes les vérifications passent ; sinon il t’attend, avec ce qui bloque, la page où il s’est arrêté et un bouton pour continuer à la main."
                   : "ignoré pour l’instant, l’envoi automatique est désactivé (PORTAL_ALLOW_SUBMIT=true dans .env.local pour l’activer)."}
               </li>
               <li>

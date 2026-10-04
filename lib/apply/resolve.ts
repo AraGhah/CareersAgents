@@ -10,6 +10,7 @@ import { candidateHasSkill, type CandidateProfile } from "./candidate";
 import { PERSON_ONLY_INTENTS } from "./classify";
 import { isYesNoOptionSet, matchOption, realOptions } from "./options";
 import { personalSuggestion } from "./personal";
+import { cleanLabel, norm } from "./text";
 import { extractSkillsFromText } from "../profile";
 import type { FieldDecision, FieldIntent, FieldSource, FieldStatus, FormField, Lang } from "./types";
 
@@ -30,6 +31,16 @@ export type FileContext = {
 };
 
 type Outcome = Pick<FieldDecision, "source" | "value" | "status" | "reason">;
+
+export type ResolveOptions = {
+  /**
+   * PORTAL_AUTO_CONFIRM_PERSONAL=true: what your answer bank says about a personal question (work authorization,
+   * sponsorship, self-identification, salary, previous employment) is filled without a click, and a required box that
+   * only consents to the application itself (privacy notice, "the information is accurate") is ticked. The matching
+   * stays as strict as for a suggestion: a question the bank does not clearly answer still goes to you.
+   */
+  autoConfirm?: boolean;
+};
 
 const CHOICE_KINDS = new Set<FormField["kind"]>(["select", "radio", "checkbox-group", "combobox"]);
 
@@ -96,7 +107,44 @@ function inMontrealArea(location: string | null): boolean {
   return !!location && /montr[eé]al|laval|saint-?laurent|vaudreuil/i.test(location);
 }
 
-function base(field: FormField, candidate: CandidateProfile, job: JobContext, files: FileContext, intent: FieldIntent): Outcome {
+// A box that only lets this application be processed: the privacy notice for recruiting, the terms of the application
+// form, "the information I gave is accurate". Anything that reaches further (marketing, a talent pool, a background or
+// credit check, sharing with third parties, arbitration, a non-compete) stays yours.
+const APPLICATION_CONSENT =
+  /privacy|confidentialite|personal (data|information)|donnees personnelles|renseignements personnels|process|traitement|terms|conditions|accurate|true|complete|exact|veridique|certif|attest|acknowledge|read and (agree|accept|understand)|j ai lu|recruit|recrutement|application|candidature/;
+const BEYOND_THE_APPLICATION =
+  /marketing|newsletter|infolettre|promotion|sms|text message|texto|talent (pool|community|network)|bassin de talents|future (opportunit|opening|job|role|position)|futures? (offres|possibilites)|job alert|alerte|background|antecedents|credit|drug|drogue|criminal|casier|reference check|non.?compet|non.?concurrence|non.?solicit|arbitration|arbitrage|third part|tiers|partner|partenaire|sell|vendre/;
+
+function applicationConsent(field: FormField): string | null {
+  if (!field.required) return null;
+  const l = norm(cleanLabel(field.label));
+  if (!APPLICATION_CONSENT.test(l) || BEYOND_THE_APPLICATION.test(l)) return null;
+  if (field.kind === "checkbox") return "Yes";
+  if (CHOICE_KINDS.has(field.kind) && isYesNoOptionSet(field.options)) return matchOption("Yes", field.options)?.option ?? null;
+  return null;
+}
+
+// Levels your CV states ("French (fluent)"), best first; never "native", which the CV does not say.
+const FLUENT_LEVELS = [/^fluent\b/, /^courant/, /bilingu/, /full professional/, /^advanced\b|^avance/, /professional working/];
+const NOT_A_LEVEL = /\b(not|non|pas|basic|beginner|debutant|elementary|limited|notions?)\b/;
+
+function cvSaysFluent(candidate: CandidateProfile, which: "English" | "French"): boolean {
+  const name = which === "English" ? "(english|anglais)" : "(french|fran[cç]ais)";
+  return !!candidate.resumeText && new RegExp(`${name}\\s*\\(\\s*(fluent|courant)`, "i").test(candidate.resumeText);
+}
+
+function fluentOption(options: string[]): string | null {
+  const opts = realOptions(options).map((o) => o.text);
+  for (const level of FLUENT_LEVELS) {
+    const hit = opts.find((o) => level.test(norm(o)) && !NOT_A_LEVEL.test(norm(o)));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+const POSTAL_CODE = /\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?(\d[ABCEGHJ-NPRSTV-Z]\d)\b/i;
+
+function base(field: FormField, candidate: CandidateProfile, job: JobContext, files: FileContext, intent: FieldIntent, opts: ResolveOptions): Outcome {
   const c = candidate;
   const lang = c.lang;
   const val = (v: string | null, what: string, source: FieldSource = "bank"): Outcome =>
@@ -108,6 +156,17 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
     const suggestion = personalSuggestion(field, intent, c, job.location);
     if (suggestion?.confirmed) {
       return resolved(suggestion.value, "bank", `From your answer bank (${suggestion.what}): you told the desk this yourself.`);
+    }
+    if (suggestion && opts.autoConfirm) {
+      // Voluntary self-identification nobody has to answer is still left blank: less personal data in a form is better.
+      if (intent === "demographic" && !field.required) {
+        return { value: null, source: "none", status: "skipped", reason: `${reason} Optional, left blank.` };
+      }
+      return resolved(suggestion.value, "bank", `From your answer bank (${suggestion.what}), filled automatically (PORTAL_AUTO_CONFIRM_PERSONAL=true).`);
+    }
+    if (opts.autoConfirm && (intent === "consent" || intent === "legal_declaration")) {
+      const agree = applicationConsent(field);
+      if (agree) return resolved(agree, "derived", "Required consent to process this application (privacy notice / accurate information), ticked automatically (PORTAL_AUTO_CONFIRM_PERSONAL=true).");
     }
     if (suggestion) {
       return {
@@ -151,8 +210,10 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
         : unavailable(field, "Location");
     case "address":
       return unavailable(field, "Street address");
-    case "postal_code":
-      return unavailable(field, "Postal code");
+    case "postal_code": {
+      const pc = c.resumeText?.match(POSTAL_CODE);
+      return pc ? resolved(`${pc[1]} ${pc[2]}`.toUpperCase(), "profile", "Postal code from your CV.") : unavailable(field, "Postal code");
+    }
     case "linkedin":
       return val(c.links.linkedin, "LinkedIn");
     case "github":
@@ -199,6 +260,8 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
       if (opts.length > 0 && opts.length <= 3 && matchOption("yes", opts) && matchOption("no", opts)) {
         return speaks ? resolved("Yes", "bank", `You speak ${which} (answer bank).`) : unavailable(field, `${which} level`);
       }
+      const level = speaks && cvSaysFluent(c, which) ? (opts.length ? fluentOption(field.options) : c.lang === "fr" ? "Courant" : "Fluent") : null;
+      if (level) return resolved(level, "profile", `Your CV says ${which} (fluent).`);
       return manual(`Your answer bank says "${c.languagesText ?? "—"}" but gives no level for ${which}.`);
     }
     case "how_heard": {
@@ -270,8 +333,9 @@ export function resolveField(
   candidate: CandidateProfile,
   job: JobContext,
   files: FileContext,
+  opts: ResolveOptions = {},
 ): Pick<FieldDecision, "source" | "value" | "status" | "reason"> {
-  const out = base(field, candidate, job, files, intent);
+  const out = base(field, candidate, job, files, intent, opts);
   const hasOptions = realOptions(field.options).length > 0;
   if (!out.value || !CHOICE_KINDS.has(field.kind) || !hasOptions) return out;
 

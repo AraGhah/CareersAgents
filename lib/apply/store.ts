@@ -30,6 +30,10 @@ export type PortalRunRow = {
   error: string | null;
   screenshot_path: string | null;
   confirmation_text: string | null;
+  /** Pages of the form the run went through. */
+  step_count: number | null;
+  /** The page the run stopped on because something needs you; null when it did not stop early. */
+  stop_step: number | null;
   started_at: Date;
   finished_at: Date | null;
   submitted_at: Date | null;
@@ -51,11 +55,12 @@ export type PortalFieldRow = {
   checks: Check[];
   edited: boolean;
   approved_at: Date | null;
+  step: number | null;
 };
 
 const RUN_COLUMNS = `id, application_id, mode, state, platform, posting_url, form_url, company_name, role_title, lang,
   resume_id, resume_path, resume_reason, cover_letter_path, cover_letter_required, field_count, required_count,
-  manual_count, preflight, blocked_reason, error, screenshot_path, confirmation_text, started_at, finished_at, submitted_at`;
+  manual_count, preflight, blocked_reason, error, screenshot_path, confirmation_text, step_count, stop_step, started_at, finished_at, submitted_at`;
 
 export async function createRun(opts: {
   applicationId: string;
@@ -89,8 +94,8 @@ export async function finishRun(id: string, state: RunState, patch: RunPatch = {
 export async function saveFields(runId: string, decisions: FieldDecision[]): Promise<void> {
   for (const d of decisions) {
     await pool.query(
-      `INSERT INTO portal_fields (run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb)
+      `INSERT INTO portal_fields (run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, step)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb, $13)
        ON CONFLICT (run_id, signature) DO UPDATE SET
          label = EXCLUDED.label, kind = EXCLUDED.kind, required = EXCLUDED.required, options = EXCLUDED.options,
          intent = EXCLUDED.intent,
@@ -98,7 +103,7 @@ export async function saveFields(runId: string, decisions: FieldDecision[]): Pro
          source = CASE WHEN portal_fields.status = 'approved' THEN portal_fields.source ELSE EXCLUDED.source END,
          value  = CASE WHEN portal_fields.status = 'approved' THEN portal_fields.value  ELSE EXCLUDED.value  END,
          status = CASE WHEN portal_fields.status = 'approved' AND EXCLUDED.status NOT IN ('filled','failed') THEN 'approved' ELSE EXCLUDED.status END,
-         reason = EXCLUDED.reason, checks = EXCLUDED.checks`,
+         reason = EXCLUDED.reason, checks = EXCLUDED.checks, step = COALESCE(EXCLUDED.step, portal_fields.step)`,
       [
         runId,
         d.signature,
@@ -112,6 +117,7 @@ export async function saveFields(runId: string, decisions: FieldDecision[]): Pro
         d.status,
         d.reason,
         JSON.stringify(d.checks),
+        d.step ?? null,
       ],
     );
   }
@@ -119,7 +125,7 @@ export async function saveFields(runId: string, decisions: FieldDecision[]): Pro
 
 export async function listRunFields(runId: string): Promise<PortalFieldRow[]> {
   const { rows } = await pool.query<PortalFieldRow>(
-    `SELECT id, run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, edited, approved_at
+    `SELECT id, run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, edited, approved_at, step
        FROM portal_fields WHERE run_id = $1
       ORDER BY CASE status WHEN 'manual' THEN 0 WHEN 'generated' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END, label`,
     [runId],
@@ -199,7 +205,7 @@ export async function listPortalErrors(limit = 50) {
  */
 export async function approveField(opts: { fieldId: string; value: string; applicationId: string; lang: Lang }): Promise<void> {
   const { rows } = await pool.query<PortalFieldRow>(
-    `SELECT id, run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, edited, approved_at
+    `SELECT id, run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, edited, approved_at, step
        FROM portal_fields WHERE id = $1`,
     [opts.fieldId],
   );

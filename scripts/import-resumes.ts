@@ -7,9 +7,9 @@ import { pool } from "../lib/db";
 import { importResumeFromDisk, listResumes } from "../lib/resumes";
 
 const DEFAULT_EN =
-  "C:\\Users\\aragh\\OneDrive\\Desktop\\Stages\\CV\\FullStack CV\\CV_Ara_Ghahramanyan_EN.pdf";
+  "C:\\Users\\aragh\\OneDrive\\Desktop\\Stages\\CV\\FullStack CV\\CV-Ara-Ghahramanyan-EN.pdf";
 const DEFAULT_FR =
-  "C:\\Users\\aragh\\OneDrive\\Desktop\\Stages\\CV\\FullStack CV\\CV_Ara_Ghahramanyan_FR.pdf";
+  "C:\\Users\\aragh\\OneDrive\\Desktop\\Stages\\CV\\FullStack CV\\CV-Ara-Ghahramanyan-FR.pdf";
 
 function argValue(flag: string): string | null {
   const hit = process.argv.find((a) => a.startsWith(`${flag}=`));

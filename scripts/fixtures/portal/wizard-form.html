@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- Offline fixture: a two-page application (contact details, then CV and questions), the shape of many company
+     portals. "Next" is a type=submit button that only moves to page 2; the final "Submit application" is on page 2. -->
+<html lang="en">
+<head><meta charset="utf-8" /><title>Intern - Gamma Labs</title></head>
+<body>
+  <form id="application-form" novalidate>
+    <section id="page1">
+      <p>Step 1 of 2</p>
+      <label for="fn">First name *</label><input id="fn" name="fn" required />
+      <label for="ln">Last name *</label><input id="ln" name="ln" required />
+      <label for="em">Email address *</label><input id="em" name="em" type="email" required />
+      <label for="pc">Postal code</label><input id="pc" name="pc" />
+      <p id="err1" role="alert" hidden></p>
+      <button type="submit" id="next">Next &rarr;</button>
+    </section>
+
+    <section id="page2" hidden>
+      <p>Step 2 of 2</p>
+      <label for="cv">Resume *</label><input id="cv" name="cv" type="file" required />
+      <fieldset>
+        <legend>Are you legally authorized to work in Canada? *</legend>
+        <label><input type="radio" name="auth" value="yes" required /> Yes</label>
+        <label><input type="radio" name="auth" value="no" /> No</label>
+      </fieldset>
+      <label for="fr">French proficiency *</label>
+      <select id="fr" name="fr" required>
+        <option value="">Select...</option>
+        <option>Not fluent</option>
+        <option>Intermediate</option>
+        <option>Fluent</option>
+        <option>Native</option>
+      </select>
+      <label><input type="checkbox" id="privacy" name="privacy" required /> I have read the privacy notice and consent to the processing of my personal data for this application *</label>
+      <label><input type="checkbox" id="alerts" name="alerts" /> Send me job alerts and news about future opportunities</label>
+      <button type="button" id="back">Back</button>
+      <button type="submit" id="send">Submit application</button>
+    </section>
+  </form>
+
+  <script>
+    const form = document.getElementById("application-form");
+    let page = 1;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (page === 1) {
+        const missing = ["fn", "ln", "em"].filter((id) => !document.getElementById(id).value.trim());
+        const err = document.getElementById("err1");
+        if (missing.length) {
+          err.textContent = "Please fill in every required field.";
+          err.hidden = false;
+          return;
+        }
+        page = 2;
+        document.getElementById("page1").hidden = true;
+        document.getElementById("page2").hidden = false;
+        return;
+      }
+      window.__submitted = {
+        cv: document.getElementById("cv").files[0]?.name ?? null,
+        auth: document.querySelector("input[name=auth]:checked")?.value ?? null,
+        privacy: document.getElementById("privacy").checked,
+        alerts: document.getElementById("alerts").checked,
+      };
+      document.body.innerHTML = "<main><h1>Thank you for applying</h1><p>Your application has been submitted.</p></main>";
+    });
+    document.getElementById("back").addEventListener("click", () => {
+      page = 1;
+      document.getElementById("page1").hidden = false;
+      document.getElementById("page2").hidden = true;
+    });
+  </script>
+</body>
+</html>

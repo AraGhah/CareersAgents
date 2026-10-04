@@ -27,8 +27,12 @@ function scanForm(scopeSelector: string | null): RawField[] {
     const r = h.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  // File inputs are usually hidden behind an "Attach" button: judge their container instead.
+  // File inputs are usually hidden behind an "Attach" button: judge their container instead. Not when a whole section
+  // around it is hidden, though: that is another page of a multi-step form, not a styled control.
   const containerShown = (el: Element): boolean => {
+    for (let up: Element | null = el.parentElement; up && up !== document.body; up = up.parentElement) {
+      if (getComputedStyle(up).display === "none") return false;
+    }
     let node: Element | null = el.parentElement;
     for (let i = 0; node && i < 4; i++, node = node.parentElement) if (isShown(node)) return true;
     return false;
@@ -90,6 +94,12 @@ function scanForm(scopeSelector: string | null): RawField[] {
     const box = el.closest(QUESTION_BOX);
     return !!box && (/\brequired\b/.test(box.className?.toString() ?? "") || !!box.querySelector(".required, .asterisk, [class*='required']"));
   };
+
+  // A wizard keeps earlier steps in the page, hidden: their old stamps would collide with this read's indices.
+  for (const old of Array.from(document.querySelectorAll("[data-desk-field]"))) {
+    old.removeAttribute("data-desk-field");
+    old.removeAttribute("data-desk-option");
+  }
 
   const out: RawField[] = [];
   let index = 0;

@@ -16,11 +16,15 @@ export type PlanContext = {
   files: FileContext;
   answers: AnswerContext;
   autoApprove: boolean;
+  /** PORTAL_AUTO_CONFIRM_PERSONAL=true: personal answers from the bank and the application's own consent box need no click. */
+  autoConfirm?: boolean;
+  /** Which page of a multi-step form the fields are on (1 = the first). */
+  step?: number;
 };
 
 export async function planField(field: FormField, ctx: PlanContext): Promise<FieldDecision> {
   const intent = classifyField(field);
-  const common = { signature: field.signature, label: field.label, kind: field.kind, required: field.required, options: field.options, intent };
+  const common = { signature: field.signature, label: field.label, kind: field.kind, required: field.required, options: field.options, intent, step: ctx.step ?? 1 };
   if (intent === "open_question") {
     const a = await answerQuestion(field, ctx.answers);
     const passes = a.status === "generated" && blockingFailures(a.checks as LintCheck[]).length === 0;
@@ -29,7 +33,7 @@ export async function planField(field: FormField, ctx: PlanContext): Promise<Fie
     }
     return { ...common, ...a };
   }
-  const r = resolveField(field, intent, ctx.candidate, ctx.job, ctx.files);
+  const r = resolveField(field, intent, ctx.candidate, ctx.job, ctx.files, { autoConfirm: ctx.autoConfirm });
   return { ...common, ...r, checks: [] };
 }
 

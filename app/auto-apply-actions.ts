@@ -14,6 +14,7 @@ import { isGmailAuthError } from "../lib/auto-apply/apply";
 import { configuredMinScore } from "../lib/auto-apply/select";
 import { syncSentDrafts } from "../lib/auto-apply/sent";
 import { createRun, finishRun, requestStop } from "../lib/auto-apply/store";
+import { markApplicationSent } from "../lib/outreach";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -69,7 +70,23 @@ export async function stopAutoApplyAction(form: FormData) {
   redirect(`/auto-apply?run=${runId}`);
 }
 
-export type SentCheck = { checked: number; sent: number; waiting: number; deleted: number; error?: string };
+/**
+ * "J'ai postulé": an application you finished yourself (on LinkedIn, Workday, the company's form, or a draft you sent
+ * from another address) becomes "applied" (shown as "Envoyé"), dated now. A later status is never pulled back.
+ */
+export async function markAppliedAction(form: FormData) {
+  const applicationId = form.get("applicationId");
+  const runId = form.get("runId");
+  if (typeof applicationId !== "string" || !UUID.test(applicationId)) throw new Error("invalid application id");
+  await markApplicationSent(applicationId, "marked applied by you on /auto-apply (finished by hand)");
+  revalidatePath("/auto-apply");
+  revalidatePath("/pipeline");
+  revalidatePath("/board");
+  revalidatePath("/");
+  redirect(typeof runId === "string" && UUID.test(runId) ? `/auto-apply?run=${runId}&marked=${applicationId}#lot` : "/auto-apply#lot");
+}
+
+export type SentCheck ={ checked: number; sent: number; waiting: number; deleted: number; error?: string };
 
 /** Looks in Gmail for drafts you have sent since, and moves those applications to "Envoyé". Called by the page itself while it is open. */
 export async function checkSentAction(): Promise<SentCheck> {
