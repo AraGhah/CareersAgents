@@ -12,6 +12,7 @@ import {
   setApplicationStatus,
   startApplication,
   updateApplicationFields,
+  updateApplicationNotes,
 } from "../lib/queries";
 import {
   buildApplicationPackage,
@@ -24,6 +25,7 @@ import { detectInternshipCategories, isInternshipCategory } from "../lib/interns
 import type { InternshipCategory } from "../lib/internship-category";
 import { detectLetterLang, parseLinks } from "../lib/letter";
 import { pool } from "../lib/db";
+import { BlockedUrlError, safeFetch } from "../lib/net-guard";
 import { createOutreachDraft, buildPersonalizedOutreach, saveApplicationDraft } from "../lib/outreach";
 import { findRecipientForApplication } from "../lib/contact-discovery";
 import { loadStoredPackage } from "../lib/package-store";
@@ -163,18 +165,19 @@ export async function analyzeJobUrl(rawUrl: string): Promise<JobUrlAnalysis> {
   const hostname = url.hostname.replace(/^www\./, "");
 
   try {
-    const res = await fetch(url.toString(), {
-      redirect: "follow",
+    // A pasted link is opened only when it is a public web page: never this machine or its network.
+    const res = await safeFetch(url.toString(), {
       headers: {
         "user-agent": "InternshipDesk/0.1 (+manual job add)",
         accept: "text/html,application/xhtml+xml",
       },
-      signal: AbortSignal.timeout(12000),
+      timeoutMs: 12000,
+      maxBytes: 2_000_000,
     });
     if (!res.ok) {
       return { ok: false, title: null, description: null, location: null, hostname, error: `HTTP ${res.status}` };
     }
-    const html = await res.text();
+    const html = res.text;
 
     const ogTitle = firstMetaMatch(html, [
       /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
@@ -204,7 +207,7 @@ export async function analyzeJobUrl(rawUrl: string): Promise<JobUrlAnalysis> {
       description: null,
       location: null,
       hostname,
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof BlockedUrlError ? `Lien refusé : ${err.message}` : "La page n'a pas pu être lue.",
     };
   }
 }
@@ -283,11 +286,9 @@ export async function changeStatus(form: FormData) {
 
 export async function saveApplication(form: FormData) {
   const id = required(form, "applicationId");
-  await updateApplicationFields(id, {
-    notes: text(form, "notes"),
-    resumePath: text(form, "resumePath"),
-    coverLetterPath: text(form, "coverLetterPath"),
-  });
+  // Only the notes come from the form. The CV and letter paths are set by the desk itself: a path typed into a request
+  // would otherwise be served as a download and attached to emails.
+  await updateApplicationNotes(id, text(form, "notes"));
   revalidatePath(`/applications/${id}`);
 }
 

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { NounFlag } from "./letter";
 import type { ChecklistItem } from "./package";
+import { safeDeskPath } from "./safe-path";
 export type StoredPackage = {
   dir: string;
   letter: string | null;
@@ -35,7 +36,9 @@ type ChecklistFile = {
   emailWordCount?: number;
 };
 
-export async function loadStoredPackage(coverLetterPath: string | null): Promise<StoredPackage | null> {
+export async function loadStoredPackage(storedPath: string | null): Promise<StoredPackage | null> {
+  // The package folder is one the desk wrote, under applications/: any other path reads nothing.
+  const coverLetterPath = safeDeskPath(storedPath);
   if (!coverLetterPath) return null;
   const dir = path.dirname(coverLetterPath);
   const base = path.basename(coverLetterPath);

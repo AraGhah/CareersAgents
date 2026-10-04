@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -H 127.0.0.1 -p 3001",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "seed:answers": "tsx seed/answers.ts",
@@ -68,7 +68,7 @@
     "exceljs": "^3.4.0",
     "google-auth-library": "^11.1.0",
     "googleapis": "^181.0.0",
-    "next": "16.3.5",
+    "next": "^16.3.8",
     "node-cron": "^4.6.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
@@ -86,8 +86,11 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "^16.3.8",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

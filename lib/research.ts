@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { safeFetch } from "./net-guard";
 import { createMessage, pickModel, tokenLimit, type Tier } from "./claude";
 import { pool } from "./db";
 import { usableCompanyFact } from "./letter";
@@ -87,16 +88,17 @@ function metaDescription(html: string): string {
 
 async function fetchText(url: string): Promise<{ url: string; text: string; meta: string } | null> {
   try {
-    const res = await fetch(url, {
-      redirect: "follow",
+    // The website comes from scraped data: only a public page is read, up to 2 MB.
+    const res = await safeFetch(url, {
       headers: {
         "user-agent": "InternshipDesk/0.1 (+local company research)",
         accept: "text/html,application/xhtml+xml",
       },
-      signal: AbortSignal.timeout(12000),
+      timeoutMs: 12000,
+      maxBytes: 2_000_000,
     });
     if (!res.ok) return null;
-    const html = await res.text();
+    const html = res.text;
     const text = stripHtml(html).slice(0, 12000);
     if (text.length < 80) return null;
     return { url: res.url || url, text, meta: metaDescription(html) };

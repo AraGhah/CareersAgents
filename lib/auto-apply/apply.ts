@@ -174,6 +174,8 @@ async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<Ap
       return skipped(`Formulaire non envoyé : ${run.reason}`, "portal");
     case "duplicate":
       return skipped(`Déjà envoyée : ${run.reason}`, "portal");
+    case "busy":
+      return skipped(`Déjà en cours ailleurs : ${run.reason}`, "portal");
     default:
       return failed(`Formulaire : ${run.state} (${run.reason})`, "portal");
   }

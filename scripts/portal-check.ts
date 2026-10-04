@@ -433,7 +433,8 @@ async function main() {
   // Browser part.
   const dir = path.join(process.cwd(), "scripts", "fixtures", "portal");
   const { server, base } = await serve(dir);
-  const cache = path.join("cache", "portal-check");
+  // Under applications/: the form filler only uploads files the desk stores there or in resumes/.
+  const cache = path.join("applications", "_portal-check");
   await mkdir(cache, { recursive: true });
   const resumePath = path.join(cache, "Ara-Ghahramanyan-CV.pdf");
   const letterPath = path.join(cache, "cover-letter.en.pdf");

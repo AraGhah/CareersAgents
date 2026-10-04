@@ -137,11 +137,18 @@ docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < s
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v12.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v13.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v14.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v15.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import
 npm run dev
 ```
+
+**Who can reach it.** The desk has no accounts: `npm run dev` and `npm start` listen on 127.0.0.1 only, and
+`proxy.ts` answers only requests addressed to this machine (localhost, 127.0.0.1, ::1), refusing other Host
+names (DNS rebinding) and cross-site form posts. To open it from another device, set `DESK_ALLOWED_HOSTS` to
+the name you use, set `DESK_ACCESS_TOKEN` to a long random value, start Next with `-H 0.0.0.0`, and open
+`/?token=<value>` once in each browser.
 
 Every command in this README that looks like `name:check` is an npm script, so it is run as
 `npm run name:check` (typed alone, PowerShell says the term is not recognized). The database
@@ -569,6 +576,10 @@ PORTAL_ACCOUNT_PASSWORD="a password used nowhere else"
   read nowhere else: never logged, never saved (no table, file or plan; `portal_accounts` has no password
   column), and masked from every run log and saved error. Use a password you use nowhere else: every
   portal it creates an account on then holds a copy of it.
+- **Where it is typed.** Only over https, on a known application system (Workday, iCIMS, Taleo,
+  SuccessFactors, SmartRecruiters...) or a host you list in `PORTAL_ACCOUNT_HOSTS` (comma-separated,
+  subdomains included). Postings come from scraped listings, and one password serves every portal: a
+  look-alike sign-in page on any other host is stopped with its name, and receives nothing.
 - **When.** Never from `--queue` or `automate`, so a discovery run cannot open accounts in your name.
   `--no-accounts` turns it off for one run.
 - **What it does on the account page:** signs in when it knows an account exists on that portal, else goes

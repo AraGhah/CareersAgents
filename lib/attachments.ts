@@ -5,6 +5,7 @@ import { detectInternshipCategories } from "./internship-category";
 import { detectLetterLang, type LetterLang } from "./letter";
 import { loadApplicantContact } from "./package";
 import { resolveResumeForJob } from "./resumes";
+import { safeDeskPath } from "./safe-path";
 import type { ApplicationDetail } from "./types";
 
 // The two files that go with an application email: the CV and the cover letter PDF. One place decides
@@ -27,7 +28,8 @@ const TYPES: Record<string, string> = {
 
 /**
  * The application's CV and cover letter, in that order, with the names they are sent under. Only paths
- * recorded for this application are used, and only document types; a file that is not set is left out.
+ * recorded for this application are used, only document types, and only files the desk wrote itself (under
+ * resumes/ or applications/); a file that is not set, or lies anywhere else, is left out.
  */
 export async function applicationFiles(app: ApplicationDetail): Promise<ApplicationFile[]> {
   // The letter's own language (it is in the file name), so "Lettre de motivation" goes with a French letter.
@@ -45,10 +47,11 @@ export async function applicationFiles(app: ApplicationDetail): Promise<Applicat
 
   const files: ApplicationFile[] = [];
   const add = (kind: ApplicationFile["kind"], file: string | null, name: (ext: string) => string) => {
-    if (!file) return;
-    const ext = path.extname(file).toLowerCase();
+    const safe = safeDeskPath(file);
+    if (!safe) return;
+    const ext = path.extname(safe).toLowerCase();
     const contentType = TYPES[ext];
-    if (contentType) files.push({ kind, path: file, filename: name(ext), contentType });
+    if (contentType) files.push({ kind, path: safe, filename: name(ext), contentType });
   };
   add("cv", cvPath, (ext) => `CV - ${fullName}${ext}`);
   add("letter", app.cover_letter_path, (ext) => `${lang === "fr" ? "Lettre de motivation" : "Cover Letter"} - ${company}${ext}`);

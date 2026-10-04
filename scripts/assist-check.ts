@@ -2,7 +2,10 @@
 // portal submit (lib/apply/submit.ts), and field planning works.
 //   npx tsx scripts/assist-check.ts
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync as readRaw, readdirSync, statSync } from "node:fs";
+
+/** Source text with "\n" line endings, whatever the checkout uses (git on Windows writes CRLF). */
+const readFileSync = (file: string, encoding: "utf8") => readRaw(file, encoding).replace(/\r\n/g, "\n");
 import path from "node:path";
 import { looksLikeSubmit, planFields } from "../lib/assist-fields";
 import type { Answer } from "../lib/types";

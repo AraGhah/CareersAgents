@@ -7,9 +7,9 @@ import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Page } from "playwright";
-import { accountCredentials, portalHost, redact } from "../lib/apply/account-config";
+import { accountCredentials, accountHostAllowed, portalHost, redact } from "../lib/apply/account-config";
 import { accountPageKind, classifyAccountPage, passAccountWall, type AccountState } from "../lib/apply/account";
-import { pickVerificationLink, type MailMessage } from "../lib/apply/account-mail";
+import { pickVerificationLink, registrable, type MailMessage } from "../lib/apply/account-mail";
 import { wizardReason } from "../lib/apply/platforms";
 
 let failures = 0;
@@ -75,6 +75,15 @@ function unitChecks() {
   check(pick([mail({ html: '<a href="https://careers.acme.com/unsubscribe?verify=1">unsubscribe</a><a href="https://careers.acme.com/confirm/9">Confirm</a>' })]) === "https://careers.acme.com/confirm/9", "unsubscribe, privacy and terms links are skipped");
   check(pick([mail({ receivedMs: now - 3_600_000, html: '<a href="https://careers.acme.com/verify/old">Verify</a>' })]) === null, "a message from before the account was created is ignored");
   check(pick([mail({ subject: "Your weekly jobs", html: '<a href="https://careers.acme.com/jobs/1">Job</a>' })]) === null, "a message that does not read like verification is ignored");
+  check(pick([mail({ html: '<a href="https://evil.co.uk/verify?t=1">Verify</a>' })], "careers.acme.co.uk") === null, "another site under the same country suffix (.co.uk) is not the portal's own");
+  check(registrable("careers.acme.qc.ca") === "acme.qc.ca" && registrable("a.wd1.myworkdayjobs.com") === "myworkdayjobs.com", "the registered name keeps a country's second level");
+
+  console.log("\nwhere the account password may be typed");
+  check(accountHostAllowed("https://acme.wd3.myworkdayjobs.com/en-US/careers/login"), "a Workday tenant over https");
+  check(!accountHostAllowed("http://acme.wd3.myworkdayjobs.com/login"), "never over plain http");
+  check(!accountHostAllowed("https://myworkdayjobs.com.evil.example/login") && !accountHostAllowed("https://evilmyworkdayjobs.com/login"), "look-alike hosts are refused");
+  check(!accountHostAllowed("https://careers.acme.com/login"), "an employer's own host is refused unless listed");
+  check(accountHostAllowed("https://jobs.careers.acme.com/login", { PORTAL_ACCOUNT_HOSTS: "careers.acme.com" }), "…and accepted once listed in PORTAL_ACCOUNT_HOSTS (subdomains included)");
   check(pick([mail({ subject: "Confirmez votre compte", text: "Cliquez ici: https://careers.acme.com/confirmer?code=1." })]) === "https://careers.acme.com/confirmer?code=1", "a French, text-only message");
 }
 
@@ -101,6 +110,8 @@ async function main() {
           allLogs.push(l);
         },
         record: async (h, s, n) => void records.push([h, s, n]),
+        // The fixtures are served on http://127.0.0.1; the host rule itself is checked on its own below.
+        hostAllowed: () => true,
         ...over,
       });
       return { outcome, records, logs };
@@ -215,6 +226,16 @@ async function main() {
       await context.close();
     }
 
+    console.log("\nthe password is typed only on a known application system");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-signin.html`);
+      const r = await run(page, { known: "created", hostAllowed: undefined });
+      check(!r.outcome.ok && /not a known application system/.test(r.outcome.reason), "an unknown host (here the fixture server) never receives the password", r.outcome);
+      check((await stored(page)) === null, "…and nothing was typed into it");
+      await context.close();
+    }
+
     console.log("\nWorkday-shaped pages (the ids are not checked against a live tenant)");
     {
       const { context, page } = await session();
@@ -234,7 +255,8 @@ async function main() {
 
   console.log("\nthe password stays where it belongs");
   check(allLogs.length > 0 && !allLogs.some((l) => l.includes(CREDS.password)), "no log line of any run contained the password", allLogs.filter((l) => l.includes(CREDS.password)));
-  const source = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
+  // "\n" line endings whatever the checkout uses, so the scans below match on Windows (CRLF) too.
+  const source = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8").replace(/\r\n/g, "\n");
   const account = source(path.join("lib", "apply", "account.ts"));
   const uses = account.split("\n").filter((l) => /\.password/.test(l) && !l.trim().startsWith("//") && !l.trim().startsWith("*"));
   check(uses.every((l) => /\.fill\(ctx\.creds\.password\)|\.length !== ctx\.creds\.password\.length|!ctx\.creds\.password/.test(l)), "account.ts uses the password only to type it, compare its length and check it is set", uses);

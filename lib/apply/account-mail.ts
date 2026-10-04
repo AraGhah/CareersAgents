@@ -7,16 +7,14 @@
 //   - and it is not an unsubscribe, privacy or terms link.
 
 import { getGmail } from "../gmail";
+import { isPublicUrl } from "../net-guard";
+import { APPLICATION_SYSTEMS } from "./account-config";
 
 export type MailMessage = { from: string; subject: string; receivedMs: number; text: string; html: string };
 
 const VERIFY_CUE = /verif|confirm|activat|validat|v[ée]rifi|confirmer|activer|valider|registration|inscription/i;
 const VERIFY_LINK = /verif|confirm|activat|validat|token|registration|register|account|activer|valider|inscription/i;
 const NOT_A_LINK = /unsubscribe|d[ée]sabonn|privacy|confidentialit|terms|conditions|preferences|help|support|\.(?:png|jpe?g|gif|svg|css|js|ico)(?:\?|$)/i;
-
-/** Application systems that mail their own verification links, whatever the employer's own domain is. */
-const APPLICATION_SYSTEMS =
-  /(?:^|\.)(?:myworkdayjobs\.com|myworkdaysite\.com|myworkday\.com|workday\.com|icims\.com|taleo\.net|successfactors\.(?:com|eu)|oraclecloud\.com|ultipro\.(?:com|ca)|brassring\.com|jobvite\.com|smartrecruiters\.com|njoyn\.com|applytojob\.com|bamboohr\.com|teamtailor\.com|recruitee\.com|adp\.com|eightfold\.ai)$/i;
 
 function hostOf(url: string): string | null {
   try {
@@ -26,9 +24,18 @@ function hostOf(url: string): string | null {
   }
 }
 
-/** "autodesk.wd1.myworkdayjobs.com" → "myworkdayjobs.com": the last two labels, which is enough to tell sites apart here. */
-function registrable(host: string): string {
-  return host.split(".").slice(-2).join(".");
+/** Second-level labels under which a country code registers names ("acme.co.uk", "acme.qc.ca", "acme.com.au"). */
+const SECOND_LEVEL = new Set(["co", "com", "net", "org", "gov", "gouv", "ac", "edu", "ltd", "plc", "qc", "on", "bc", "ab", "mb", "ns", "nb"]);
+
+/**
+ * "autodesk.wd1.myworkdayjobs.com" → "myworkdayjobs.com", "careers.acme.co.uk" → "acme.co.uk": the name the site was
+ * registered under. The last two labels alone would make every *.co.uk site the same one.
+ */
+export function registrable(host: string): string {
+  const labels = host.split(".");
+  const twoLetterTld = labels.at(-1)?.length === 2;
+  const keep = labels.length >= 3 && twoLetterTld && SECOND_LEVEL.has(labels.at(-2) ?? "") ? 3 : 2;
+  return labels.slice(-keep).join(".");
 }
 
 function linksIn(message: MailMessage): Array<{ url: string; text: string }> {
@@ -98,7 +105,8 @@ export async function gmailVerificationLink(host: string, sinceMs: number, opts:
       seen.set(id, { from: header("from"), subject: header("subject"), receivedMs, ...body });
     }
     const link = pickVerificationLink([...seen.values()], host, sinceMs);
-    if (link) return link;
+    // A link from a mailbox is opened in the desk's browser: only one that leads to a public site.
+    if (link && (await isPublicUrl(link))) return link;
     await new Promise((r) => setTimeout(r, opts.pollMs ?? 6000));
   }
   return null;

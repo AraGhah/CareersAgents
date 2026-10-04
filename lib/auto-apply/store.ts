@@ -112,11 +112,17 @@ export async function liveRun(): Promise<AutoApplyRun | null> {
 export async function createRun(requested: number, minScore: number): Promise<string> {
   const live = await liveRun();
   if (live) throw new Error("A batch is already running.");
-  const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO auto_apply_runs (requested, min_score) VALUES ($1, $2) RETURNING id`,
-    [requested, minScore],
-  );
-  return rows[0].id;
+  try {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO auto_apply_runs (requested, min_score) VALUES ($1, $2) RETURNING id`,
+      [requested, minScore],
+    );
+    return rows[0].id;
+  } catch (err) {
+    // Two clicks at once both pass the check above; the index of schema-v15.sql lets only one insert through.
+    if ((err as { code?: string }).code === "23505") throw new Error("A batch is already running.");
+    throw err;
+  }
 }
 
 export async function getRun(id: string): Promise<AutoApplyRun | null> {

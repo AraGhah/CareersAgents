@@ -16,6 +16,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { pool } from "../db";
+import { withLock } from "../db-lock";
 import { detectLetterLang } from "../letter";
 import { getApplication, setApplicationStatus } from "../queries";
 import { logWorkflow } from "../recruiter";
@@ -53,6 +54,7 @@ import {
   type PlatformAdapter,
 } from "./platforms";
 import { preflightPasses, runPreflight } from "./preflight";
+import { assertPublicUrl, blockPrivateNetwork } from "../net-guard";
 import { selectResume } from "./resume-select";
 import { decideChannel, saveChannel } from "./route";
 import {
@@ -61,11 +63,12 @@ import {
   latestPlannedRun,
   listApprovals,
   logPortalError,
+  markSubmitClicked,
   planIsComplete,
   saveFields,
   updateRun,
 } from "./store";
-import { submitApplication, submitEnabled } from "./submit";
+import { submitApplication, submitEnabled, type SubmitOutcome } from "./submit";
 import type { FieldDecision, FormField, PreflightItem, RunMode, RunState } from "./types";
 
 export type RunOptions = {
@@ -87,7 +90,8 @@ export type RunOptions = {
 
 export type RunResult = {
   runId: string | null;
-  state: RunState | "email" | "skipped";
+  /** "busy": another run is working on this application right now; nothing was done. */
+  state: RunState | "email" | "skipped" | "busy";
   reason: string;
   preflight: PreflightItem[];
   decisions: FieldDecision[];
@@ -164,7 +168,8 @@ async function openForm(
   ctx: { boardToken: string | null; externalId: string | null },
 ): Promise<{ adapter: PlatformAdapter; page: Page }> {
   let adapter = adapterFor(url);
-  await page.goto(adapter.formUrl(url, ctx), { waitUntil: "domcontentloaded", timeout: 60000 });
+  // The form's address comes from a posting or a job board: only a public web page is opened.
+  await page.goto((await assertPublicUrl(adapter.formUrl(url, ctx))).toString(), { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
   let current = await revealApplicationForm(page, adapter);
   // A company page often forwards to a real ATS (or opens it in a new tab): switch to that adapter.
@@ -172,7 +177,7 @@ async function openForm(
   if (landed.id !== adapter.id && landed.id !== "generic") {
     adapter = landed;
     const wanted = adapter.formUrl(current.url(), ctx);
-    if (current.url() !== wanted) await current.goto(wanted, { waitUntil: "domcontentloaded", timeout: 60000 });
+    if (current.url() !== wanted) await current.goto((await assertPublicUrl(wanted)).toString(), { waitUntil: "domcontentloaded", timeout: 60000 });
     current = await revealApplicationForm(current, adapter);
   }
   await current.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => undefined);
@@ -183,7 +188,19 @@ async function readFields(page: Page, adapter: PlatformAdapter): Promise<FormFie
   return extractFieldsWithOptions(page, await scopeSelector(page, adapter));
 }
 
+/**
+ * One run per application at a time, whichever process starts it (the auto-apply batch, a button on the application
+ * page, `npm run portal`): two browsers on the same form would fill it, and maybe submit it, twice.
+ */
 export async function runPortalApplication(applicationId: string, opts: RunOptions): Promise<RunResult> {
+  const held = await withLock("portal-run", applicationId, () => runPortalApplicationLocked(applicationId, opts), { wait: false });
+  if (held.ok) return held.value;
+  const reason = "Another run is already working on this application (a browser window may still be open on it): finish or close that one first.";
+  (opts.log ?? (() => undefined))(reason);
+  return { runId: null, state: "busy", reason, preflight: [], decisions: [] };
+}
+
+async function runPortalApplicationLocked(applicationId: string, opts: RunOptions): Promise<RunResult> {
   const creds = opts.allowAccounts ? accountCredentials() : null;
   // Whatever is logged may carry the account's password (a page error quoting what was typed): it never does.
   const log = (line: string) => (opts.log ?? (() => undefined))(redact(line, creds));
@@ -249,6 +266,8 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
     const forceHeadless = process.env.PORTAL_HEADLESS?.trim().toLowerCase() === "true";
     browser = await chromium.launch({ headless: forceHeadless || (opts.mode === "plan" ? !opts.headed : false) });
     const context = await browser.newContext({ locale: lang === "fr" ? "fr-CA" : "en-CA" });
+    // Nothing the employer's page loads may reach this machine's own network.
+    await blockPrivateNetwork(context);
     page = await context.newPage();
     const opened = await openForm(page, target.url, { boardToken: board.board_token, externalId: board.external_id });
     const adapter = opened.adapter;
@@ -580,12 +599,35 @@ export async function runPortalApplication(applicationId: string, opts: RunOptio
     for (const item of preflight) log(`${item.ok ? "✓" : item.blocking ? "✗" : "!"} ${item.label}${item.detail ? `: ${item.detail}` : ""}`);
 
     const qualityOk = preflight.filter((i) => !["not_target", "submit_enabled"].includes(i.id)).every((i) => i.ok || !i.blocking);
+    let submitted: { outcome: SubmitOutcome; shot: string | null } | null = null;
     if (submitRequested && preflightPasses(preflight)) {
       stage = "submit";
-      const outcome = await submitApplication(page, adapter, preflight);
-      const shot = await screenshot(page, runId, outcome.state);
+      // One submit at a time across every process, with the daily count read again inside: two runs that both saw
+      // "9 of 10" earlier cannot both send the 10th. A submitted run is recorded before the lock is let go.
+      const livePage = page;
+      submitted = (
+        await withLock(
+          "portal-submit",
+          "daily-limit",
+          async () => {
+            if ((await submittedToday()) >= dailyLimit()) return null;
+            const outcome = await submitApplication(livePage, adapter, preflight, { beforeClick: () => markSubmitClicked(runId, true) });
+            const shot = await screenshot(livePage, runId, outcome.state);
+            if (outcome.state === "submitted") {
+              await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: outcome.confirmation, screenshot_path: shot });
+            } else if (!outcome.maybeSent) {
+              await markSubmitClicked(runId, false);
+            }
+            return { outcome, shot };
+          },
+          { wait: true },
+        ).then((r) => (r.ok ? r.value : null))
+      );
+      if (!submitted) limitNote = `Daily limit of ${dailyLimit()} automatic submissions reached (PORTAL_DAILY_LIMIT).`;
+    }
+    if (submitted) {
+      const { outcome, shot } = submitted;
       if (outcome.state === "submitted") {
-        await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: outcome.confirmation, screenshot_path: shot });
         await setApplicationStatus(app.id, "applied", `portal application submitted (${adapter.label})`);
         await logWorkflow(app.id, "portal_submit", true, outcome.confirmation);
         log(`submitted: ${outcome.confirmation}`);

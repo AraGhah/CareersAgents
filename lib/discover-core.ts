@@ -68,13 +68,21 @@ function decodeEntities(value: string): string {
     .replace(/&#x27;/gi, "'");
 }
 
+/**
+ * Plain text from a posting's HTML. Some boards (Greenhouse) send the HTML itself entity-escaped ("&lt;p&gt;"): that is
+ * unescaped first, once. Tags are then removed, and only after that are the remaining entities decoded, so text that
+ * reads "&lt;tag&gt;" on the page stays as written instead of being taken for markup and deleted.
+ */
 export function htmlToText(value: string | null | undefined): string | null {
   if (!value) return null;
-  const once = decodeEntities(value);
-  const text = decodeEntities(once)
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
+  const escapedHtml = !/<[a-z!/]/i.test(value) && /&lt;\/?[a-z!]/i.test(value);
+  const html = escapedHtml ? decodeEntities(value) : value;
+  const text = decodeEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " "),
+  )
     .replace(/\s+/g, " ")
     .trim();
   return text || null;

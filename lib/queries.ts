@@ -16,6 +16,13 @@ import type {
   WorkplaceType,
 } from "./types";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True for an id Postgres can compare to a uuid column. Anything else is "not found", never a database error. */
+export function isUuid(id: string): boolean {
+  return UUID.test(id);
+}
+
 export const SCORE_CTE = `
   WITH latest AS (
     SELECT job_id, MAX(scored_at) AS scored_at
@@ -184,6 +191,7 @@ export function collapseCopies(rows: JobRow[], taken: Array<{ company_id: string
 }
 
 export async function getJob(id: string): Promise<JobDetail | null> {
+  if (!isUuid(id)) return null;
   const { rows } = await pool.query<Omit<JobDetail, "components">>(
     `${SCORE_CTE}
      SELECT j.id, j.title, j.location, j.workplace_type, j.url, j.description,
@@ -302,6 +310,7 @@ export async function startApplication(jobId: string): Promise<string> {
 }
 
 export async function getApplication(id: string): Promise<ApplicationDetail | null> {
+  if (!isUuid(id)) return null;
   const { rows } = await pool.query<ApplicationDetail>(
     `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.resume_id, a.notes,
             j.id AS job_id, j.title, j.location, j.workplace_type, j.url, j.description,
@@ -392,6 +401,11 @@ export async function updateApplicationFields(
       WHERE id = $1`,
     [id, fields.notes, fields.resumePath, fields.coverLetterPath],
   );
+}
+
+/** Notes only: the file paths are the desk's to set (package build, CV choice), never a form's. */
+export async function updateApplicationNotes(id: string, notes: string | null) {
+  await pool.query(`UPDATE applications SET notes = $2 WHERE id = $1`, [id, notes]);
 }
 
 export async function listContactsForCompany(companyId: string) {

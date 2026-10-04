@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -58,7 +59,8 @@ export async function loadTokens(): Promise<GmailTokens | null> {
 
 export async function saveTokens(tokens: GmailTokens) {
   await mkdir(path.dirname(TOKEN_PATH), { recursive: true });
-  await writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), "utf8");
+  // Readable by this user only (POSIX; on Windows the folder's own permissions apply).
+  await writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
 export async function getAuthorizedClient() {
@@ -112,10 +114,13 @@ export async function runLocalAuth(): Promise<GmailTokens> {
   const callbackPath = new URL(redirectUri).pathname;
 
   const client = createOAuthClient(redirectUri);
+  // Ties the callback to this sign-in: a code delivered by any other page (someone else's account) is refused.
+  const state = randomBytes(24).toString("hex");
   const authUrl = client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: GMAIL_SCOPES,
+    state,
   });
 
   console.log("Open this URL, sign in, and approve readonly + compose:\n");
@@ -133,6 +138,12 @@ export async function runLocalAuth(): Promise<GmailTokens> {
         const incoming = new URL(req.url, redirectUri);
         const code = incoming.searchParams.get("code");
         const err = incoming.searchParams.get("error");
+        if (incoming.searchParams.get("state") !== state) {
+          // Not this sign-in's callback: answered and ignored, the listener keeps waiting for the real one.
+          res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+          res.end("This authorization does not belong to the sign-in started in the terminal.");
+          return;
+        }
         if (err) throw new Error(`OAuth error: ${err}`);
         if (!code) throw new Error("OAuth callback missing code");
         const result = await client.getToken(code);
@@ -199,14 +210,30 @@ export type GmailAttachment = {
 };
 
 /**
+ * A header value on one line. A line break inside one (a job title scraped with a newline in it) would end the header
+ * and start another, such as a Bcc nobody asked for; control characters go the same way.
+ */
+export function oneLineHeader(value: string): string {
+  return value.replace(/[\r\n\t\v\f\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s{2,}/g, " ").trim();
+}
+
+/**
  * RFC 2822 header fields are US-ASCII by default — the message's
  * `charset="UTF-8"` declaration only covers the body, never headers. An
  * unencoded em dash or accented character in the Subject line renders as
  * mojibake in most clients unless it's wrapped as an RFC 2047 encoded-word.
  */
-function encodeHeaderValue(value: string): string {
+function encodeHeaderValue(raw: string): string {
+  const value = oneLineHeader(raw);
   if (!/[^\x00-\x7F]/.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
+}
+
+/** A recipient: one plain address, never a header line of its own. */
+function recipientHeader(to: string): string {
+  const value = oneLineHeader(to);
+  if (!/^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(value)) throw new Error(`Invalid recipient address: ${value.slice(0, 80)}`);
+  return value;
 }
 
 function wrapBase64(value: string): string {
@@ -225,7 +252,7 @@ export function buildRawMessage(opts: {
 }): string {
   const attachments = opts.attachments ?? [];
   const headers = [
-    ...(opts.to ? [`To: ${opts.to}`] : []),
+    ...(opts.to ? [`To: ${recipientHeader(opts.to)}`] : []),
     `Subject: ${encodeHeaderValue(opts.subject)}`,
     "MIME-Version: 1.0",
   ];
@@ -251,11 +278,13 @@ export function buildRawMessage(opts: {
   ];
   for (const att of attachments) {
     // Plain-ASCII name for old clients, and the real one (accents included) as an RFC 2231 parameter.
-    const ascii = att.filename.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/"/g, "'") || "attachment";
-    const utf8 = `UTF-8''${encodeURIComponent(att.filename)}`;
+    const name = oneLineHeader(att.filename);
+    const ascii = name.normalize("NFKD").replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "'") || "attachment";
+    const utf8 = `UTF-8''${encodeURIComponent(name)}`;
+    const contentType = /^[\w.+-]+\/[\w.+-]+$/.test(att.contentType) ? att.contentType : "application/octet-stream";
     parts.push(
       `--${boundary}`,
-      `Content-Type: ${att.contentType}; name="${ascii}"; name*=${utf8}`,
+      `Content-Type: ${contentType}; name="${ascii}"; name*=${utf8}`,
       "Content-Transfer-Encoding: base64",
       `Content-Disposition: attachment; filename="${ascii}"; filename*=${utf8}`,
       "",

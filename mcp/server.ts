@@ -265,7 +265,7 @@ server.registerTool(
   "set_application_status",
   {
     description:
-      "Update an application status. Reversible. Does not submit anything externally.",
+      "Update an application status. Does not submit anything externally. Moving to 'applied' also stamps the submit date and schedules follow-ups (7 and 14 days), which a later status change does not undo.",
     inputSchema: {
       applicationId: z.string().uuid(),
       status: z.enum(APPLICATION_STATUSES),
@@ -273,7 +273,11 @@ server.registerTool(
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
   async ({ applicationId, status }) => {
-    await setApplicationStatus(applicationId, status as ApplicationStatus);
+    try {
+      await setApplicationStatus(applicationId, status as ApplicationStatus);
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
     const { rows } = await pool.query(
       `SELECT id, status, submitted_at FROM applications WHERE id = $1`,
       [applicationId],

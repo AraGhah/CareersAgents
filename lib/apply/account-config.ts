@@ -6,6 +6,8 @@
 //   - it is typed into a password field and read nowhere else: never logged, never stored (no table, no file, no plan)
 //   - any line that might carry it goes through redact() first
 //   - an account is created only on a run you start for one application, never from the queue or `automate`
+//   - it is typed only on a known application system (Workday, iCIMS...) over https, or a host you list yourself in
+//     PORTAL_ACCOUNT_HOSTS: one password serves every portal, so a look-alike page must never receive it
 
 export type AccountCredentials = { email: string; password: string };
 
@@ -32,4 +34,29 @@ export function portalHost(url: string): string {
   } catch {
     return "";
   }
+}
+
+/** Application systems that host employer accounts (and mail their verification links), whatever the employer's domain. */
+export const APPLICATION_SYSTEMS =
+  /(?:^|\.)(?:myworkdayjobs\.com|myworkdaysite\.com|myworkday\.com|workday\.com|icims\.com|taleo\.net|successfactors\.(?:com|eu)|oraclecloud\.com|ultipro\.(?:com|ca)|brassring\.com|jobvite\.com|smartrecruiters\.com|njoyn\.com|applytojob\.com|bamboohr\.com|teamtailor\.com|recruitee\.com|adp\.com|eightfold\.ai)$/i;
+
+/**
+ * May the account's password be typed on this page? Only over https, and only on a known application system or a host
+ * listed (comma-separated, subdomains included) in PORTAL_ACCOUNT_HOSTS.
+ */
+export function accountHostAllowed(url: string, env: Record<string, string | undefined> = process.env): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (APPLICATION_SYSTEMS.test(host)) return true;
+  const listed = (env.PORTAL_ACCOUNT_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase().replace(/^www\./, ""))
+    .filter(Boolean);
+  return listed.some((h) => host === h || host.endsWith(`.${h}`));
 }

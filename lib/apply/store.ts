@@ -91,6 +91,20 @@ export async function finishRun(id: string, state: RunState, patch: RunPatch = {
   await updateRun(id, { ...patch, state, finished_at: new Date() });
 }
 
+/**
+ * Records (or clears) that this run clicked a final Submit (schema-v15.sql). Set before the click; cleared when the
+ * portal plainly refused the submission, so only a click that may have gone through keeps the application from being
+ * tried again.
+ */
+export async function markSubmitClicked(runId: string, clicked: boolean): Promise<void> {
+  try {
+    await pool.query(`UPDATE portal_runs SET submit_clicked_at = ${clicked ? "now()" : "NULL"} WHERE id = $1`, [runId]);
+  } catch (err) {
+    // Before schema-v15.sql there is no such column: the run is still recorded as blocked, as it always was.
+    if ((err as { code?: string }).code !== "42703") throw err;
+  }
+}
+
 export async function saveFields(runId: string, decisions: FieldDecision[]): Promise<void> {
   for (const d of decisions) {
     await pool.query(
@@ -203,14 +217,20 @@ export async function listPortalErrors(limit = 50) {
  * approved or rewritten become writing samples, which is how later answers learn
  * the candidate's voice.
  */
-export async function approveField(opts: { fieldId: string; value: string; applicationId: string; lang: Lang }): Promise<void> {
+export async function approveField(opts: { fieldId: string; value: string; applicationId: string; runId?: string; lang: Lang }): Promise<void> {
+  // The field must be one of this application's (and this run's, when given): a value is never written into another
+  // application's plan, nor recorded as a writing sample under the wrong one.
   const { rows } = await pool.query<PortalFieldRow>(
-    `SELECT id, run_id, signature, label, kind, required, options, intent, source, value, status, reason, checks, edited, approved_at, step
-       FROM portal_fields WHERE id = $1`,
-    [opts.fieldId],
+    `SELECT f.id, f.run_id, f.signature, f.label, f.kind, f.required, f.options, f.intent, f.source, f.value, f.status, f.reason,
+            f.checks, f.edited, f.approved_at, f.step
+       FROM portal_fields f JOIN portal_runs r ON r.id = f.run_id
+      WHERE f.id = $1 AND r.application_id = $2 AND ($3::uuid IS NULL OR f.run_id = $3::uuid)`,
+    [opts.fieldId, opts.applicationId, opts.runId ?? null],
   );
   const field = rows[0];
-  if (!field) throw new Error("field not found");
+  if (!field) throw new Error("field not found for this application");
+  // A file field's value is a path on disk: it is set by the desk (the CV or letter it stored), never typed here.
+  if (field.kind === "file") throw new Error("A file field cannot be set by hand: the desk attaches the stored CV or letter.");
   const value = opts.value.trim();
   const edited = (field.value ?? "").trim() !== value;
   await pool.query(

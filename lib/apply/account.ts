@@ -17,7 +17,7 @@ import type { Locator, Page } from "playwright";
 import { pool } from "../db";
 import { detectCaptcha, visibleFormErrors } from "./browser/guards";
 import { ensureEvalShim } from "./browser/shim";
-import { portalHost, redact, type AccountCredentials } from "./account-config";
+import { accountHostAllowed, portalHost, redact, type AccountCredentials } from "./account-config";
 
 export type AccountState = "created" | "verify_email" | "signed_in" | "failed";
 export type AccountOutcome = { ok: true; action: "none" | "signed_in" | "created" } | { ok: false; reason: string };
@@ -30,6 +30,8 @@ export type AccountContext = {
   /** Reads the verification link from the mailbox (Gmail in production). Without it, verification is left to a person. */
   verificationLink?: (host: string, sinceMs: number) => Promise<string | null>;
   record?: (host: string, state: AccountState, note: string | null) => Promise<void>;
+  /** Where the password may be typed; accountHostAllowed (a known application system, or PORTAL_ACCOUNT_HOSTS) by default. */
+  hostAllowed?: (url: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -214,6 +216,10 @@ async function settle(page: Page): Promise<void> {
 }
 
 async function fillEmailAndPassword(page: Page, ctx: AccountContext, twice: boolean): Promise<string | null> {
+  // Checked on the page as it is now, right before typing: a redirect may have taken the run somewhere else.
+  if (!(ctx.hostAllowed ?? accountHostAllowed)(page.url())) {
+    return `${portalHost(page.url()) || "this page"} is not a known application system (Workday, iCIMS...) over https, so the account password is not typed there; if it is the employer's real portal, add its host to PORTAL_ACCOUNT_HOSTS`;
+  }
   const email = await firstOf(page, EMAIL_FIELDS);
   if (!email) return "no email field on the account page";
   await email.fill(ctx.creds.email);

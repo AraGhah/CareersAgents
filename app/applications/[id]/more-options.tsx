@@ -130,9 +130,6 @@ export function MoreOptions({
 
           <form action={saveApplication} className="panel">
             <input type="hidden" name="applicationId" value={app.id} />
-            {/* Kept as they are: saving notes must not blank the file paths. */}
-            <input type="hidden" name="resumePath" value={app.resume_path ?? ""} />
-            <input type="hidden" name="coverLetterPath" value={app.cover_letter_path ?? ""} />
             <div className="field">
               <label htmlFor="notes">Notes</label>
               <textarea id="notes" name="notes" rows={5} defaultValue={app.notes ?? ""} />

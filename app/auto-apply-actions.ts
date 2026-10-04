@@ -33,6 +33,10 @@ function launch(runId: string): void {
     env: { ...process.env, PORTAL_HEADLESS: "true" },
     windowsHide: true,
   });
+  // npx missing, or the shell refusing: the run is closed with the reason instead of sitting on "running" until it goes stale.
+  child.on("error", (err) => {
+    void finishRun(runId, "failed", `Le processus n'a pas pu démarrer : ${err.message}`).catch(() => undefined);
+  });
   child.unref();
 }
 

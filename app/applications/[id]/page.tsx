@@ -24,6 +24,7 @@ import { LANG_LABEL_FR } from "../../../lib/status-labels";
 import { loadPortalView } from "../../../lib/apply/view";
 import { MoreOptions } from "./more-options";
 import { PORTAL_FLASH, PortalPanel } from "./portal-panel";
+import { RefreshWhile } from "../../components/refresh-while";
 import { SendPanel, type Suggestion } from "./send-panel";
 
 type Search = {
@@ -40,6 +41,8 @@ type Search = {
   searched?: string;
   found?: string;
   portal?: string;
+  /** When a background form read was launched (ms since epoch), so the page knows which run to wait for. */
+  t?: string;
 };
 
 /** What each failed check means, in plain words. Checks not listed here fall back to their own label. */
@@ -146,6 +149,11 @@ export default async function ApplicationPage({
   // The online-form path shows when there is no published address to write to, or once it has been used.
   const showPortal = !portal || portal.channel === "portal" || portal.channel === "manual" || !!portal.run || suggestions.length === 0;
   const portalFlash = sp.portal ? PORTAL_FLASH[sp.portal] : undefined;
+  // A form read launched in the background is done once a run started after the click has left "planning".
+  const launchedAt = sp.portal === "launched-plan" ? Number(sp.t) : NaN;
+  const latestRun = portal?.run ?? null;
+  const readDone =
+    !!latestRun && new Date(latestRun.started_at).getTime() >= launchedAt - 5000 && latestRun.state !== "planning";
 
   const FILE_LABEL: Record<"cv" | "letter", string> = {
     letter: "Télécharger la lettre (PDF)",
@@ -222,7 +230,8 @@ export default async function ApplicationPage({
           </Flash>
         ) : null}
         {sp.drafted ? <Flash tone="info">Brouillon créé dans Gmail.</Flash> : null}
-        {portalFlash ? <Flash tone={portalFlash.tone}>{portalFlash.text}</Flash> : null}
+        {portalFlash && !(sp.portal === "launched-plan" && readDone) ? <Flash tone={portalFlash.tone}>{portalFlash.text}</Flash> : null}
+        {sp.portal === "launched-plan" ? <RefreshWhile done={readDone} since={launchedAt} /> : null}
       </div>
 
       <ol className="apply-steps">

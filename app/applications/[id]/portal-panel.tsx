@@ -49,6 +49,10 @@ const PREFLIGHT_FR: Record<string, string> = {
 
 const PORTAL_FLASH: Record<string, { text: string; tone: "success" | "info" | "error" }> = {
   planned: { text: "Formulaire lu et réponses préparées. Relis ce qui est surligné ci-dessous.", tone: "success" },
+  "launched-plan": {
+    text: "Lecture du formulaire lancée en arrière-plan (une minute ou deux, plus avec des réponses écrites). Cette page se met à jour toute seule.",
+    tone: "info",
+  },
   "plan-failed": { text: "La lecture du formulaire a échoué. Le détail est dans le journal ci-dessous.", tone: "error" },
   "launched-review": {
     text: "Une fenêtre de navigateur s’ouvre, remplit le formulaire page par page et s’arrête là où il faut ta main. Tu soumets toi-même ; la candidature est enregistrée dès que le portail confirme.",
@@ -72,6 +76,23 @@ function FieldForm({ f, applicationId, runId, lang, draft }: { f: PortalFieldRow
   const choice = ["select", "radio", "combobox", "checkbox-group"].includes(f.kind) && options.length > 0;
   const failing = (f.checks ?? []).filter((c) => !c.ok);
   const long = f.kind === "textarea" || kindOf(f).intent === "open_question";
+  if (f.kind === "file") {
+    // A file is never typed in: the desk attaches the CV or letter it stored, so the fix is to give it one.
+    return (
+      <div className="portal-field">
+        <div className="field">
+          <span className="panel-title">
+            {f.label}
+            {f.required ? <span className="optional"> (obligatoire)</span> : null}
+          </span>
+          <span className="field-hint">
+            Ce champ attend un fichier. Ajoute le CV sur la page CV, ou génère la lettre (étape 1), puis relis le formulaire.
+            {f.reason ? ` ${f.reason}` : ""}
+          </span>
+        </div>
+      </div>
+    );
+  }
   return (
     <form action={approvePortalFieldAction} className="portal-field">
       <input type="hidden" name="applicationId" value={applicationId} />

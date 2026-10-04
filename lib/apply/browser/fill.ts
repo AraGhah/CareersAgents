@@ -10,6 +10,7 @@ import { matchOption } from "../options";
 import { norm } from "../text";
 import type { FieldDecision, FormField } from "../types";
 import { ensureEvalShim } from "./shim";
+import { safeDeskPath } from "../../safe-path";
 
 export type FillResult = { ok: boolean; detail: string; readBack: string | null };
 
@@ -105,7 +106,10 @@ async function fillCheckbox(page: Page, field: FormField, value: string): Promis
   return { ok: back === want, detail: back ? "checked" : "unchecked", readBack: back ? "checked" : "unchecked" };
 }
 
-async function fillFile(page: Page, field: FormField, filePath: string): Promise<FillResult> {
+async function fillFile(page: Page, field: FormField, value: string): Promise<FillResult> {
+  // Only a CV or letter the desk stored (resumes/, applications/) is ever uploaded to an employer, whatever the plan says.
+  const filePath = safeDeskPath(value);
+  if (!filePath) return { ok: false, detail: "refused: the file is not one the desk stored (resumes/ or applications/)", readBack: "" };
   const el = loc(page, field).first();
   await el.setInputFiles(filePath);
   await page.waitForTimeout(500);

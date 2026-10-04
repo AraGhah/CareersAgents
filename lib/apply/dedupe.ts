@@ -6,6 +6,7 @@
 //   4. the same role at the same company was applied to under another posting
 //      (the same job found on LinkedIn and on the company's Greenhouse board)
 //   5. the same canonical posting URL was already submitted by another run
+//   6. a run clicked Submit and the portal never confirmed: it may have gone through, so it is not tried again
 
 import { pool } from "../db";
 import type { ApplicationDetail } from "../types";
@@ -62,6 +63,22 @@ export async function duplicateReason(app: ApplicationDetail, alsoUrls: string[]
     [app.id],
   );
   if (submitted[0]) return "A portal application was already submitted for this posting.";
+
+  try {
+    const { rows: clicked } = await pool.query<{ submit_clicked_at: Date }>(
+      `SELECT submit_clicked_at FROM portal_runs
+        WHERE application_id = $1 AND submit_clicked_at IS NOT NULL AND state <> 'submitted'
+        ORDER BY submit_clicked_at DESC LIMIT 1`,
+      [app.id],
+    );
+    if (clicked[0]) {
+      const day = new Date(clicked[0].submit_clicked_at).toISOString().slice(0, 10);
+      return `Submit was clicked on ${day} without a confirmation, so it may have gone through: check the portal or your inbox, then mark it sent ("J'ai postulé") or finish it there yourself.`;
+    }
+  } catch (err) {
+    // Before schema-v15.sql there is no submit_clicked_at column.
+    if ((err as { code?: string }).code !== "42703") throw err;
+  }
 
   const { rows: mailed } = await pool.query<{ to_email: string }>(
     `SELECT to_email FROM outreach_drafts

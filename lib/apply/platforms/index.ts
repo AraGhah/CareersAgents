@@ -5,6 +5,7 @@
 // It never clicks submit itself; lib/apply/submit.ts is the only place that does.
 
 import type { Locator, Page } from "playwright";
+import { assertPublicUrl } from "../../net-guard";
 import { visibleFormErrors } from "../browser/guards";
 import { ensureEvalShim as ensureShim } from "../browser/shim";
 import type { PlatformId } from "../types";
@@ -248,7 +249,8 @@ const generic: PlatformAdapter = {
       .first()
       .getAttribute("src")
       .catch(() => null);
-    if (embedded) await page.goto(embedded, { waitUntil: "domcontentloaded", timeout: 60000 });
+    const target = embedded ? await assertPublicUrl(new URL(embedded, page.url()).toString()).catch(() => null) : null;
+    if (target) await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: 60000 });
   },
   submitSelectors: [
     "button[type='submit']:text-matches('submit|send|apply|soumettre|envoyer|postuler', 'i')",

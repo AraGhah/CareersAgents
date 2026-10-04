@@ -1,4 +1,5 @@
 import { pool } from "./db";
+import { withLock } from "./db-lock";
 import { createDraft, saveDraft } from "./gmail";
 import type { GmailAttachment } from "./gmail";
 import { loadAttachments } from "./attachments";
@@ -130,7 +131,19 @@ export async function createOutreachDraft(opts: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("Invalid recipient email");
   }
+  // One at a time per (application, kind, address): two clicks close together would both pass the check below and
+  // leave two Gmail drafts to the same person.
+  const locked = await withLock("outreach-draft", `${opts.applicationId}:${opts.kind}:${email}`, () => createOutreachDraftLocked(opts, email), {
+    wait: true,
+  });
+  if (!locked.ok) throw new Error("could not take the outreach draft lock");
+  return locked.value;
+}
 
+async function createOutreachDraftLocked(
+  opts: Parameters<typeof createOutreachDraft>[0],
+  email: string,
+): Promise<OutreachDraftRow> {
   if (await hasOpenOutreach(opts.applicationId, opts.kind, email)) {
     throw new Error(
       `An open ${opts.kind} draft already exists for ${email} on this application. Avoiding duplicate outreach.`,
@@ -139,12 +152,22 @@ export async function createOutreachDraft(opts: {
 
   let gmailDraftId: string | null = null;
   if (opts.pushToGmail !== false) {
+    // The email says the CV and letter are attached: the draft carries them, as an approved one does.
     gmailDraftId = await createDraft({
       to: email,
       subject: opts.subject,
       body: opts.body,
+      attachments: await draftAttachments(opts.applicationId, opts.resumeId, opts.lang),
     });
   }
+
+  // A draft prepared again replaces the one still waiting for approval, instead of piling up next to it.
+  await pool.query(
+    `DELETE FROM outreach_drafts
+      WHERE application_id = $1 AND kind = $2 AND lower(to_email) = lower($3)
+        AND gmail_draft_id IS NULL AND approved_at IS NULL AND sent_at IS NULL AND sent_detected_at IS NULL`,
+    [opts.applicationId, opts.kind, email],
+  );
 
   const { rows } = await pool.query<OutreachDraftRow>(
     `INSERT INTO outreach_drafts (
@@ -221,66 +244,48 @@ export async function getOutreachDraft(id: string): Promise<OutreachDraftRow | n
 }
 
 /**
- * Resume + cover letter for the Gmail attachment, resolved lazily. The resume
- * is whichever one was active when this draft was written (falls back to the
- * application's resolved resume). The cover letter should already exist —
- * prepareOutreachWorkflow builds one for every application up front — but
- * this is a safety net for applications that reach approval some other way
- * (a manually drafted outreach, or older data from before that existed).
+ * Resume + cover letter for the Gmail attachment, resolved lazily. The resume is whichever one was active when this
+ * draft was written (falls back to the application's resolved resume). The cover letter should already exist —
+ * prepareOutreachWorkflow builds one for every application up front — but this is a safety net for applications that
+ * reach approval some other way. Names, types and the "only files the desk stored" rule are lib/attachments.ts's.
  */
-async function resolveAttachments(row: OutreachDraftRow): Promise<GmailAttachment[]> {
-  const { readFile } = await import("node:fs/promises");
+async function draftAttachments(applicationId: string, resumeId: string | null, lang: LetterLang): Promise<GmailAttachment[]> {
   const { getApplication } = await import("./queries");
   const { getLatestDossier } = await import("./research");
   const { buildPackageFromDossier } = await import("./package");
 
-  const attachments: GmailAttachment[] = [];
-  const app = await getApplication(row.application_id);
-  if (!app) return attachments;
-
-  const safeCompany = app.company_name.replace(/[\\/:*?"<>|]+/g, "").trim() || "Application";
+  const app = await getApplication(applicationId);
+  if (!app) return [];
 
   let resumePath = app.resume_path;
-  if (row.resume_id) {
-    const { rows } = await pool.query<{ storage_path: string }>(
-      `SELECT storage_path FROM resumes WHERE id = $1`,
-      [row.resume_id],
-    );
+  if (resumeId) {
+    const { rows } = await pool.query<{ storage_path: string }>(`SELECT storage_path FROM resumes WHERE id = $1`, [resumeId]);
     if (rows[0]) resumePath = rows[0].storage_path;
-  }
-  if (resumePath) {
-    try {
-      const content = await readFile(/*turbopackIgnore: true*/ resumePath);
-      attachments.push({ filename: "CV - Ara Ghahramanyan.pdf", content, contentType: "application/pdf" });
-    } catch (err) {
-      console.error(`[outreach] resume attach failed for application ${row.application_id}:`, err);
-    }
   }
 
   let coverLetterPath = app.cover_letter_path;
   if (!coverLetterPath) {
     try {
       const dossier = await getLatestDossier(app.company_id, app.id);
-      const built = await buildPackageFromDossier({ app, dossier, lang: row.lang });
+      const built = await buildPackageFromDossier({ app, dossier, lang });
       coverLetterPath = built?.pdfPath ?? null;
     } catch (err) {
-      console.error(`[outreach] cover letter build failed for application ${row.application_id}:`, err);
-    }
-  }
-  if (coverLetterPath) {
-    try {
-      const content = await readFile(/*turbopackIgnore: true*/ coverLetterPath);
-      attachments.push({
-        filename: `Cover Letter - ${safeCompany}.pdf`,
-        content,
-        contentType: "application/pdf",
-      });
-    } catch (err) {
-      console.error(`[outreach] cover letter attach failed for application ${row.application_id}:`, err);
+      console.error(`[outreach] cover letter build failed for application ${applicationId}:`, err);
     }
   }
 
+  const { attachments, missing } = await loadAttachments({ ...app, resume_path: resumePath, cover_letter_path: coverLetterPath });
+  for (const name of missing) console.error(`[outreach] attachment missing on disk for application ${applicationId}: ${name}`);
   return attachments;
+}
+
+/** Statuses an application can still be in before it goes out: approval may move these to "ready", and only these. */
+const NOT_SENT_YET = ["discovered", "qualified"];
+
+async function markReadyIfEarlier(applicationId: string, reason: string) {
+  const { setApplicationStatus } = await import("./queries");
+  const { rows } = await pool.query<{ status: string }>(`SELECT status FROM applications WHERE id = $1`, [applicationId]);
+  if (rows[0] && NOT_SENT_YET.includes(rows[0].status)) await setApplicationStatus(applicationId, "ready", reason);
 }
 
 /**
@@ -296,7 +301,6 @@ export async function approveOutreachDraft(opts: {
 }): Promise<{ mode: "draft" | "sent" | "local"; gmailId: string | null; gmailError?: string }> {
   const { gmailSendAllowed } = await import("./sources");
   const { createDraft, sendMail } = await import("./gmail");
-  const { setApplicationStatus } = await import("./queries");
 
   const row = await getOutreachDraft(opts.outreachId);
   if (!row) throw new Error("outreach draft not found");
@@ -304,7 +308,7 @@ export async function approveOutreachDraft(opts: {
     throw new Error("This outreach was already sent");
   }
 
-  const attachments = await resolveAttachments(row);
+  const attachments = await draftAttachments(row.application_id, row.resume_id, row.lang);
 
   const shouldSend = Boolean(opts.allowSend && gmailSendAllowed());
 
@@ -325,7 +329,7 @@ export async function approveOutreachDraft(opts: {
           WHERE id = $1`,
         [row.id, messageId],
       );
-      await setApplicationStatus(row.application_id, "applied", "approved & sent via Gmail");
+      await markApplicationSent(row.application_id, "approved & sent via Gmail");
       return { mode: "sent", gmailId: messageId };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -354,18 +358,14 @@ export async function approveOutreachDraft(opts: {
     [row.id, draftId ?? null],
   );
 
+  // A follow-up (or any draft) approved on an application already sent, or further along, leaves its status alone.
   if (draftId) {
-    await setApplicationStatus(
-      row.application_id,
-      "ready",
-      "approved: Gmail draft ready (Assisted Mode; you send)",
-    );
+    await markReadyIfEarlier(row.application_id, "approved: Gmail draft ready (Assisted Mode; you send)");
     return { mode: "draft", gmailId: draftId };
   }
 
-  await setApplicationStatus(
+  await markReadyIfEarlier(
     row.application_id,
-    "ready",
     `approved locally: Gmail draft not created (${gmailError}). Set up Gmail OAuth to push drafts automatically.`,
   );
   return { mode: "local", gmailId: null, gmailError };

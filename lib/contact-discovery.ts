@@ -19,6 +19,7 @@ import {
 } from "./contact-parse";
 import { addVerifiedContact, listContactsForCompany, setCompanyWebsite } from "./queries";
 import type { ApplicationDetail } from "./types";
+import { BlockedUrlError, assertPublicUrl, blockPrivateNetwork, safeFetch } from "./net-guard";
 
 // Finds where to send an application. It reads the company's own public pages (home, careers, contact,
 // the pages those link to, and the job posting itself) and keeps addresses those pages publish. It never
@@ -51,14 +52,15 @@ const NO_SUCH_SITE = new Set(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNR
 
 async function fetchPlain(url: string, hops = 0): Promise<Plain> {
   try {
-    const res = await fetch(url, {
-      redirect: "follow",
+    // Company sites come from scraped listings: each hop must be a public address, and the body is capped.
+    const res = await safeFetch(url, {
       headers: { "user-agent": BROWSER_UA, accept: "text/html,application/xhtml+xml", "accept-language": "en-CA,en;q=0.9,fr;q=0.8" },
-      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+      timeoutMs: PAGE_TIMEOUT_MS,
+      maxBytes: 800_000,
     });
     if (!res.ok) return { page: null, blocked: [403, 405, 406, 429, 451, 503].includes(res.status) };
     if (!/html|xml/i.test(res.headers.get("content-type") ?? "")) return { page: null, blocked: false };
-    const page = { url: res.url || url, html: (await res.text()).slice(0, 800_000) };
+    const page = { url: res.url || url, html: res.text };
     // A one-line "Redirection" page (hydroquebec.com) points at the real one.
     const hop = hops < 2 && page.html.length < 4000 ? metaRefreshTarget(page.html, page.url) : null;
     if (hop && hop !== page.url) {
@@ -67,6 +69,8 @@ async function fetchPlain(url: string, hops = 0): Promise<Plain> {
     }
     return { page, blocked: false };
   } catch (err) {
+    // A private or local address is "nothing lives here", never a reason to try the browser instead.
+    if (err instanceof BlockedUrlError) return { page: null, blocked: false };
     const code = (err as { cause?: { code?: string } })?.cause?.code ?? "";
     return { page: null, blocked: !NO_SUCH_SITE.has(code) };
   }
@@ -86,6 +90,7 @@ class Renderer {
 
   async render(url: string): Promise<Page | null> {
     if (this.used >= MAX_RENDERS || Date.now() > this.deadline) return null;
+    if (!(await assertPublicUrl(url).then(() => true, () => false))) return null;
     this.used += 1;
     await this.gate();
     try {
@@ -99,6 +104,7 @@ class Renderer {
         locale: "en-CA",
       });
       try {
+        await blockPrivateNetwork(context);
         const page = await context.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
         await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => undefined);

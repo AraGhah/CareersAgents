@@ -23,6 +23,18 @@ function slug(value: string): string {
     .slice(0, 80);
 }
 
+const MAX_RESUME_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A CV is attached to emails and uploaded to employers' forms as a PDF: the bytes must be one. The browser's file name
+ * and type are only claims, so the file itself is checked (a PDF starts with "%PDF-" within its first kilobyte).
+ */
+function assertPdf(buffer: Buffer): void {
+  if (!buffer.length) throw new Error("Empty file");
+  if (buffer.length > MAX_RESUME_BYTES) throw new Error("Resume must be under 8 MB");
+  if (!buffer.subarray(0, 1024).includes("%PDF-")) throw new Error("Only PDF resumes are supported (this file is not a PDF)");
+}
+
 export async function listResumes(): Promise<ResumeRow[]> {
   const { rows } = await pool.query<ResumeRow>(
     `SELECT ${RESUME_COLUMNS}
@@ -170,17 +182,30 @@ export async function setActiveResume(id: string): Promise<ResumeRow> {
 
   // Only deactivate resumes sharing this exact (language, category) slot —
   // other categories (or the general slot) can stay active independently.
-  await pool.query(
-    `UPDATE resumes SET is_active = false
-      WHERE language = $1 AND category IS NOT DISTINCT FROM $2`,
-    [resume.language, resume.category],
-  );
-  const { rows } = await pool.query<ResumeRow>(
-    `UPDATE resumes SET is_active = true WHERE id = $1
-     RETURNING ${RESUME_COLUMNS}`,
-    [id],
-  );
-  const active = rows[0];
+  // One transaction: two activations at once would otherwise both clear the slot and collide on the unique index.
+  const client = await pool.connect();
+  let active: ResumeRow | undefined;
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('resume-slot'), hashtext($1))`, [`${resume.language}:${resume.category ?? ""}`]);
+    await client.query(
+      `UPDATE resumes SET is_active = false
+        WHERE language = $1 AND category IS NOT DISTINCT FROM $2`,
+      [resume.language, resume.category],
+    );
+    const { rows } = await client.query<ResumeRow>(
+      `UPDATE resumes SET is_active = true WHERE id = $1
+       RETURNING ${RESUME_COLUMNS}`,
+      [id],
+    );
+    active = rows[0];
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
   if (!active) throw new Error(`resume not found: ${id}`);
 
   if (!active.profile_json) {
@@ -199,13 +224,8 @@ export async function storeResumeUpload(opts: {
   mimeType?: string;
   activate?: boolean;
 }): Promise<ResumeRow> {
-  if (!opts.buffer.length) throw new Error("Empty file");
-  if (opts.buffer.length > 8 * 1024 * 1024) throw new Error("Resume must be under 8 MB");
-
-  const mime = opts.mimeType ?? "application/pdf";
-  if (!mime.includes("pdf") && !opts.filename.toLowerCase().endsWith(".pdf")) {
-    throw new Error("Only PDF resumes are supported");
-  }
+  assertPdf(opts.buffer);
+  const mime = "application/pdf";
 
   await mkdir(RESUMES_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -266,6 +286,7 @@ export async function replaceResume(opts: {
 }): Promise<ResumeRow> {
   const existing = await getResume(opts.id);
   if (!existing) throw new Error(`resume not found: ${opts.id}`);
+  assertPdf(opts.buffer);
 
   await mkdir(RESUMES_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -289,7 +310,7 @@ export async function replaceResume(opts: {
       opts.id,
       opts.filename,
       storagePath,
-      opts.mimeType ?? "application/pdf",
+      "application/pdf",
       opts.buffer.length,
     ],
   );
