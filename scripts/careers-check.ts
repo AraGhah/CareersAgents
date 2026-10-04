@@ -2,6 +2,7 @@
 // the same role as a LinkedIn / Indeed posting, and how a company's job board is spotted in its pages.
 //   npm run careers:check
 
+import { boardFromUrl, knownBoards, searchText } from "../lib/apply/boards";
 import {
   anchorJobs,
   anchorsOf,
@@ -101,6 +102,21 @@ check(jobs.some((j) => j.url === "https://acme.com/careers/software-developer-in
 check(jobs.some((j) => /myworkdayjobs/.test(j.url)), "a link to its application system is a job");
 check(!jobs.some((j) => /linkedin/.test(j.url)), "a link back to LinkedIn is not");
 check(!jobs.some((j) => /chef/.test(j.url)), "other roles are not");
+
+console.log("\nemployer job systems (lib/apply/boards.ts)");
+check(roleScore("Stage universitaire | Informatique - Hiver 2027", "Stage universitaire | Économie - Hiver 2027") === 0, "a shared program label ('Stage universitaire') does not make two internships the same role");
+check(roleScore("Stage universitaire | Recherche et développement - Hiver 2027", "Stage universitaire | Recherche et développement - Hiver 2027") === 1, "…while the same internship still matches");
+const wd = boardFromUrl("https://autodesk.wd1.myworkdayjobs.com/en-US/Ext/job/Montreal-QC-CAN/Intern_26WD1");
+check(wd?.ats === "workday" && wd.tenant === "autodesk" && wd.site === "Ext", "a Workday posting link names its tenant and site");
+const sf = boardFromUrl("https://emploi.hydroquebec.com/job/Montreal-Stage-universitaire-Informatique-QC/605856717/?feedId=null");
+check(sf?.ats === "successfactors" && sf.host === "emploi.hydroquebec.com", "a SuccessFactors career-site link is recognised");
+check(boardFromUrl("https://jobs.smartrecruiters.com/Ubisoft2/7440000123")?.ats === "smartrecruiters", "a SmartRecruiters link is recognised");
+check(boardFromUrl("https://careers-kinaxis.icims.com/jobs/35465/intern-ai%26ml-researcher/job")?.ats === "icims", "an iCIMS link is recognised");
+check(boardFromUrl("https://careers.ibm.com/careers/JobDetail?jobId=129790")?.ats === "ibm", "an IBM careers link is recognised");
+check(knownBoards("Kinaxis")[0]?.ats === "icims" && knownBoards("IBM Canada")[0]?.ats === "ibm", "Kinaxis and IBM are in employers.json");
+check(boardFromUrl("https://www.linkedin.com/jobs/view/123") === null && boardFromUrl("https://acme.com/careers/job/x") === null, "anything else is not");
+check(knownBoards("Intact Financial Corporation")[0]?.ats === "workday" && knownBoards("Hydro-Québec")[0]?.ats === "successfactors", "employers.json finds a company by its name or an alias");
+check(searchText("Software Developer Full Stack / Backend I (Co-op) - Winter 2027") === "software developer full stack backend", "the search is the role's own words, without the internship noise");
 
 if (failed) {
   console.log(`\n${failed} careers check(s) failed`);

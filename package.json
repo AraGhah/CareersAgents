@@ -49,7 +49,8 @@
     "jobs:check": "tsx scripts/jobs-list-check.ts",
     "account:check": "tsx scripts/account-check.ts",
     "careers:check": "tsx scripts/careers-check.ts",
-    "demo:record": "tsx scripts/record-demo.ts"
+    "demo:record": "tsx scripts/record-demo.ts",
+    "agent:check": "tsx scripts/agent-check.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

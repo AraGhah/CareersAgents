@@ -236,6 +236,37 @@ const ashby: PlatformAdapter = {
   confirmationUrl: /submitted|thank|confirmation/i,
 };
 
+// Workday and SuccessFactors: their forms are filled by the AI form agent (lib/apply/agent), page by page behind an
+// account. These adapters only say where the final Submit is and what a confirmation looks like.
+const workday: PlatformAdapter = {
+  id: "workday",
+  label: "Workday",
+  matches: (url) => /\.myworkday(jobs|site)\.com|\.workday\.com/i.test(url),
+  formUrl: (url) => url,
+  scopes: ["[data-automation-id='applyFlowPage']", "main", "form"],
+  async reveal() {},
+  submitSelectors: [
+    "button[data-automation-id='pageFooterNextButton']:text-matches('^\\s*(submit|soumettre)\\s*$', 'i')",
+    "button:text-matches('^\\s*(submit|soumettre)\\s*$', 'i')",
+  ],
+  confirmationUrl: /submitted|thank|confirmation/i,
+};
+
+const successfactors: PlatformAdapter = {
+  id: "successfactors",
+  label: "SuccessFactors",
+  matches: (url) => /successfactors\.(com|eu)|\/job\/[^/]+\/\d{6,}\/?/i.test(url),
+  formUrl: (url) => url,
+  scopes: ["form[name*='apply' i]", "form", "main"],
+  async reveal() {},
+  submitSelectors: [
+    "button:text-matches('^\\s*(apply|submit|postuler|soumettre)\\s*$', 'i')",
+    "input[type='submit']",
+    "button[type='submit']",
+  ],
+  confirmationUrl: /thank|confirmation|success|submitted|merci/i,
+};
+
 const generic: PlatformAdapter = {
   id: "generic",
   label: "Company portal",
@@ -260,7 +291,7 @@ const generic: PlatformAdapter = {
   confirmationUrl: /thank|confirmation|success|submitted|merci/i,
 };
 
-export const ADAPTERS: PlatformAdapter[] = [greenhouse, lever, workable, ashby, generic];
+export const ADAPTERS: PlatformAdapter[] = [greenhouse, lever, workable, ashby, workday, successfactors, generic];
 
 export function adapterFor(url: string): PlatformAdapter {
   return ADAPTERS.find((a) => a.id !== "generic" && a.matches(url)) ?? generic;

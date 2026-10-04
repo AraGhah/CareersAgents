@@ -44,14 +44,14 @@ function parseBlocks(letter: string): Block[] {
 }
 
 /** Drops characters the built-in font cannot draw instead of letting pdf-lib throw. */
-function drawable(text: string, font: PDFFont): string {
+export function drawable(text: string, font: PDFFont): string {
   const supported = new Set(font.getCharacterSet());
   return [...text.replace(/[   ]/g, " ")]
     .map((ch) => (supported.has(ch.codePointAt(0) ?? 0) ? ch : "?"))
     .join("");
 }
 
-function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+export function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const words = drawable(text, font).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";

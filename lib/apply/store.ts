@@ -4,7 +4,9 @@
 import { pool } from "../db";
 import { redact } from "./account-config";
 import { recordWritingSample } from "./answers/style";
-import type { Check, FieldDecision, Lang, PlatformId, PreflightItem, QuestionType, RunMode, RunState } from "./types";
+import { rememberable } from "./memory";
+import { rememberAnswer } from "./memory-store";
+import type { Check, FieldDecision, FieldIntent, FieldKind, Lang, PlatformId, PreflightItem, QuestionType, RunMode, RunState } from "./types";
 
 export type PortalRunRow = {
   id: string;
@@ -241,6 +243,22 @@ export async function approveField(opts: { fieldId: string; value: string; appli
     [opts.fieldId, value, edited],
   );
   const [intent, questionType] = field.intent.split(":");
+  // A question you answered here is remembered for the next form that asks it (personal and written ones excepted).
+  if (rememberable(intent as FieldIntent, field.kind as FieldKind)) {
+    const { rows: company } = await pool.query<{ name: string }>(
+      `SELECT c.name FROM applications a JOIN jobs j ON j.id = a.job_id JOIN companies c ON c.id = j.company_id WHERE a.id = $1`,
+      [opts.applicationId],
+    );
+    await rememberAnswer({
+      question: field.label,
+      intent: intent as FieldIntent,
+      kind: field.kind as FieldKind,
+      value,
+      lang: opts.lang,
+      companyName: company[0]?.name ?? "",
+      applicationId: opts.applicationId,
+    });
+  }
   if (intent === "open_question" && value) {
     await recordWritingSample({
       question: field.label,

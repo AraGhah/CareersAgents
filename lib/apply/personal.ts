@@ -11,6 +11,12 @@
 //   - a single tick-box is never suggested: its own text may be the negative ("I am not a protected veteran")
 //   - a choice is mapped onto the form's own option, and a tie or "prefer not to answer" is never picked
 //
+// Work authorization and sponsorship can be confirmed once, on the Answers page ("use it automatically"): from then on
+// they are filled without a click, with the same strict matching (only about Canada, only an option that fits).
+//
+// Previous employment is answered from the CV: "Have you worked at <company> before?" is "No" when the company appears
+// nowhere in the CV's text or experience, and stays yours otherwise.
+//
 // One exception to "you confirm it": the two screening topics (criminal record, security issues). Ara told the desk
 // directly that there is nothing there and asked it to answer them, so once the answer bank holds that statement
 // they are filled without a click. They stay as strict as the rest about *which* questions they answer (below).
@@ -151,17 +157,49 @@ const OTHER_COUNTRY =
   /\b(united states|usa|u s a?|united kingdom|great britain|europe|european union|australia|new zealand|germany|ireland|mexico|india|china|japan|singapore|netherlands|switzerland|france)\b/;
 const IN_CANADA = /canada|qu[eé]bec|\bqc\b|montr|laval|longueuil|gatineau|sherbrooke|hyacinthe/i;
 
-/** The question is about Canada: it names Canada, or names no country and the job is in Canada. */
-function aboutCanada(l: string, jobLocation: string | null): boolean {
+/** The question is about the country the candidate lives in, whatever the job's location ("where you live"). */
+const RESIDENCE =
+  /country (where|in which) you (currently )?(live|reside)|country of (your )?(current )?residence|your country of residence|your (home )?country|where you (currently )?(live|reside)|pays (de|ou vous) (residence|residez|vivez|habitez)|votre pays/;
+
+/** The question is about Canada: it names Canada or the country you live in, or names no country and the job is in Canada. */
+export function aboutCanada(l: string, jobLocation: string | null): boolean {
   if (OTHER_COUNTRY.test(l)) return false;
-  if (/canad/.test(l)) return true;
+  if (/canad/.test(l) || RESIDENCE.test(l)) return true;
   return !!jobLocation && IN_CANADA.test(jobLocation);
+}
+
+/**
+ * The option that says what a stored status says, in the form's own words: "Canadian citizen" → "I am authorized to work
+ * in the country due to my nationality"; "Permanent resident" → the permanent-residence option. Null when none clearly fits.
+ */
+function statusOption(stored: string, options: string[]): string | null {
+  const opts = realOptions(options).map((o) => o.text);
+  const n = (s: string) => norm(s);
+  const citizen = /citizen|citoyen|nationalit/.test(n(stored));
+  const resident = /permanent resident|resident permanent/.test(n(stored));
+  const hits = opts.filter((o) => {
+    const t = n(o);
+    if (/\b(not|no|non|pas|without|sans)\b|permit|permis|visa|sponsor|parrain|student|etudiant|refugee|refugie/.test(t)) return false;
+    if (citizen) return /citizen|citoyen|nationalit/.test(t);
+    if (resident) return /permanent resident|resident permanent|permanent residence|residence permanente/.test(t);
+    return false;
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** Employers named in the CV, as normalized text, to tell whether the candidate ever worked at a company. */
+function workedAt(candidate: CandidateProfile, companyName: string | null): boolean | null {
+  if (!companyName || !candidate.resumeText) return null;
+  const company = norm(companyName).replace(/[^a-z0-9 ]+/g, " ").replace(/\b(inc|ltd|ltee|llc|corp|corporation|group|groupe|canada)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (company.length < 3) return null;
+  const cv = norm([candidate.resumeText, ...candidate.experience.map((e) => JSON.stringify(e))].join(" "));
+  return cv.includes(company);
 }
 
 const CHOICE = new Set<FormField["kind"]>(["select", "radio", "combobox"]);
 
 /** `confirmed`: the owner already vouched for this one (the screening topics), so it needs no click. */
-export type PersonalSuggestion = { value: string; what: string; confirmed?: boolean };
+export type PersonalSuggestion = { value: string; what: string; confirmed?: boolean; why?: string };
 
 /** The value to offer for this question, already mapped onto the form's own option, or null. */
 export function personalSuggestion(
@@ -169,9 +207,23 @@ export function personalSuggestion(
   intent: FieldIntent,
   candidate: CandidateProfile,
   jobLocation: string | null,
+  companyName: string | null = null,
 ): PersonalSuggestion | null {
   const topic = personalTopic(intent, field);
   if (!topic) return null;
+
+  if (topic === "employed_before") {
+    // Answered from the CV: a company the CV never mentions is one the candidate never worked at ("No", no click). One the
+    // CV names stays yours; without a CV to read, the stored answer is only suggested, as before.
+    const worked = workedAt(candidate, companyName);
+    if (worked === true) return null;
+    const choice = CHOICE.has(field.kind) && isYesNoOptionSet(field.options);
+    if (worked === false && choice) {
+      const m = matchOption("No", field.options);
+      if (m) return { value: m.option, what: "previous employment", confirmed: true, why: `"No": ${companyName} appears nowhere in your CV.` };
+    }
+  }
+
   const stored = candidate.personal[topic];
   if (!stored) return null;
   const l = label(field);
@@ -188,7 +240,8 @@ export function personalSuggestion(
     if (!NOTHING_THERE.test(stored) || !choice || !isYesNoOptionSet(field.options)) return null;
     const want = screeningQuestion(l)?.want;
     const m = want ? matchOption(want, field.options) : null;
-    return m ? { value: m.option, what: `${topic.replace(/_/g, " ")}: "${stored}"`, confirmed: true } : null;
+    const what = `${topic.replace(/_/g, " ")}: "${stored}"`;
+    return m ? { value: m.option, what, confirmed: true, why: `From your answer bank (${what}): you told the desk this yourself.` } : null;
   }
 
   if ((topic === "work_authorization" || topic === "sponsorship") && !aboutCanada(l, jobLocation)) return null;
@@ -201,9 +254,13 @@ export function personalSuggestion(
   }
   if (topic === "salary" && !text) return null;
 
+  // Confirmed once on the Answers page ("use it automatically"): work authorization, sponsorship, and the salary line.
+  const confirmed = (topic === "work_authorization" || topic === "sponsorship" || topic === "salary") && candidate.autoUse.has(topic);
+  const what = `${topic.replace(/_/g, " ")}: "${stored}"`;
   if (choice) {
     const m = matchOption(want, field.options);
-    return m ? { value: m.option, what: `${topic.replace(/_/g, " ")}: "${stored}"` } : null;
+    const option = m?.option ?? (topic === "work_authorization" ? statusOption(stored, field.options) : null);
+    return option ? { value: option, what, confirmed } : null;
   }
-  return { value: want, what: `${topic.replace(/_/g, " ")}: "${stored}"` };
+  return { value: want, what, confirmed };
 }

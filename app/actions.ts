@@ -656,3 +656,29 @@ export async function markAppliedAction(form: FormData) {
   revalidatePath("/followups");
   redirect(`/applications/${id}?applied=1`);
 }
+
+/** Builds the CV made for this posting (lib/cv-tailor.ts): the real CV's content, reordered for the role. */
+export async function buildTailoredCvAction(form: FormData) {
+  const id = required(form, "applicationId");
+  const app = await getApplication(id);
+  if (!app) throw new Error("application not found");
+  const { buildTailoredCv } = await import("../lib/cv-tailor");
+  const built = await buildTailoredCv(app);
+  revalidatePath(`/applications/${id}`);
+  redirect(`/applications/${id}?tailored=${built ? "1" : "none"}#cv-adapte`);
+}
+
+/** Asks for the fit review of a posting now (lib/match/fit-review.ts) and shows it on the job page. */
+export async function reviewJobAction(form: FormData) {
+  const jobId = required(form, "jobId");
+  const job = await getJob(jobId);
+  if (!job) throw new Error("job not found");
+  const { reviewJobFit } = await import("../lib/match/fit-review");
+  const { loadCandidateProfile } = await import("../lib/apply/candidate");
+  const { selectResume } = await import("../lib/apply/resume-select");
+  const lang = detectLetterLang(job.title, job.description);
+  const candidate = await loadCandidateProfile(lang, (await selectResume(lang, job.title, job.description)).resume);
+  const review = await reviewJobFit({ id: job.id, title: job.title, companyName: job.company_name, location: job.location, description: job.description }, candidate);
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${jobId}?review=${review ? "1" : "none"}#avis`);
+}

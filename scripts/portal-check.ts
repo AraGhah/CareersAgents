@@ -9,6 +9,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Page } from "playwright";
 import { projects as seedProjects } from "../seed/project-data";
+import { applyMemory, memoryKey, rememberable } from "../lib/apply/memory";
 import { buildCandidateProfile } from "../lib/apply/candidate";
 import { classifyField, questionTypeOf } from "../lib/apply/classify";
 import { matchOption } from "../lib/apply/options";
@@ -304,6 +305,36 @@ function personalChecks() {
   check(salary.value === "Negotiable" && salary.status === "manual", "salary on a text field → Negotiable");
   check(ask(mk("Expected salary", "number")).value === null, "salary on a number field is not guessed");
   check(ask(mk("Have you previously worked at Acme?", "radio", YN)).value === "No", "previous employment → No");
+
+  console.log("\nconfirmed once, the CV, the country you live in");
+  const cv = { raw_text: "Ara Ghahramanyan. Experience: Web developer intern at Globex Inc. (2025).", profile_json: null } as unknown as Parameters<typeof buildCandidateProfile>[0]["resume"];
+  const withCv = buildCandidateProfile({ lang: "en", answers: [...ANSWERS.filter((a) => a.key !== "work_authorization"), ...personal], projects: PROJECTS, resume: cv });
+  const prev = ask(mk("Have you previously worked at Acme?", "radio", YN), withCv);
+  check(prev.status === "resolved" && prev.value === "No", "previous employment at a company the CV never names → No, without a click", prev);
+  check(ask(mk("Have you previously worked at Globex?", "radio", YN), withCv, { ...job, companyName: "Globex" }).value === null, "…a company the CV does name stays yours");
+  const abroad = { ...job, location: "New York, NY" };
+  const residence = ask(mk("Will you require sponsorship to work from your country of residence?", "radio", YN), withPersonal("en"), abroad);
+  check(residence.value === "No", "'your country of residence' is Canada, whatever the job's location", residence);
+  check(ask(mk("Are you authorized to work in the United States?", "radio", YN), withPersonal("en"), abroad).value === null, "…the United States still is not");
+  const nationality = ask(
+    mk("Your authorization to work in the country where you live.", "radio", [
+      "I am authorized to work in the country due to my nationality",
+      "I am authorized to work in the country based on a valid work permit or visa",
+      "I am not authorized to work in the country",
+    ]),
+  );
+  check(nationality.value === "I am authorized to work in the country due to my nationality", "'Canadian citizen' maps onto 'authorized due to my nationality'", nationality);
+  check(nationality.status === "manual", "…and still waits for you until it is confirmed once");
+  const confirmedOnce = buildCandidateProfile({
+    lang: "en",
+    answers: [...ANSWERS.filter((a) => a.key !== "work_authorization"), ...personal.map((a) => (a.key === "work_authorization" || a.key === "sponsorship_required" ? { ...a, auto_use: true } : a))],
+    projects: PROJECTS,
+    resume: null,
+  });
+  check(ask(mk("Are you legally authorized to work in Canada?", "radio", YN), confirmedOnce).status === "resolved", "confirmed once on the Answers page: work authorization is filled without a click");
+  check(ask(mk("Will you require visa sponsorship?", "radio", YN), confirmedOnce).status === "resolved", "…and sponsorship");
+  check(ask(mk("Do you have a disability?", "radio", YN), confirmedOnce).status === "manual", "…while self-identification still waits");
+  check(ask(mk("Salary expectations"), confirmedOnce).status === "manual", "…and salary until it is confirmed too");
   check(ask(mk("Are you bound by a non-compete agreement?", "radio", YN)).value === null, "non-compete is a different question");
   check(ask(mk("Êtes-vous autorisé à travailler au Canada?", "radio", ["Oui", "Non"]), withPersonal("fr")).value === "Oui", "authorized to work (French) → Oui");
 
@@ -385,7 +416,23 @@ function personalChecks() {
   check(resolveField(mk("I have read the privacy notice", "checkbox"), "consent", withPersonal("en"), job, files).status === "manual", "without the setting, consent stays yours (unchanged)");
 }
 
+/** Answers given on one form, reused on the next (lib/apply/memory.ts). */
+function memoryChecks() {
+  console.log("\nanswer memory");
+  const f = (label: string, kind: FormField["kind"] = "text", options: string[] = []): FormField => ({
+    index: 0, signature: label, label, kind, required: true, options, name: null, placeholder: null, maxLength: null, rows: null, hint: null, accept: null,
+  });
+  check(memoryKey("What is your notice period to begin working with Exegy?", "Exegy Inc.") === memoryKey("What is your notice period to begin working with Acme?", "Acme"), "the company's name is not part of the question's key");
+  const remembered = { key: "k", question: "notice period", intent: "unknown", kind: "radio", value: "Available Immediately", updatedAt: new Date() };
+  check(applyMemory(f("Notice period", "radio", ["Available immediately", "2 - 4 weeks"]), remembered) === "Available immediately", "a remembered choice is mapped onto the new form's own option");
+  check(applyMemory(f("Notice period", "select", ["2 weeks", "1 month"]), remembered) === null, "…and not used when no option fits");
+  check(applyMemory(f("Notice period"), remembered) === "Available Immediately", "a text field gets the text");
+  check(!rememberable("demographic", "radio") && !rememberable("work_authorization", "radio") && !rememberable("open_question", "textarea") && !rememberable("unknown", "file"), "personal, legal, written and file questions are never remembered");
+  check(rememberable("unknown", "radio") && rememberable("how_heard", "select"), "an ordinary screening question is");
+}
+
 async function main() {
+  memoryChecks();
   unitChecks();
   personalChecks();
 
@@ -461,6 +508,15 @@ async function main() {
     check(ashbyScope === null, "a class that matches only a piece of the page is not the form: the whole page is read", ashbyScope);
     check(ashbyFields.length >= 7, "every question is read, not just the autofill panel's one input", ashbyFields.map((x) => x.label));
     check(ashbyFields.some((x) => x.label === "Name" && x.required) && ashbyFields.some((x) => /location/i.test(x.label) && x.required), "required fields are still recognized");
+    const yesNo = ashbyFields.find((x) => /sponsorship/.test(x.label));
+    check(yesNo?.kind === "radio" && yesNo.options.join() === "Yes,No" && yesNo.required, "Ashby's Yes / No buttons are one required radio question, not the hidden checkbox", yesNo);
+    check(!ashbyFields.some((x) => x.kind === "checkbox" && x.options.join() === "on"), "the hidden checkbox behind the buttons is not read as a question");
+    const spoken = ashbyFields.filter((x) => /languages do you speak/i.test(x.label));
+    check(spoken.length === 1 && spoken[0].kind === "checkbox-group" && spoken[0].options.join() === "English,French,Spanish", "boxes with their own names in one question box are one 'select all' question", spoken);
+    if (yesNo) {
+      const pressed = await fillField(page, yesNo, { signature: yesNo.signature, label: yesNo.label, kind: yesNo.kind, required: true, options: yesNo.options, intent: "sponsorship", source: "bank", value: "No", status: "resolved", reason: "", checks: [] });
+      check(pressed.ok && pressed.readBack === "No", "a button answer is pressed and read back from aria-pressed", pressed);
+    }
 
     console.log("\nform extraction (fixture)");
     await page.goto(`${base}/full-form.html`);

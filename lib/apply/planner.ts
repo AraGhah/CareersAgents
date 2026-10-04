@@ -6,6 +6,7 @@ import type { CompanyDossier } from "../research";
 import { answerQuestion, type AnswerContext } from "./answers/engine";
 import { blockingFailures, type LintCheck } from "./answers/humanize";
 import { classifyField } from "./classify";
+import { applyMemory, memoryKey, rememberable, type RememberedAnswer } from "./memory";
 import { resolveField, type FileContext, type JobContext } from "./resolve";
 import type { CandidateProfile } from "./candidate";
 import type { FieldDecision, FormField, Lang } from "./types";
@@ -20,6 +21,8 @@ export type PlanContext = {
   autoConfirm?: boolean;
   /** Which page of a multi-step form the fields are on (1 = the first). */
   step?: number;
+  /** Answers you gave on earlier forms, by question key (lib/apply/memory-store.ts loadAnswerMemory). */
+  memory?: Map<string, RememberedAnswer>;
 };
 
 export async function planField(field: FormField, ctx: PlanContext): Promise<FieldDecision> {
@@ -34,6 +37,24 @@ export async function planField(field: FormField, ctx: PlanContext): Promise<Fie
     return { ...common, ...a };
   }
   const r = resolveField(field, intent, ctx.candidate, ctx.job, ctx.files, { autoConfirm: ctx.autoConfirm });
+  // A question the desk cannot answer from your data, but that you answered on an earlier form: the same answer again.
+  if ((r.status === "manual" || (r.status === "skipped" && field.required)) && ctx.memory && rememberable(intent, field.kind)) {
+    const key = memoryKey(field.label, ctx.job.companyName);
+    const remembered = ctx.memory.get(key);
+    const value = remembered ? applyMemory(field, remembered) : null;
+    if (remembered && value) {
+      const when = remembered.updatedAt.toISOString().slice(0, 10);
+      return {
+        ...common,
+        value,
+        source: "user",
+        status: "resolved",
+        reason: `Your own answer to this question on an earlier form (${when}), used again.`,
+        checks: [],
+        memoryKey: key,
+      };
+    }
+  }
   return { ...common, ...r, checks: [] };
 }
 

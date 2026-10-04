@@ -32,7 +32,11 @@ export type AccountContext = {
   record?: (host: string, state: AccountState, note: string | null) => Promise<void>;
   /** Where the password may be typed; accountHostAllowed (a known application system, or PORTAL_ACCOUNT_HOSTS) by default. */
   hostAllowed?: (url: string) => boolean;
+  /** Your own details, for an account form that also asks for them (a name, a phone, the country). Nothing else is typed. */
+  profile?: AccountProfile;
 };
+
+export type AccountProfile = { firstName: string | null; lastName: string | null; phone: string | null; country: string | null };
 
 // ---------------------------------------------------------------------------
 // What the desk knows about its accounts
@@ -154,6 +158,40 @@ async function extraRequiredFields(page: Page): Promise<string[]> {
 // ---------------------------------------------------------------------------
 // Acting on the page
 // ---------------------------------------------------------------------------
+
+const PROFILE_FIELDS: Array<{ key: keyof AccountProfile; hint: RegExp }> = [
+  { key: "firstName", hint: /first.?name|given.?name|fname|pr[ée]nom/i },
+  { key: "lastName", hint: /last.?name|family.?name|surname|lname|nom.?de.?famille|^nom$/i },
+  { key: "phone", hint: /phone|mobile|t[ée]l[ée]phone|cell/i },
+  { key: "country", hint: /country|pays/i },
+];
+
+/** Types your name, phone and country into an account form's empty fields that ask for exactly those. */
+async function fillProfileFields(page: Page, profile: AccountProfile): Promise<void> {
+  const fields = visible(page, "input:not([type='password']):not([type='hidden']):not([type='checkbox']):not([type='radio']), select");
+  const n = Math.min(await fields.count().catch(() => 0), 30);
+  for (let i = 0; i < n; i++) {
+    const el = fields.nth(i);
+    const hint = await el
+      .evaluate((node) => {
+        const input = node as HTMLInputElement;
+        return [input.name, input.id, input.getAttribute("autocomplete"), input.getAttribute("aria-label"), input.placeholder, input.labels?.[0]?.innerText]
+          .filter(Boolean)
+          .join(" ");
+      })
+      .catch(() => "");
+    if (/e-?mail|user|login|courriel/i.test(hint)) continue;
+    const match = PROFILE_FIELDS.find((f) => f.hint.test(hint));
+    const value = match ? profile[match.key] : null;
+    if (!match || !value) continue;
+    const tag = await el.evaluate((node) => node.tagName).catch(() => "");
+    if (tag === "SELECT") {
+      await el.selectOption({ label: value }).catch(() => undefined);
+    } else if (!(await el.inputValue().catch(() => ""))) {
+      await el.fill(value).catch(() => undefined);
+    }
+  }
+}
 
 const visible = (page: Page, selector: string) => page.locator(selector).filter({ visible: true });
 
@@ -388,8 +426,9 @@ export async function passAccountWall(page: Page, ctx: AccountContext): Promise<
       }
       return stop(PASSWORD_RULE.test(errors) ? `The portal refuses the password: ${errors.slice(0, 160)}` : `Creating the account did not go through${errors ? `: ${errors.slice(0, 160)}` : ""}.`);
     }
+    if (ctx.profile) await fillProfileFields(page, ctx.profile);
     const extra = await extraRequiredFields(page);
-    if (extra.length > 0) return stop(`The account form asks for more than an email and a password (${extra.join(", ")}): create the account yourself.`);
+    if (extra.length > 0) return stop(`The account form asks for more than an email, a password and your name (${extra.join(", ")}): create the account yourself.`);
     const problem = await fillEmailAndPassword(page, ctx, true);
     if (problem) return stop(`Sign-up form: ${problem}.`);
     const ticked = await tickAccountTerms(page);

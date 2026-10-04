@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { trackJob } from "../../actions";
+import { reviewJobAction, trackJob } from "../../actions";
 import { SubmitButton } from "../../components/client-ui";
 import { MatchBreakdown } from "../../components/match-breakdown";
 import { DbUnavailable, ExtLink, PageHeader, ScoreMeter, Section, StatusPill } from "../../components/ui";
 import { day, place } from "../../../lib/format";
 import { reportForJob } from "../../../lib/match/for-job";
+import { storedReview } from "../../../lib/match/fit-review";
 import { getJob } from "../../../lib/queries";
 
 export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +28,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const gated = Boolean(job.gated);
   // Computed now, against the CVs that are active now: the page shows the reasoning behind the number, not a number alone.
   const report = await reportForJob(job);
+  const review = await storedReview(job.id).catch(() => null);
   const storedPercent = scored ? Math.round(Number(job.score) * 1000) / 10 : null;
 
   return (
@@ -62,6 +64,51 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         <div className="stack">
           <Section title="Pourquoi ce pourcentage" id="composantes">
             <MatchBreakdown report={report} storedPercent={storedPercent} />
+          </Section>
+
+          <Section title="Avis d'adéquation" id="avis" note="Un relecteur lit l'offre contre ton profil : ce qu'un pourcentage ne voit pas.">
+            <div className="panel">
+              {review ? (
+                <>
+                  <div className="panel-head">
+                    <span className="panel-title">{review.grade}/5</span>
+                    <span className={`badge ${review.grade >= 4 ? "green" : review.grade >= 3 ? "yellow" : "red"}`}>
+                      {review.grade >= 4 ? "à postuler" : review.grade >= 3 ? "possible" : "à éviter"}
+                    </span>
+                  </div>
+                  <p>{review.verdict}</p>
+                  <dl className="facts rows">
+                    {review.dimensions.map((d) => (
+                      <div key={d.name} style={{ display: "contents" }}>
+                        <dt>
+                          {d.name} · {d.score}/5
+                        </dt>
+                        <dd>{d.note}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {review.redFlags.length ? (
+                    <ul className="portal-checks">
+                      {review.redFlags.map((f) => (
+                        <li key={f.flag}>
+                          {f.flag} : « {f.quote} »
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <p className="empty" style={{ margin: 0 }}>
+                  Pas encore d&apos;avis. Le lot « Postuler automatiquement » le demande pour chaque offre qu&apos;il considère.
+                </p>
+              )}
+              <form action={reviewJobAction} className="form-actions">
+                <input type="hidden" name="jobId" value={job.id} />
+                <SubmitButton className="small" pendingLabel="Lecture…">
+                  {review ? "Relire l'offre" : "Obtenir l'avis"}
+                </SubmitButton>
+              </form>
+            </div>
           </Section>
 
           <Section title="Texte de l'offre" id="texte">

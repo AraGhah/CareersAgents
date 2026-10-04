@@ -33,6 +33,7 @@ import { classifyField } from "./classify";
 import { ensureCoverLetter, type CoverLetter } from "./cover-letter";
 import { resolveApplyTarget } from "./apply-url";
 import { duplicateReason } from "./dedupe";
+import { loadAnswerMemory, noteMemoryUse } from "./memory-store";
 import { companyNotes, mergeApprovals, planField, planFields, type PlanContext } from "./planner";
 import { gmailIsConnected } from "../gmail";
 import { gmailVerificationLink } from "./account-mail";
@@ -54,6 +55,9 @@ import {
   type PlatformAdapter,
 } from "./platforms";
 import { preflightPasses, runPreflight } from "./preflight";
+import { agentEnabled, runFormAgent } from "./agent";
+import { tailoredCvEnabled } from "../cv-tailor";
+import { safeDeskPath } from "../safe-path";
 import { assertPublicUrl, blockPrivateNetwork } from "../net-guard";
 import { selectResume } from "./resume-select";
 import { decideChannel, saveChannel } from "./route";
@@ -288,6 +292,209 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       return { runId, state: "submitted", reason: confirmation, preflight: [], decisions: [], step: null, filled: 0 };
     };
 
+    // The end of every run that filled a form, whoever filled it (the desk's own planner, or the AI form agent): the checks
+    // on the page in front, then the gated Submit, or the hand-over to a person.
+    type Conclusion = {
+      decisions: FieldDecision[];
+      fills: Map<string, FillResult>;
+      requiredEmpty: string[];
+      resumeFieldPresent: boolean;
+      coverLetter: CoverLetter | null;
+      step: number;
+      stopReason: string | null;
+      counts: { field_count: number; required_count: number; manual_count: number };
+      /** Added to the status reason: " via the AI form agent" or nothing. */
+      via: string;
+    };
+    const baseAdapter = adapter;
+    const livePage = () => page!;
+    const conclude = async (c: Conclusion): Promise<RunResult> => {
+      const { decisions, fills, requiredEmpty, step, stopReason } = c;
+      const page = livePage();
+      const adapter = adapterFor(page.url()).id === "generic" ? baseAdapter : adapterFor(page.url());
+      const autoApprove = autoApproveAnswers();
+      stage = "validate";
+      const captcha = await detectCaptcha(page);
+      const formErrors = await visibleFormErrors(page);
+      const freshApp = (await getApplication(app.id))!;
+      const dupNow = await duplicateReason(freshApp, [target.url, page.url()]);
+
+      let submitRequested = opts.mode === "submit" && !stopReason;
+      let limitNote: string | null = null;
+      if (submitRequested && (await submittedToday()) >= dailyLimit()) {
+        submitRequested = false;
+        limitNote = `Daily limit of ${dailyLimit()} automatic submissions reached (PORTAL_DAILY_LIMIT).`;
+      }
+      const preflight = runPreflight({
+        decisions,
+        fills,
+        requiredEmpty,
+        resume,
+        resumeFieldPresent: c.resumeFieldPresent,
+        coverLetter: c.coverLetter,
+        coverLetterUsed: decisions.some((d) => (d.intent === "cover_letter_file" || d.intent === "cover_letter_text") && d.value),
+        captcha,
+        formErrors,
+        duplicate: dupNow,
+        isTarget: board.is_target,
+        autoApprove,
+        submitRequested,
+        submitEnabled: submitEnabled(),
+        stoppedEarly: stopReason,
+      });
+      await saveFields(runId, decisions);
+      const filledShot = await screenshot(page, runId, "filled");
+      await updateRun(runId, { ...c.counts, preflight, screenshot_path: filledShot, step_count: step });
+      for (const item of preflight) log(`${item.ok ? "✓" : item.blocking ? "✗" : "!"} ${item.label}${item.detail ? `: ${item.detail}` : ""}`);
+
+      const qualityOk = preflight.filter((i) => !["not_target", "submit_enabled"].includes(i.id)).every((i) => i.ok || !i.blocking);
+      let submitted: { outcome: SubmitOutcome; shot: string | null } | null = null;
+      if (submitRequested && preflightPasses(preflight)) {
+        stage = "submit";
+        // One submit at a time across every process, with the daily count read again inside: two runs that both saw
+        // "9 of 10" earlier cannot both send the 10th. A submitted run is recorded before the lock is let go.
+        const submitPage = page;
+        submitted = (
+          await withLock(
+            "portal-submit",
+            "daily-limit",
+            async () => {
+              if ((await submittedToday()) >= dailyLimit()) return null;
+              const outcome = await submitApplication(submitPage, adapter, preflight, { beforeClick: () => markSubmitClicked(runId, true) });
+              const shot = await screenshot(submitPage, runId, outcome.state);
+              if (outcome.state === "submitted") {
+                await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: outcome.confirmation, screenshot_path: shot });
+              } else if (!outcome.maybeSent) {
+                await markSubmitClicked(runId, false);
+              }
+              return { outcome, shot };
+            },
+            { wait: true },
+          ).then((r) => (r.ok ? r.value : null))
+        );
+        if (!submitted) limitNote = `Daily limit of ${dailyLimit()} automatic submissions reached (PORTAL_DAILY_LIMIT).`;
+      }
+      if (submitted) {
+        const { outcome, shot } = submitted;
+        if (outcome.state === "submitted") {
+          await setApplicationStatus(app.id, "applied", `portal application submitted (${adapter.label}${c.via})`);
+          await logWorkflow(app.id, "portal_submit", true, outcome.confirmation);
+          log(`submitted: ${outcome.confirmation}`);
+          return { runId, state: "submitted", reason: outcome.confirmation, preflight, decisions, step: null, filled: fills.size };
+        }
+        // Never retried automatically: an unconfirmed click might have gone through.
+        const why = `Page ${step}: ${outcome.reason}`;
+        await finishRun(runId, "blocked", { blocked_reason: why, screenshot_path: shot, stop_step: step });
+        await logWorkflow(app.id, "portal_submit", false, outcome.reason);
+        if (opts.beforeClose) await opts.beforeClose(page);
+        return { runId, state: "blocked", reason: why, preflight, decisions, step, filled: fills.size };
+      }
+
+      const state: RunState = qualityOk ? "ready_to_submit" : "needs_review";
+      const failing = preflight
+        .filter((i) => !i.ok && i.blocking && (qualityOk || !["not_target", "submit_enabled"].includes(i.id)))
+        .map((i) => (i.detail ? `${i.label} (${i.detail})` : i.label));
+      const reason =
+        stopReason ??
+        limitNote ??
+        (qualityOk
+          ? opts.mode === "submit"
+            ? `Page ${step}: filled and validated, not submitted: ${failing.join("; ") || "automatic submit is off"}.`
+            : `Page ${step}: filled and validated. Submit is left for you.`
+          : `Page ${step}: ${failing.join("; ")}.`);
+      await updateRun(runId, { state, blocked_reason: reason, stop_step: step });
+
+      if (opts.beforeClose) {
+        // The person may submit by hand in the open window: watch every page load for a confirmation,
+        // since the page cannot be read any more once they close it.
+        const confirmation = await waitForPerson(page, adapter, opts.beforeClose);
+        if (confirmation) {
+          await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: `${confirmation} (submitted by you)` });
+          await setApplicationStatus(app.id, "applied", "portal application submitted by hand after assist");
+          return { runId, state: "submitted", reason: confirmation, preflight, decisions, step: null, filled: fills.size };
+        }
+      }
+      await finishRun(runId, state);
+      return { runId, state, reason, preflight, decisions, step, filled: fills.size };
+    };
+
+    // The AI form agent (lib/apply/agent): for a portal the desk's own reader stops on (Workday's wizard, a first-step
+    // portal, a page with no form it can read). Off with PORTAL_AI_AGENT=false or without an API key; never on a plan run,
+    // which only reads.
+    const viaAgent = async (trigger: string): Promise<RunResult | null> => {
+      if (!agentEnabled()) return null;
+      if (opts.mode === "plan") {
+        const reason = `${trigger} The AI form agent fills this portal when the application is run (Remplir, or the batch).`;
+        await finishRun(runId, "needs_review", { blocked_reason: reason, stop_step: 1, lang });
+        return { runId, state: "needs_review", reason, preflight: [], decisions: [], step: 1, filled: 0 };
+      }
+      stage = "agent";
+      log(`AI form agent takes over: ${trigger}`);
+      await updateRun(runId, { state: "filling" });
+      let agentLetter: CoverLetter | null = null;
+      const out = await runFormAgent({
+        page: page!,
+        candidate,
+        job: { companyName: app.company_name, title: app.title, location: app.location, description: app.description },
+        files: {
+          resumePath: tailoredCvEnabled() && safeDeskPath(app.tailored_cv_path) ? app.tailored_cv_path! : resume.resume && resume.fileExists ? resume.resume.storage_path : null,
+          coverLetter: async () => {
+            agentLetter ??= await ensureCoverLetter({ app, dossier, lang, build: true }).catch(() => null);
+            return agentLetter?.pdfPath ?? null;
+          },
+        },
+        answers: {
+          candidate,
+          companyName: app.company_name,
+          roleTitle: app.title,
+          posting: app.description,
+          companyNotes: notes,
+          corpus,
+          samples,
+          llm: opts.llm === undefined ? anthropicLLM() : opts.llm,
+          applicationId: app.id,
+        },
+        autoApprove: autoApproveAnswers(),
+        autoConfirm: autoConfirmPersonal(),
+        memory: await loadAnswerMemory(),
+        log,
+      });
+      page = out.page;
+      const decisions = out.decisions.map((d) => ({ ...d, step: 1 }));
+      await saveFields(runId, decisions);
+      const counts = {
+        field_count: decisions.length,
+        required_count: decisions.filter((d) => d.required).length,
+        manual_count: decisions.filter((d) => d.status === "manual" || (d.status === "generated" && !autoApproveAnswers())).length,
+      };
+      if (out.state !== "ready") {
+        await logWorkflow(app.id, "portal_agent", false, out.reason);
+        const byYou = await handOver(out.reason, "agent");
+        if (byYou) return byYou;
+        const state: RunState = out.state === "failed" ? "failed" : "needs_review";
+        await finishRun(runId, state, { ...counts, blocked_reason: out.reason, screenshot_path: await screenshot(page, runId, "agent") });
+        return { runId, state, reason: out.reason, preflight: [], decisions, step: null, filled: decisions.filter((d) => d.status === "filled").length };
+      }
+      // Ready: the desk reads the page in front again and runs its own checks before anything is submitted.
+      const onPage = await readFields(page, adapterFor(page.url()));
+      const requiredEmpty: string[] = [];
+      for (const f of onPage) if (f.required && !(await currentValue(page, f))) requiredEmpty.push(f.label);
+      const fills = new Map<string, FillResult>(
+        decisions.filter((d) => d.status !== "manual").map((d) => [d.signature, { ok: true, detail: "written by the AI form agent and read back", readBack: d.value }]),
+      );
+      return conclude({
+        decisions,
+        fills,
+        requiredEmpty,
+        resumeFieldPresent: out.resumeAttached,
+        coverLetter: agentLetter,
+        step: 1,
+        stopReason: null,
+        counts,
+        via: ", filled by the AI form agent",
+      });
+    };
+
     stage = "guards";
     // "Apply" may have led to a portal that needs an account (a Phenom page handing off to Workday).
     const landedManual = (creds ? neverDrivenReason : manualOnlyReason)(page.url());
@@ -308,6 +515,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
         log,
         known: await knownAccountState(portalHost(page.url())),
         verificationLink: (await gmailIsConnected().catch(() => false)) ? gmailVerificationLink : undefined,
+        profile: { firstName: candidate.firstName, lastName: candidate.lastName, phone: candidate.phone, country: candidate.country },
       });
       if (!outcome.ok) {
         await saveChannel(app.id, "manual");
@@ -330,6 +538,8 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
     // Workday's wizard is not one the desk can fill and read back: it stops before planning it.
     const wizard = await wizardReason(page);
     if (wizard) {
+      const agentRun = await viaAgent(`a multi-step wizard: ${wizard}`);
+      if (agentRun) return agentRun;
       await saveChannel(app.id, "manual");
       const byYou = await handOver(wizard, "wizard");
       if (byYou) return byYou;
@@ -356,6 +566,10 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       const reason = earlyCaptcha.challenge
         ? `${earlyCaptcha.kind} challenge hides the form: solve it yourself, then the form appears.`
         : await whyNoForm(page);
+      if (!earlyCaptcha.challenge) {
+        const agentRun = await viaAgent(`no form the desk's reader can take: ${reason}`);
+        if (agentRun) return agentRun;
+      }
       // Nothing to plan or fill here: route it to a person so the queue stops retrying it.
       if (!earlyCaptcha.challenge) await saveChannel(app.id, "manual");
       const byYou = await handOver(reason, "noform");
@@ -378,7 +592,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
         url: app.url,
       },
       files: {
-        resumePath: resume.resume && resume.fileExists ? resume.resume.storage_path : null,
+        resumePath: tailoredCvEnabled() && safeDeskPath(app.tailored_cv_path) ? app.tailored_cv_path! : resume.resume && resume.fileExists ? resume.resume.storage_path : null,
         coverLetterPath: null,
         coverLetterText: null,
       },
@@ -396,6 +610,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       autoApprove,
       autoConfirm: autoConfirmPersonal(),
       step: 1,
+      memory: await loadAnswerMemory(),
     };
     await updateRun(runId, { resume_id: resume.resume?.id ?? null, resume_path: resume.resume?.storage_path ?? null, resume_reason: resume.reason, step_count: 1 });
 
@@ -427,6 +642,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
     stage = "plan";
     const decisions = mergeApprovals(await planFields(fields, ctx), previousFields);
     await saveFields(runId, decisions);
+    await noteMemoryUse(decisions.flatMap((d) => (d.memoryKey && d.status === "resolved" ? [d.memoryKey] : [])));
     const isPending = (d: FieldDecision) => (d.status === "manual" && (d.required || !!d.value)) || (d.status === "generated" && !autoApprove);
     const counts = () => ({
       field_count: decisions.length,
@@ -439,6 +655,8 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
     // A single page with nowhere to put a CV is the first step of something the desk cannot see. On a multi-step form the
     // CV is often on a later page: the preflight checks, at the end, that one was attached somewhere.
     if (!decisions.some((d) => d.intent === "resume") && !next) {
+      const agentRun = await viaAgent("the first page has no CV upload and no Next button (a first-step portal).");
+      if (agentRun) return agentRun;
       const reason =
         "This page has no CV upload and no Next button: it is the first step of a portal the desk cannot see the rest of. Apply there yourself.";
       await saveChannel(app.id, "manual");
@@ -562,111 +780,17 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       fields = await fillPage(fields);
     }
 
-    stage = "validate";
-    // Earlier pages were complete before Next was pressed: what is left to check is the page on screen.
-    const requiredEmpty = await requiredEmptyOn(fields);
-    const captcha = await detectCaptcha(page);
-    const formErrors = await visibleFormErrors(page);
-    const freshApp = (await getApplication(app.id))!;
-    const dupNow = await duplicateReason(freshApp, [target.url, page.url()]);
-
-    let submitRequested = opts.mode === "submit" && !stopReason;
-    let limitNote: string | null = null;
-    if (submitRequested && (await submittedToday()) >= dailyLimit()) {
-      submitRequested = false;
-      limitNote = `Daily limit of ${dailyLimit()} automatic submissions reached (PORTAL_DAILY_LIMIT).`;
-    }
-    const preflight = runPreflight({
+    return conclude({
       decisions,
       fills,
-      requiredEmpty,
-      resume,
+      requiredEmpty: await requiredEmptyOn(fields),
       resumeFieldPresent: decisions.some((d) => d.intent === "resume"),
       coverLetter,
-      coverLetterUsed: decisions.some((d) => (d.intent === "cover_letter_file" || d.intent === "cover_letter_text") && d.value),
-      captcha,
-      formErrors,
-      duplicate: dupNow,
-      isTarget: board.is_target,
-      autoApprove,
-      submitRequested,
-      submitEnabled: submitEnabled(),
-      stoppedEarly: stopReason,
+      step,
+      stopReason,
+      counts: counts(),
+      via: "",
     });
-    await saveFields(runId, decisions);
-    const filledShot = await screenshot(page, runId, "filled");
-    await updateRun(runId, { ...counts(), preflight, screenshot_path: filledShot, step_count: step });
-    for (const item of preflight) log(`${item.ok ? "✓" : item.blocking ? "✗" : "!"} ${item.label}${item.detail ? `: ${item.detail}` : ""}`);
-
-    const qualityOk = preflight.filter((i) => !["not_target", "submit_enabled"].includes(i.id)).every((i) => i.ok || !i.blocking);
-    let submitted: { outcome: SubmitOutcome; shot: string | null } | null = null;
-    if (submitRequested && preflightPasses(preflight)) {
-      stage = "submit";
-      // One submit at a time across every process, with the daily count read again inside: two runs that both saw
-      // "9 of 10" earlier cannot both send the 10th. A submitted run is recorded before the lock is let go.
-      const livePage = page;
-      submitted = (
-        await withLock(
-          "portal-submit",
-          "daily-limit",
-          async () => {
-            if ((await submittedToday()) >= dailyLimit()) return null;
-            const outcome = await submitApplication(livePage, adapter, preflight, { beforeClick: () => markSubmitClicked(runId, true) });
-            const shot = await screenshot(livePage, runId, outcome.state);
-            if (outcome.state === "submitted") {
-              await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: outcome.confirmation, screenshot_path: shot });
-            } else if (!outcome.maybeSent) {
-              await markSubmitClicked(runId, false);
-            }
-            return { outcome, shot };
-          },
-          { wait: true },
-        ).then((r) => (r.ok ? r.value : null))
-      );
-      if (!submitted) limitNote = `Daily limit of ${dailyLimit()} automatic submissions reached (PORTAL_DAILY_LIMIT).`;
-    }
-    if (submitted) {
-      const { outcome, shot } = submitted;
-      if (outcome.state === "submitted") {
-        await setApplicationStatus(app.id, "applied", `portal application submitted (${adapter.label})`);
-        await logWorkflow(app.id, "portal_submit", true, outcome.confirmation);
-        log(`submitted: ${outcome.confirmation}`);
-        return { runId, state: "submitted", reason: outcome.confirmation, preflight, decisions, step: null, filled: fills.size };
-      }
-      // Never retried automatically: an unconfirmed click might have gone through.
-      const why = `Page ${step}: ${outcome.reason}`;
-      await finishRun(runId, "blocked", { blocked_reason: why, screenshot_path: shot, stop_step: step });
-      await logWorkflow(app.id, "portal_submit", false, outcome.reason);
-      if (opts.beforeClose) await opts.beforeClose(page);
-      return { runId, state: "blocked", reason: why, preflight, decisions, step, filled: fills.size };
-    }
-
-    const state: RunState = qualityOk ? "ready_to_submit" : "needs_review";
-    const failing = preflight
-      .filter((i) => !i.ok && i.blocking && (qualityOk || !["not_target", "submit_enabled"].includes(i.id)))
-      .map((i) => (i.detail ? `${i.label} (${i.detail})` : i.label));
-    const reason =
-      stopReason ??
-      limitNote ??
-      (qualityOk
-        ? opts.mode === "submit"
-          ? `Page ${step}: filled and validated, not submitted: ${failing.join("; ") || "automatic submit is off"}.`
-          : `Page ${step}: filled and validated. Submit is left for you.`
-        : `Page ${step}: ${failing.join("; ")}.`);
-    await updateRun(runId, { state, blocked_reason: reason, stop_step: step });
-
-    if (opts.beforeClose) {
-      // The person may submit by hand in the open window: watch every page load for a confirmation,
-      // since the page cannot be read any more once they close it.
-      const confirmation = await waitForPerson(page, adapter, opts.beforeClose);
-      if (confirmation) {
-        await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: `${confirmation} (submitted by you)` });
-        await setApplicationStatus(app.id, "applied", "portal application submitted by hand after assist");
-        return { runId, state: "submitted", reason: confirmation, preflight, decisions, step: null, filled: fills.size };
-      }
-    }
-    await finishRun(runId, state);
-    return { runId, state, reason, preflight, decisions, step, filled: fills.size };
   } catch (err) {
     await logPortalError({ applicationId: app.id, runId, stage, error: err, detail: { url: page?.url() } });
     const shot = page ? await screenshot(page, runId, "error") : null;

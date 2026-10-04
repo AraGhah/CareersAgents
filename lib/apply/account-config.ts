@@ -9,7 +9,22 @@
 //   - it is typed only on a known application system (Workday, iCIMS...) over https, or a host you list yourself in
 //     PORTAL_ACCOUNT_HOSTS: one password serves every portal, so a look-alike page must never receive it
 
+import employersFile from "../../employers.json";
+
 export type AccountCredentials = { email: string; password: string };
+
+/**
+ * PORTAL_BATCH_ACCOUNTS=true: the "Postuler automatiquement" batch may also sign in to, or create, accounts (same hosts,
+ * same rules). `npm run portal -- --queue` and `automate` never do.
+ */
+export function batchAccountsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env.PORTAL_BATCH_ACCOUNTS?.trim().toLowerCase() === "true" && accountCredentials(env) !== null;
+}
+
+/** Hosts of the employer sites in employers.json: each one checked by hand, so trusted like a known application system. */
+const EMPLOYER_HOSTS = new Set(
+  (employersFile as { employers: Array<{ host?: string }> }).employers.flatMap((e) => (e.host ? [e.host.toLowerCase()] : [])),
+);
 
 /**
  * The configured account, or null when creating accounts is off or incomplete. Needs all three of
@@ -53,7 +68,7 @@ export function accountHostAllowed(url: string, env: Record<string, string | und
   }
   if (parsed.protocol !== "https:") return false;
   const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-  if (APPLICATION_SYSTEMS.test(host)) return true;
+  if (APPLICATION_SYSTEMS.test(host) || EMPLOYER_HOSTS.has(host)) return true;
   const listed = (env.PORTAL_ACCOUNT_HOSTS ?? "")
     .split(",")
     .map((h) => h.trim().toLowerCase().replace(/^www\./, ""))

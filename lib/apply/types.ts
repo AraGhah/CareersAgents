@@ -130,6 +130,8 @@ export type FieldDecision = {
   questionType?: QuestionType;
   /** Page of a multi-step form the field is on (1 = the first). */
   step?: number;
+  /** Set when the value is an answer you gave on an earlier form (lib/apply/memory.ts). */
+  memoryKey?: string;
 };
 
 export type RunMode = "plan" | "review" | "submit";
@@ -145,6 +147,6 @@ export type RunState =
   | "failed"
   | "duplicate";
 
-export type PlatformId = "greenhouse" | "lever" | "workable" | "ashby" | "generic";
+export type PlatformId = "greenhouse" | "lever" | "workable" | "ashby" | "workday" | "successfactors" | "generic";
 
 export type PreflightItem = Check & { blocking: boolean };

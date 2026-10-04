@@ -79,6 +79,8 @@ export type ApplicationDetail = {
   submitted_at: Date | null;
   resume_path: string | null;
   cover_letter_path: string | null;
+  /** The CV made for this posting (lib/cv-tailor.ts), when one was built. */
+  tailored_cv_path?: string | null;
   resume_id: string | null;
   notes: string | null;
   job_id: string;
@@ -102,6 +104,8 @@ export type Answer = {
   answer_en: string | null;
   answer_fr: string | null;
   updated_at: Date;
+  /** Set on the Answers page: a legal answer (work authorization, sponsorship) is used on forms without a click. */
+  auto_use?: boolean;
 };
 
 export type Project = {

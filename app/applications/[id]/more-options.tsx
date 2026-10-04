@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  buildTailoredCvAction,
   addContactAction,
   approveOutreachAction,
   changeStatus,
@@ -140,6 +141,29 @@ export function MoreOptions({
               </SubmitButton>
             </div>
           </form>
+        </Disclosure>
+
+        <Disclosure label={app.tailored_cv_path ? "CV adapté à cette offre" : "CV adapté à cette offre (pas encore fait)"}>
+          <div className="panel" id="cv-adapte">
+            <p className="section-note">
+              Le contenu de ton vrai CV, remis dans l’ordre de l’offre : les compétences demandées d’abord, les projets les plus
+              proches, l’expérience la plus pertinente. Rien n’est ajouté. Il part à la place de ton CV seulement avec
+              <code> CV_TAILORED=true</code>.
+            </p>
+            <div className="form-actions">
+              <form action={buildTailoredCvAction}>
+                <input type="hidden" name="applicationId" value={app.id} />
+                <SubmitButton className={app.tailored_cv_path ? "" : "primary"} pendingLabel="Préparation…">
+                  {app.tailored_cv_path ? "Refaire le CV adapté" : "Faire le CV adapté"}
+                </SubmitButton>
+              </form>
+              {app.tailored_cv_path ? (
+                <a className="btn" href={`/applications/${app.id}/files/cv-tailored`} download>
+                  Télécharger le CV adapté
+                </a>
+              ) : null}
+            </div>
+          </div>
         </Disclosure>
 
         <Disclosure label={dossier ? "Recherche sur l’entreprise" : "Recherche sur l’entreprise (pas encore faite)"}>

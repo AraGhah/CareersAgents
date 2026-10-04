@@ -311,18 +311,23 @@ export async function startApplication(jobId: string): Promise<string> {
 
 export async function getApplication(id: string): Promise<ApplicationDetail | null> {
   if (!isUuid(id)) return null;
-  const { rows } = await pool.query<ApplicationDetail>(
-    `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.resume_id, a.notes,
+  const sql = (extra: string) => `SELECT a.id, a.status, a.submitted_at, a.resume_path, a.cover_letter_path, a.resume_id, a.notes${extra},
             j.id AS job_id, j.title, j.location, j.workplace_type, j.url, j.description,
             j.posted_at, j.closed_at,
             c.id AS company_id, c.name AS company_name, c.website AS company_website, c.city AS company_city
        FROM applications a
        JOIN jobs j ON j.id = a.job_id
        JOIN companies c ON c.id = j.company_id
-      WHERE a.id = $1`,
-    [id],
-  );
-  return rows[0] ?? null;
+      WHERE a.id = $1`;
+  try {
+    const { rows } = await pool.query<ApplicationDetail>(sql(", a.tailored_cv_path"), [id]);
+    return rows[0] ?? null;
+  } catch (err) {
+    // tailored_cv_path arrives with schema-v16.sql.
+    if ((err as { code?: string }).code !== "42703") throw err;
+    const { rows } = await pool.query<ApplicationDetail>(sql(""), [id]);
+    return rows[0] ?? null;
+  }
 }
 
 export async function listApplications(): Promise<ApplicationDetail[]> {
@@ -491,12 +496,16 @@ export async function appendApplicationNote(id: string, note: string) {
 }
 
 export async function listAnswers(): Promise<Answer[]> {
-  const { rows } = await pool.query<Answer>(
-    `SELECT id, key, category, answer_en, answer_fr, updated_at
-       FROM answers
-      ORDER BY CASE category WHEN 'green' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END, key`,
-  );
-  return rows;
+  const order = `ORDER BY CASE category WHEN 'green' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END, key`;
+  try {
+    const { rows } = await pool.query<Answer>(`SELECT id, key, category, answer_en, answer_fr, updated_at, auto_use FROM answers ${order}`);
+    return rows;
+  } catch (err) {
+    // auto_use arrives with schema-v16.sql.
+    if ((err as { code?: string }).code !== "42703") throw err;
+    const { rows } = await pool.query<Answer>(`SELECT id, key, category, answer_en, answer_fr, updated_at FROM answers ${order}`);
+    return rows;
+  }
 }
 
 export type DeskSummary = {

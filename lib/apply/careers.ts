@@ -15,7 +15,8 @@ import { Fetcher, readCompanySite, type SitePage } from "../contact-discovery";
 import { hostOf, isAtsHost } from "../contact-parse";
 import { fetchBoard } from "../discover-core";
 import type { ApplicationDetail } from "../types";
-import { anchorJobs, careersPageOf, careersPagesOf, findBoardRefs, findPortalLinks, pickRole, type BoardRef, type PortalLink } from "./careers-parse";
+import { anchorJobs, careersPageOf, careersPagesOf, findBoardRefs, findPortalLinks, pickRole, roleScore, type BoardRef, type PortalLink } from "./careers-parse";
+import { boardFromUrl, boardKey, knownBoards, searchBoard, type EmployerBoard } from "./boards";
 
 const CACHE_DIR = path.join("cache", "careers");
 const FOUND_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -136,12 +137,81 @@ function dedupe<T>(items: T[], key: (item: T) => string): T[] {
   });
 }
 
-const PLATFORM_LABEL: Record<string, string> = { greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workable: "Workable" };
+const PLATFORM_LABEL: Record<string, string> = {
+  greenhouse: "Greenhouse",
+  lever: "Lever",
+  ashby: "Ashby",
+  workable: "Workable",
+  workday: "Workday",
+  successfactors: "SuccessFactors",
+  smartrecruiters: "SmartRecruiters",
+  icims: "iCIMS",
+  ibm: "careers",
+};
+
+/**
+ * The company's Workday / SuccessFactors / SmartRecruiters sites that can be searched: the verified ones in employers.json,
+ * the ones its other postings already link to, and the ones its careers site links to (`extraUrls`).
+ */
+async function employerBoardsFor(app: ApplicationDetail, extraUrls: string[] = []): Promise<EmployerBoard[]> {
+  const boards = [...knownBoards(app.company_name)];
+  try {
+    const { rows } = await pool.query<{ url: string; apply_url: string | null }>(
+      `SELECT url, apply_url FROM jobs WHERE company_id = $1`,
+      [app.company_id],
+    );
+    for (const r of rows) for (const u of [r.apply_url, r.url]) if (u) boards.push(...[boardFromUrl(u)].filter((b): b is EmployerBoard => !!b));
+  } catch (err) {
+    // Before schema-v11.sql there is no apply_url column.
+    if ((err as { code?: string }).code !== "42703") throw err;
+  }
+  for (const u of extraUrls) boards.push(...[boardFromUrl(u)].filter((b): b is EmployerBoard => !!b));
+  return dedupe(boards, boardKey);
+}
+
+/** The role on one of those sites, or null. */
+/**
+ * Sites searched that answered but do not list the role, by name: a posting that is nowhere on the company's own job
+ * system, while that system lists its other jobs, has most likely been filled or closed.
+ */
+type BoardMiss = { searched: string[]; ambiguous: string[] };
+
+async function searchEmployerBoards(app: ApplicationDetail, boards: EmployerBoard[], miss?: BoardMiss): Promise<CareersResult | null> {
+  const wanted = { title: app.title, location: app.location };
+  for (const board of boards) {
+    const jobs = await searchBoard(board, app.title);
+    const match = pickRole(wanted, jobs);
+    if (!match && jobs.length > 0) {
+      // The same title listed more than once (two cities, two requisitions) is not "closed": it is a choice for a person.
+      const same = jobs.filter((j) => roleScore(app.title, j.title) > 0).length;
+      (same > 1 ? miss?.ambiguous : miss?.searched)?.push(PLATFORM_LABEL[board.ats] ?? board.ats);
+    }
+    if (match) {
+      return {
+        hit: { url: match.url, title: match.title, via: "board", platform: board.ats },
+        careersUrl: null,
+        portal: null,
+        note: `Found on ${app.company_name}'s own ${PLATFORM_LABEL[board.ats]} site: "${match.title}".`,
+      };
+    }
+  }
+  return null;
+}
 
 /** Where this role is on the company's own site, and how to get there. Never throws: a lookup that fails is "not found". */
 export async function findCompanyPosting(app: ApplicationDetail, opts: { fresh?: boolean } = {}): Promise<CareersResult> {
   if (off()) return { hit: null, careersUrl: null, portal: null, note: "The company careers lookup is off (CAREERS_LOOKUP=false)." };
   try {
+    // The company's own job system first, when it is known: one search, no crawl.
+    const miss: BoardMiss = { searched: [], ambiguous: [] };
+    const known = await searchEmployerBoards(app, await employerBoardsFor(app), miss);
+    if (known) return known;
+    const closedNote = miss.ambiguous.length
+      ? `${app.company_name}'s own ${[...new Set(miss.ambiguous)].join(" / ")} site lists this title more than once (other places or requisitions): choose the right one there yourself.`
+      : miss.searched.length
+        ? `Not listed on ${app.company_name}'s own ${[...new Set(miss.searched)].join(" / ")} site, which lists its other jobs: this posting is probably filled or closed.`
+        : null;
+
     let info = opts.fresh ? null : await loadCache(app.company_id);
     let pages: SitePage[] = [];
     if (!info) {
@@ -175,6 +245,12 @@ export async function findCompanyPosting(app: ApplicationDetail, opts: { fresh?:
       }
     }
 
+    // The careers site links to a Workday / SuccessFactors / SmartRecruiters site not tried above: search it too.
+    const tried = new Set((await employerBoardsFor(app)).map(boardKey));
+    const fromSite = dedupe(info.portals.map((p) => boardFromUrl(p.url)).filter((b): b is EmployerBoard => !!b), boardKey).filter((b) => !tried.has(boardKey(b)));
+    const linked = await searchEmployerBoards(app, fromSite.slice(0, 4));
+    if (linked) return { ...linked, careersUrl: info.careersUrl };
+
     // A company with no board may list its jobs as links on the careers pages: read them (again, when remembered).
     if (!pages.length && info.boards.length === 0 && info.listPages?.length) {
       const fetcher = new Fetcher();
@@ -197,7 +273,8 @@ export async function findCompanyPosting(app: ApplicationDetail, opts: { fresh?:
     }
 
     const account = info.portals.find((p) => p.account);
-    const boardNote = info.boards.length ? `The company's ${info.boards.map((b) => PLATFORM_LABEL[b.platform]).join(" / ")} board has no matching internship.` : info.note;
+    const boardNote =
+      closedNote ?? (info.boards.length ? `The company's ${info.boards.map((b) => PLATFORM_LABEL[b.platform]).join(" / ")} board has no matching internship.` : info.note);
     return { hit: null, careersUrl: info.careersUrl, portal: account ? new URL(account.url).hostname : null, note: boardNote };
   } catch (err) {
     return { hit: null, careersUrl: null, portal: null, note: `The company careers lookup failed: ${err instanceof Error ? err.message : String(err)}` };

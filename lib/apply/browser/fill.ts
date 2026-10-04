@@ -86,12 +86,24 @@ async function fillChoice(page: Page, field: FormField, value: string): Promise<
     if (!m) return { ok: false, detail: `no option matches "${w}"`, readBack: null };
     const input = loc(page, field, m.index).first();
     await input.scrollIntoViewIfNeeded().catch(() => undefined);
-    await input.check({ force: true });
+    // A choice drawn as buttons (Ashby's Yes / No) is pressed; a real radio or box is checked.
+    if (await input.evaluate((n) => n.tagName === "BUTTON")) await input.click();
+    else await input.check({ force: true });
     picked.push(m.option);
   }
+  await page.waitForTimeout(150);
   const back = await page
     .locator(`[data-desk-field="${field.index}"]`)
-    .evaluateAll((els) => els.map((e, i) => ((e as HTMLInputElement).checked ? i : -1)).filter((i) => i >= 0));
+    .evaluateAll((els) =>
+      els
+        .filter((e) =>
+          e.tagName === "BUTTON"
+            ? e.getAttribute("aria-pressed") === "true" || e.getAttribute("aria-checked") === "true" || /\b(selected|active|checked|pressed)\b/i.test(e.className.toString())
+            : (e as HTMLInputElement).checked,
+        )
+        .map((e) => Number(e.getAttribute("data-desk-option") ?? -1))
+        .filter((i) => i >= 0),
+    );
   const backLabels = back.map((i) => field.options[i]);
   const ok = picked.every((p) => backLabels.includes(p));
   return { ok, detail: `checked ${picked.join(", ")}`, readBack: backLabels.join("|") };
@@ -168,6 +180,10 @@ export async function currentValue(page: Page, field: FormField): Promise<string
       els
         .map((e) => {
           const i = e as HTMLInputElement;
+          if (e.tagName === "BUTTON") {
+            const on = e.getAttribute("aria-pressed") === "true" || e.getAttribute("aria-checked") === "true" || /\b(selected|active|checked|pressed)\b/i.test(e.className.toString());
+            return on ? (e as HTMLElement).innerText.trim() || "checked" : "";
+          }
           if (i.type === "checkbox" || i.type === "radio") return i.checked ? "checked" : "";
           if (i.type === "file") return i.files?.[0]?.name ?? "";
           if (e.tagName === "SELECT") {

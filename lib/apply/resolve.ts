@@ -153,9 +153,13 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
   if (PERSON_ONLY_INTENTS.has(intent)) {
     const reason = REASON_BY_INTENT[intent] ?? PERSON_ONLY_REASON;
     // What you wrote in your answer bank is offered pre-selected, never filled: it stays yours to confirm.
-    const suggestion = personalSuggestion(field, intent, c, job.location);
+    const suggestion = personalSuggestion(field, intent, c, job.location, job.companyName);
     if (suggestion?.confirmed) {
-      return resolved(suggestion.value, "bank", `From your answer bank (${suggestion.what}): you told the desk this yourself.`);
+      return resolved(
+        suggestion.value,
+        "bank",
+        suggestion.why ?? `From your answer bank (${suggestion.what}): confirmed once on the Answers page to be used automatically.`,
+      );
     }
     if (suggestion && opts.autoConfirm) {
       // Voluntary self-identification nobody has to answer is still left blank: less personal data in a form is better.

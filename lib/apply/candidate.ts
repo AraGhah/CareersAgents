@@ -52,6 +52,8 @@ export type CandidateProfile = {
    * suggestion you confirm (lib/apply/personal.ts), never filled as a value.
    */
   personal: Partial<Record<PersonalTopic, string>>;
+  /** Personal topics you confirmed once on the Answers page ("use it automatically"): filled without a click. */
+  autoUse: Set<PersonalTopic>;
   resumeText: string | null;
 };
 
@@ -130,9 +132,12 @@ export function buildCandidateProfile(opts: {
   // Only green answers are facts that can be pasted; yellow and red never feed a form field directly.
   const green = (key: string) => (bank[key]?.category === "green" ? pick(bank, key, lang) : null);
   const personal: CandidateProfile["personal"] = {};
+  const autoUse = new Set<PersonalTopic>();
+  const confirmedKeys = new Set(opts.answers.filter((a) => a.auto_use).map((a) => a.key));
   for (const [topic, key] of Object.entries(PERSONAL_BANK_KEYS) as Array<[PersonalTopic, string]>) {
     const value = bank[key]?.category === "red" ? pick(bank, key, lang) : null;
     if (value) personal[topic] = value;
+    if (value && confirmedKeys.has(key)) autoUse.add(topic);
   }
 
   const profile = opts.resume?.profile_json ?? null;
@@ -201,13 +206,20 @@ export function buildCandidateProfile(opts: {
     experience: profile?.experience ?? [],
     bank,
     personal,
+    autoUse,
     resumeText: opts.resume?.raw_text ?? null,
   };
 }
 
 export async function loadCandidateProfile(lang: Lang, resume: ResumeRow | null): Promise<CandidateProfile> {
   const [{ rows: answers }, { rows: projects }] = await Promise.all([
-    pool.query<Answer>(`SELECT id, key, category, answer_en, answer_fr, updated_at FROM answers`),
+    // auto_use arrives with schema-v16.sql; before it, nothing is confirmed.
+    pool
+      .query<Answer>(`SELECT id, key, category, answer_en, answer_fr, updated_at, auto_use FROM answers`)
+      .catch((err) => {
+        if ((err as { code?: string }).code !== "42703") throw err;
+        return pool.query<Answer>(`SELECT id, key, category, answer_en, answer_fr, updated_at FROM answers`);
+      }),
     pool.query<Project>(`SELECT id, name, summary, tech, url, highlight_for FROM projects ORDER BY name`),
   ]);
   return buildCandidateProfile({ lang, answers, projects, resume });

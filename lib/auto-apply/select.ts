@@ -6,6 +6,12 @@ import { twinKey, twinKeys } from "../apply/dedupe";
 import { SCORE_CTE } from "../queries";
 import type { ApplicationStatus } from "../types";
 
+/**
+ * When the desk's form reading last changed in a way that turns earlier stops into applications it can now finish (button
+ * choices, remembered answers, employer job systems, the AI form agent). A portal run that stopped before this is tried again.
+ */
+export const PORTAL_LOGIC_SINCE = "2026-10-04T00:00:00Z";
+
 /** Below this a posting is not "worth applying to": the same line the Offres list draws by default (60 and over). */
 export const DEFAULT_MIN_SCORE = 60;
 
@@ -47,18 +53,21 @@ async function eligibleRows(minPercent: number, limit: number): Promise<Candidat
         AND t.gated IS NOT TRUE
         AND t.score >= $1
         AND (a.id IS NULL OR a.status IN ('discovered', 'qualified', 'ready'))
-        AND COALESCE(a.channel, '') <> 'manual'
         AND NOT EXISTS (
           SELECT 1 FROM outreach_drafts o
            WHERE o.application_id = a.id AND o.gmail_draft_id IS NOT NULL
              AND o.sent_at IS NULL AND o.sent_detected_at IS NULL)
         AND NOT EXISTS (
           SELECT 1 FROM portal_runs r
-           WHERE r.application_id = a.id AND r.started_at > now() - interval '7 days'
+           WHERE r.application_id = a.id AND r.started_at > GREATEST(now() - interval '7 days', $3::timestamptz)
              AND r.state IN ('planning', 'needs_review', 'filling', 'ready_to_submit', 'blocked'))
+        -- "Manual" was decided with what the desk knew then: re-checked, except a posting skipped in the last day.
+        AND NOT (COALESCE(a.channel, '') = 'manual' AND EXISTS (
+          SELECT 1 FROM auto_apply_items s
+           WHERE s.application_id = a.id AND s.outcome = 'skipped' AND s.finished_at > GREATEST(now() - interval '1 day', $3::timestamptz)))
       ORDER BY t.score DESC, j.first_seen_at DESC, j.id
       LIMIT $2`,
-    [minPercent / 100, limit],
+    [minPercent / 100, limit, PORTAL_LOGIC_SINCE],
   );
   return rows.map((r) => ({ ...r, score: Number(r.score) }));
 }

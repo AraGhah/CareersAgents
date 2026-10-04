@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- Fixture for the AI form agent (scripts/agent-check.ts): a two-page wizard built from custom widgets, the shape the
+     desk's own reader cannot take. Page 1: name, email, a custom dropdown, a password box that must never be typed into,
+     Next. Page 2: the CV, a yes/no, and the final Submit that only lib/apply/submit.ts may press. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply — Acme Careers</title>
+    <style>
+      .page { display: none; }
+      .page.on { display: block; }
+      [role="listbox"] { display: none; border: 1px solid #ccc; }
+      [role="listbox"].open { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Software Developer Intern</h1>
+    <div class="page on" id="p1">
+      <h2>My Information</h2>
+      <div class="field"><label for="first">First Name*</label><input id="first" aria-required="true" /></div>
+      <div class="field"><label for="email">Email Address*</label><input id="email" type="email" aria-required="true" /></div>
+      <div class="field">
+        <label id="country-label">Country*</label>
+        <button type="button" id="country" role="combobox" aria-haspopup="listbox" aria-labelledby="country-label"
+          onclick="document.getElementById('countries').classList.toggle('open')">Select One</button>
+        <ul role="listbox" id="countries">
+          <li role="option" onclick="pickCountry(this)">United States</li>
+          <li role="option" onclick="pickCountry(this)">Canada</li>
+          <!-- Some lists render every option twice (Eightfold): the same text is one option. -->
+          <li role="option" onclick="pickCountry(this)">Canada</li>
+          <li role="option" onclick="pickCountry(this)">France</li>
+        </ul>
+      </div>
+      <div class="field"><label for="pw">Create a password</label><input id="pw" type="password" /></div>
+      <button type="button" onclick="next()">Next</button>
+    </div>
+    <div class="page" id="p2">
+      <h2>My Experience</h2>
+      <div class="field"><label for="cv">Resume/CV*</label><input id="cv" type="file" /></div>
+      <fieldset>
+        <legend>Are you legally authorized to work in Canada?*</legend>
+        <label><input type="radio" name="auth" value="yes" /> Yes</label>
+        <label><input type="radio" name="auth" value="no" /> No</label>
+      </fieldset>
+      <button type="button" id="final" onclick="localStorage.setItem('submitted', '1'); document.body.insertAdjacentHTML('beforeend', '<p>Thank you for applying</p>')">Submit</button>
+    </div>
+    <script>
+      localStorage.removeItem("submitted");
+      function pickCountry(li) {
+        document.getElementById("country").textContent = li.textContent;
+        document.getElementById("countries").classList.remove("open");
+      }
+      function next() {
+        document.getElementById("p1").classList.remove("on");
+        document.getElementById("p2").classList.add("on");
+      }
+    </script>
+  </body>
+</html>

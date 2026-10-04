@@ -206,8 +206,17 @@ async function main() {
       const { context, page } = await session();
       await page.goto(`${base}/account-extra.html`);
       const r = await run(page, { known: null });
-      check(!r.outcome.ok && /more than an email and a password/i.test(r.outcome.reason) && /first name/i.test(r.outcome.reason), "a form wanting a name: stops, says what, and does not invent one", r.outcome);
+      check(!r.outcome.ok && /more than an email, a password and your name/i.test(r.outcome.reason) && /first name/i.test(r.outcome.reason), "a form wanting a name, with no profile given: stops, says what, and does not invent one", r.outcome);
       check((await page.evaluate(() => localStorage.getItem("pressed"))) === null, "…without pressing Create Account");
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-extra.html`);
+      await run(page, { known: null, profile: { firstName: "Ara", lastName: "Ghahramanyan", phone: null, country: "Canada" } });
+      const typed = await page.evaluate(() => [(document.getElementById("first") as HTMLInputElement).value, (document.getElementById("last") as HTMLInputElement).value]);
+      check(typed[0] === "Ara" && typed[1] === "Ghahramanyan", "with your profile, the name the account form asks for is your own", typed);
+      check((await page.evaluate(() => localStorage.getItem("pressed"))) === "1", "…and Create Account is pressed");
       await context.close();
     }
     {

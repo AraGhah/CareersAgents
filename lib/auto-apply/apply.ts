@@ -10,6 +10,11 @@
 
 import { decideChannel, saveChannel } from "../apply/route";
 import { resolveApplyTarget } from "../apply/apply-url";
+import { batchAccountsEnabled } from "../apply/account-config";
+import { loadCandidateProfile } from "../apply/candidate";
+import { selectResume } from "../apply/resume-select";
+import { buildTailoredCv, tailoredCvEnabled } from "../cv-tailor";
+import { minGrade, reviewJobFit } from "../match/fit-review";
 import { duplicateReason } from "../apply/dedupe";
 import { runPortalApplication } from "../apply/runner";
 import { existingApplicationFiles } from "../attachments";
@@ -60,6 +65,24 @@ export async function applyOne(applicationId: string, ctx: ApplyContext): Promis
   const dup = await duplicateReason(app);
   if (dup) return skipped(`Déjà envoyée : ${dup}`);
 
+  // A reviewer's read of the posting (lib/match/fit-review.ts): a poor fit is not worth an application in your name.
+  if (minGrade() > 0) {
+    const lang = detectLetterLang(app.title, app.description);
+    const review = await reviewJobFit(
+      { id: app.job_id, title: app.title, companyName: app.company_name, location: app.location, description: app.description },
+      await loadCandidateProfile(lang, (await selectResume(lang, app.title, app.description)).resume),
+    ).catch(() => null);
+    if (review && review.grade < minGrade()) {
+      const flags = review.redFlags.length ? ` Signaux : ${review.redFlags.map((f) => `${f.flag} (« ${f.quote} »)`).join("; ")}.` : "";
+      return skipped(`Avis d'adéquation ${review.grade}/5 (minimum ${minGrade()}) : ${review.verdict}${flags}`);
+    }
+  }
+
+  // CV_TAILORED=true: the CV made for this posting goes with the email and the form.
+  if (tailoredCvEnabled()) {
+    await buildTailoredCv(app).catch((err) => ctx.log(`tailored CV not built: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
   // Where the company's own public pages publish an address (cheap when it is already known).
   let newWebsite: string | null = null;
   try {
@@ -71,8 +94,9 @@ export async function applyOne(applicationId: string, ctx: ApplyContext): Promis
   let decision = await decideChannel(app);
   if (decision.channel !== "email") {
     // No address: the form is the way in, and the posting may be on Indeed or LinkedIn while the form is elsewhere.
+    // With PORTAL_BATCH_ACCOUNTS=true an employer portal that needs an account (Workday...) is the batch's to try too.
     const target = await resolveApplyTarget(app);
-    decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint });
+    decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint, allowAccountPortals: batchAccountsEnabled() });
   }
   await saveChannel(app.id, decision.channel);
 
@@ -156,7 +180,7 @@ async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<Ap
   }
 
   await ctx.paceNextPortal();
-  const run = await runPortalApplication(app.id, { mode: "submit", log: ctx.log });
+  const run = await runPortalApplication(app.id, { mode: "submit", log: ctx.log, allowAccounts: batchAccountsEnabled() });
   const done = run.filled ? ` ${run.filled} champ${run.filled > 1 ? "s" : ""} déjà rempli${run.filled > 1 ? "s" : ""}.` : "";
   const where = run.step ? ` à la page ${run.step}` : "";
   switch (run.state) {

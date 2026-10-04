@@ -3,7 +3,9 @@
 // screen reader would (aria-labelledby, <label for>, wrapping label, fieldset
 // legend, the question container), groups radios and checkboxes into one
 // question, and stamps each control with data-desk-field so the fill step can
-// find it again without re-guessing selectors.
+// find it again without re-guessing selectors. Choices drawn as a row of
+// buttons (Ashby's Yes / No) are read as one radio question whose options are
+// the buttons, not as the hidden checkbox behind them.
 
 import type { Page } from "playwright";
 import { cleanLabel, fieldSignature } from "../text";
@@ -30,12 +32,29 @@ function scanForm(scopeSelector: string | null): RawField[] {
   // File inputs are usually hidden behind an "Attach" button: judge their container instead. Not when a whole section
   // around it is hidden, though: that is another page of a multi-step form, not a styled control.
   const containerShown = (el: Element): boolean => {
+    // A file box whose own question (label + controls) is on screen counts even when a wrapper inside that question is
+    // collapsed (JazzHR keeps its resume input in a display:none "upload" wrapper until "Attach" is pressed). A whole hidden
+    // step of a wizard hides the question box itself, so it is still left out below.
+    if ((el as HTMLInputElement).type === "file") {
+      const box = el.closest(".form-group, .field, fieldset, li, [class*='field-'], [class*='-field']");
+      if (box && isShown(box) && box.contains(el)) {
+        let hiddenAbove = false;
+        for (let up: Element | null = box.parentElement; up && up !== document.body; up = up.parentElement) {
+          const s = getComputedStyle(up);
+          if (s.display === "none" || s.visibility === "hidden") hiddenAbove = true;
+        }
+        if (!hiddenAbove) return true;
+      }
+    }
     for (let up: Element | null = el.parentElement; up && up !== document.body; up = up.parentElement) {
-      if (getComputedStyle(up).display === "none") return false;
+      const s = getComputedStyle(up);
+      if (s.display === "none" || s.visibility === "hidden") return false;
     }
     let node: Element | null = el.parentElement;
     for (let i = 0; node && i < 4; i++, node = node.parentElement) if (isShown(node)) return true;
-    return false;
+    // A file box drawn as a zero-size input behind a custom "Attach" control (JazzHR's resume field): nothing around it is
+    // hidden, so it is part of the page on screen, whatever its size.
+    return (el as HTMLInputElement).type === "file";
   };
 
   const QUESTION_BOX =
@@ -106,6 +125,51 @@ function scanForm(scopeSelector: string | null): RawField[] {
   const done = new Set<Element>();
   const groups = new Map<string, HTMLInputElement[]>();
 
+  // Choices drawn as buttons: a container whose own children are 2 to 8 toggle buttons (aria-pressed, data-option, or a
+  // yes/no class), usually with a hidden input holding the answer. One radio question; the buttons are its options.
+  const isToggle = (b: Element) =>
+    b.tagName === "BUTTON" && (b.hasAttribute("aria-pressed") || b.hasAttribute("data-option") || /yesno|option|toggle/i.test(b.className?.toString() ?? ""));
+  for (const box of Array.from(root.querySelectorAll("div, fieldset, [role='radiogroup']"))) {
+    const buttons = Array.from(box.children).filter(isToggle) as HTMLElement[];
+    if (buttons.length < 2 || buttons.length > 8 || !buttons.every((b) => isShown(b))) continue;
+    if (!buttons.some((b) => b.hasAttribute("aria-pressed")) && !/yesno|choice|toggle|option/i.test(box.className?.toString() ?? "")) continue;
+    const optionLabels = buttons.map((b) => textOf(b));
+    if (optionLabels.some((t) => !t || t.length > 60)) continue;
+    const question = questionText(box, optionLabels);
+    if (!question) continue;
+    for (const hidden of Array.from(box.querySelectorAll("input"))) done.add(hidden);
+    buttons.forEach((b, i) => {
+      b.setAttribute("data-desk-field", String(index));
+      b.setAttribute("data-desk-option", String(i));
+    });
+    out.push({
+      index,
+      label: question,
+      kind: "radio",
+      required: isRequired(box, question),
+      options: optionLabels,
+      name: box.querySelector("input")?.getAttribute("name") ?? null,
+      placeholder: null,
+      maxLength: null,
+      rows: null,
+      hint: hintOf(box),
+      accept: null,
+    });
+    index++;
+  }
+
+  // "Select all that apply" lists often give each box its own name: boxes inside one question container are one question.
+  const STRICT_QUESTION = "[class*='fieldEntry'], [class*='field-entry'], fieldset, [role='group']";
+  const questionBoxes = new Map<Element, number>();
+  const checkboxKey = (el: HTMLInputElement, name: string | null): string => {
+    const box = el.closest(STRICT_QUESTION);
+    if (box && box.querySelectorAll("input[type='checkbox']").length >= 2) {
+      if (!questionBoxes.has(box)) questionBoxes.set(box, questionBoxes.size);
+      return `checkbox:box:${questionBoxes.get(box)}`;
+    }
+    return name ? `checkbox:${name}` : `checkbox:${index}:${Math.random()}`;
+  };
+
   const controls = Array.from(
     root.querySelectorAll("input, textarea, select, [role='combobox']:not(input)"),
   ) as HTMLElement[];
@@ -121,7 +185,8 @@ function scanForm(scopeSelector: string | null): RawField[] {
     if ((el as HTMLInputElement).disabled || el.getAttribute("readonly") !== null) continue;
 
     if (type === "radio" || type === "checkbox") {
-      const key = name ? `${type}:${name}` : `${type}:${index}:${Math.random()}`;
+      const key =
+        type === "checkbox" ? checkboxKey(el as HTMLInputElement, name) : name ? `${type}:${name}` : `${type}:${index}:${Math.random()}`;
       const list = groups.get(key) ?? [];
       list.push(el as HTMLInputElement);
       groups.set(key, list);
@@ -193,6 +258,14 @@ function scanForm(scopeSelector: string | null): RawField[] {
     index++;
   }
 
+  // In the order a person reads the page, whichever pass found each question.
+  const firstOf = (i: number) => document.querySelector(`[data-desk-field="${i}"]`);
+  out.sort((a, b) => {
+    const ea = firstOf(a.index);
+    const eb = firstOf(b.index);
+    if (!ea || !eb || ea === eb) return 0;
+    return ea.compareDocumentPosition(eb) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  });
   return out;
 }
 

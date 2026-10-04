@@ -6,6 +6,7 @@ import { detectLetterLang, type LetterLang } from "./letter";
 import { loadApplicantContact } from "./package";
 import { resolveResumeForJob } from "./resumes";
 import { safeDeskPath } from "./safe-path";
+import { tailoredCvEnabled } from "./cv-tailor";
 import type { ApplicationDetail } from "./types";
 
 // The two files that go with an application email: the CV and the cover letter PDF. One place decides
@@ -39,7 +40,8 @@ export async function applicationFiles(app: ApplicationDetail): Promise<Applicat
   const { fullName } = await loadApplicantContact(lang);
   const company = app.company_name.replace(/[\\/:*?"<>|]+/g, "").trim() || "Application";
 
-  let cvPath = app.resume_path;
+  // CV_TAILORED=true: the CV made for this posting goes out instead of the uploaded one, when it was built.
+  let cvPath = tailoredCvEnabled() && safeDeskPath(app.tailored_cv_path) ? app.tailored_cv_path! : app.resume_path;
   if (!cvPath) {
     const resume = await resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description));
     cvPath = resume?.storage_path ?? null;

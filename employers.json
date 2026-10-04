@@ -1,0 +1,96 @@
+{
+  "_comment": "Employer job systems with a public search (lib/apply/boards.ts). Each entry was checked against its public API before being added. A company not listed here is still found when one of its postings already links to its Workday, SuccessFactors or SmartRecruiters site.",
+  "employers": [
+    {
+      "name": "Autodesk",
+      "ats": "workday",
+      "host": "autodesk.wd1.myworkdayjobs.com",
+      "tenant": "autodesk",
+      "site": "Ext"
+    },
+    {
+      "name": "CAE",
+      "ats": "workday",
+      "host": "cae.wd3.myworkdayjobs.com",
+      "tenant": "cae",
+      "site": "career"
+    },
+    {
+      "name": "Pratt & Whitney",
+      "aliases": [
+        "Pratt & Whitney Canada",
+        "Pratt and Whitney",
+        "RTX",
+        "Collins Aerospace"
+      ],
+      "ats": "workday",
+      "host": "globalhr.wd5.myworkdayjobs.com",
+      "tenant": "globalhr",
+      "site": "REC_RTX_Ext_Gateway"
+    },
+    {
+      "name": "Cisco",
+      "aliases": [
+        "Cisco Systems"
+      ],
+      "ats": "workday",
+      "host": "cisco.wd5.myworkdayjobs.com",
+      "tenant": "cisco",
+      "site": "Cisco_Careers"
+    },
+    {
+      "name": "Desjardins",
+      "aliases": [
+        "Mouvement Desjardins",
+        "Desjardins Group"
+      ],
+      "ats": "workday",
+      "host": "desjardins.wd10.myworkdayjobs.com",
+      "tenant": "desjardins",
+      "site": "Desjardins"
+    },
+    {
+      "name": "Intact",
+      "aliases": [
+        "Intact Financial Corporation",
+        "Intact Financial",
+        "Intact Assurance",
+        "Intact Insurance"
+      ],
+      "ats": "workday",
+      "host": "intactfc.wd3.myworkdayjobs.com",
+      "tenant": "intactfc",
+      "site": "IntactFC"
+    },
+    {
+      "name": "Bombardier",
+      "ats": "successfactors",
+      "host": "jobs.bombardier.com",
+      "locale": "en_US"
+    },
+    {
+      "name": "Hydro Québec",
+      "aliases": [
+        "Hydro-Québec",
+        "Hydro Quebec"
+      ],
+      "ats": "successfactors",
+      "host": "emploi.hydroquebec.com",
+      "locale": "fr_FR"
+    },
+    {
+      "name": "Kinaxis",
+      "ats": "icims",
+      "host": "careers-kinaxis.icims.com"
+    },
+    {
+      "name": "IBM",
+      "aliases": [
+        "IBM Canada",
+        "International Business Machines"
+      ],
+      "ats": "ibm",
+      "host": "careers.ibm.com"
+    }
+  ]
+}

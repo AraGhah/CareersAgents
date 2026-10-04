@@ -27,6 +27,22 @@
           <label for="linkedin">LinkedIn</label>
           <input id="linkedin" name="linkedin" type="text" />
         </div>
+        <!-- Ashby's Yes / No: two buttons and a hidden checkbox holding the answer. -->
+        <div class="_fieldEntry_x ashby-application-form-field-entry">
+          <label class="_required_x ashby-application-form-question-title" for="sponsor">Will you require sponsorship to work from your country of residence?</label>
+          <div class="_yesno_x ashby-application-form-input-yesno">
+            <button type="button" aria-pressed="false" data-option="yes" onclick="this.setAttribute('aria-pressed','true');this.nextElementSibling.setAttribute('aria-pressed','false')">Yes</button>
+            <button type="button" aria-pressed="false" data-option="no" onclick="this.setAttribute('aria-pressed','true');this.previousElementSibling.setAttribute('aria-pressed','false')">No</button>
+            <input type="checkbox" tabindex="-1" name="sponsor" style="position:absolute;opacity:0;width:1px;height:1px" />
+          </div>
+        </div>
+        <!-- "Select all that apply" where each box has its own name. -->
+        <div class="_fieldEntry_y ashby-application-form-field-entry">
+          <label class="ashby-application-form-question-title">Which languages do you speak? Select all that apply.</label>
+          <label><input type="checkbox" name="lang_en" /> English</label>
+          <label><input type="checkbox" name="lang_fr" /> French</label>
+          <label><input type="checkbox" name="lang_es" /> Spanish</label>
+        </div>
         <button type="button">Submit Application</button>
       </div>
     </div>

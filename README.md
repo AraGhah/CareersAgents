@@ -95,6 +95,36 @@ prevent a security clearance?"* → No; *"Are you able to obtain / pass a securi
 Yes. Everything near them stays yours: "willing to undergo a check" (a consent), "do you hold a clearance", a "clean
 record" certificate, pending charges, a traffic offence, a negated question, an explain box, a single tick-box.
 
+## Auto-apply v2 (V16)
+
+Ideas taken from ApplyPilot, AIHawk (Auto_Jobs_Applier), career-ops and ApplyKit, held to the desk's rules (nothing
+invented, nothing personal without you, no Submit without the preflight, no CAPTCHA solving, never LinkedIn/Indeed logins).
+
+- **Finds the company's own posting** on Workday, SuccessFactors and SmartRecruiters through their public job search
+  (`lib/apply/boards.ts`). Which system a company uses comes from `employers.json` (each entry checked against its API),
+  from its other postings' links, and from its careers site. A LinkedIn/Indeed copy of a Cisco, Intact, Autodesk,
+  Desjardins, CAE, Pratt & Whitney, Bombardier or Hydro-Québec role now becomes that company's own form.
+- **The AI form agent** (`lib/apply/agent`) fills what the desk's own reader stops on: Workday's and SuccessFactors'
+  wizards, first-step portals, custom widgets. Claude sees the page's controls as a numbered list and your facts, and
+  acts through a few tools. It types only facts it was given, asks you for anything else, never types a password, and
+  never presses the final Submit: it hands back to the same preflight and `submit.ts` as every other run.
+  `npm run agent:check` drives it offline through a fixture wizard.
+- **Answer memory**: a question the desk could not answer, once you answer it on the application page, is remembered
+  (company name taken out) and reused on every later form. Listed, editable and forgettable on the Answers page.
+- **Confirm once**: on the Answers page, "Confirmer et utiliser" for work authorization, sponsorship (and salary if you
+  want) fills them on forms about Canada / your country of residence without a click. Self-identification stays blank.
+  "Have you worked at <company> before?" is answered "No" when the company is nowhere in your CV.
+- **Fit review** (`lib/match/fit-review.ts`): a cheap model grades each posting 1–5 against your profile (skills, level
+  and enrolment rules, place, term, language) with red flags quoted from the posting. The batch skips a grade under
+  `AUTO_APPLY_MIN_GRADE` (default 3) with the reason; shown on the job page.
+- **Tailored CV** (`lib/cv-tailor.ts`): your real CV's content reordered for the posting (asked-for skills first, closest
+  projects, most relevant experience); a reworded summary is kept only if every fact in it is yours. Built from the
+  application page; sent instead of your CV only with `CV_TAILORED=true`.
+- **Accounts in the batch** with `PORTAL_BATCH_ACCOUNTS=true` (same host allowlist; employer hosts in `employers.json`
+  count as known). Account forms that also ask for your name, phone or country get them from your profile.
+- **Form reading**: choices drawn as buttons (Ashby's Yes / No) and "select all" lists split over several names are read
+  as one question each.
+
 ## Automatic mode
 
 Everything up to *send* can run unattended. `npm run automate` starts one long-lived process:
@@ -138,6 +168,7 @@ docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < s
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v13.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v14.sql
 docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v15.sql
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v16.sql
 cp .env.example .env.local        # then set DATABASE_URL
 npm install
 npm run resumes:import

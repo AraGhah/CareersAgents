@@ -135,9 +135,12 @@ export function anchorsOf(html: string, baseUrl: string): Anchor[] {
  * separate the two: a dash usually introduces a specialization ("... Intern - Software Testing"), and reading
  * that as a second name would match the wrong job.
  */
+/** A title half that only names the program ("Stage universitaire", "Co-op collégial"), shared by every posting of it. */
+const PROGRAM_ONLY = /^((universitaire|collegiale?|university|college|cegep|technique|technical|programme?|undergraduate|graduate|new grad)\s*)+$/;
+
 function keysOf(title: string): string[] {
   const parts = title.split(/\s*[/|]\s*/);
-  return [...new Set([title, ...parts].map(roleKey).filter((k) => k.length > 3))];
+  return [...new Set([title, ...parts].map(roleKey).filter((k) => k.length > 3 && !PROGRAM_ONLY.test(k)))];
 }
 
 function termOf(title: string): string | null {
