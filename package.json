@@ -50,7 +50,12 @@
     "account:check": "tsx scripts/account-check.ts",
     "careers:check": "tsx scripts/careers-check.ts",
     "demo:record": "tsx scripts/record-demo.ts",
-    "agent:check": "tsx scripts/agent-check.ts"
+    "agent:check": "tsx scripts/agent-check.ts",
+    "linkedin:setup": "tsx scripts/linkedin-bot.ts --setup",
+    "linkedin": "tsx scripts/linkedin-bot.ts",
+    "linkedin:login": "tsx scripts/linkedin-bot.ts --login",
+    "linkedin:signin": "tsx scripts/linkedin-signin.ts",
+    "linkedin:import": "tsx scripts/linkedin-import.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

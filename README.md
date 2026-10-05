@@ -125,6 +125,33 @@ invented, nothing personal without you, no Submit without the preflight, no CAPT
 - **Form reading**: choices drawn as buttons (Ashby's Yes / No) and "select all" lists split over several names are read
   as one question each.
 
+## LinkedIn Easy Apply (GodsScion bot)
+
+The one place the desk uses your LinkedIn account. It drives [GodsScion/Auto_job_applier_linkedIn](https://github.com/GodsScion/Auto_job_applier_linkedIn)
+(MIT, Python/Selenium), cloned into `tools/linkedin-bot/` (gitignored), in a visible Chrome window. LinkedIn's terms
+forbid bots on an account and it can restrict yours: keep runs small.
+
+```
+npm run linkedin:setup           # clone (or update) the bot and install its Python packages in tools/linkedin-bot/.venv
+npm run linkedin -- --dry        # fills every Easy Apply form up to Review, then discards it. Submits nothing.
+npm run linkedin                 # applies, pausing before each Submit (Submit / Discard / Disable Pause)
+npm run linkedin -- --no-pause   # applies without that pause
+npm run linkedin:import          # records what it submitted: each posting becomes "Envoyé" in the tracker
+```
+
+- **Settings come from the desk** (`tools/linkedin-bot/user_config.json`, rewritten on every run): name, phone, links,
+  work authorization and sponsorship from the answer bank; the CV is the active English one; postal code and most
+  recent employer from its analysis. Searches internship postings around Montréal for the past month, Easy Apply only.
+  Tune with the `LINKEDIN_*` variables in `.env.example`. `LINKEDIN_DESIRED_SALARY` is required: the bot types a
+  number into salary questions.
+- **What it never does**: answer a question it has no answer for (it stops for you, never `pause_at_failed_question
+  = false`, which answers at random), use AI, or send a cover letter (a form requiring one stops for you). US
+  self-identification questions get "Decline".
+- **Sign-in**: you sign in yourself in the bot's window the first time; its profile (`C:\temp\auto-job-apply-profile`)
+  keeps you signed in. `LINKEDIN_EMAIL` / `LINKEDIN_PASSWORD` make it type them instead.
+- **No double applications**: before each run, the LinkedIn postings you already applied to from the desk are added to
+  the bot's history (`all excels/all_applied_applications_history.csv`), which it skips.
+
 ## Automatic mode
 
 Everything up to *send* can run unattended. `npm run automate` starts one long-lived process:

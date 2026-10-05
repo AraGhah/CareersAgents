@@ -45,6 +45,9 @@ Stages_2027.xlsx
 # uploaded / imported resumes (binary PDFs)
 /resumes/
 
+# LinkedIn Easy Apply bot (npm run linkedin:setup clones it here)
+/tools/linkedin-bot/
+
 # demo recordings
 /demos/
 
