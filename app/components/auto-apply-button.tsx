@@ -16,7 +16,8 @@ export function AutoApplyButton({
   eligible,
   minScore,
   gmailConnected,
-  submitEnabled,
+  submitMode,
+  emailFallback,
   runningId,
 }: {
   action: (form: FormData) => void | Promise<void>;
@@ -24,8 +25,10 @@ export function AutoApplyButton({
   eligible: number;
   minScore: number;
   gmailConnected: boolean;
-  /** PORTAL_ALLOW_SUBMIT=true: online forms are submitted. Otherwise they are skipped. */
-  submitEnabled: boolean;
+  /** Who presses Submit on a careers form (lib/apply/submit.ts). */
+  submitMode: "approve" | "auto" | "off";
+  /** APPLY_EMAIL_FALLBACK=true: a posting with no careers form may become a Gmail draft (and Gmail must work). */
+  emailFallback: boolean;
   /** Set while a batch is running: a second one cannot start. */
   runningId: string | null;
 }) {
@@ -33,7 +36,7 @@ export function AutoApplyButton({
   const [count, setCount] = useState(String(Math.min(5, max)));
   const n = Number(count);
   const valid = Number.isInteger(n) && n >= 1 && n <= MAX_COUNT;
-  const blocked = !gmailConnected || eligible === 0 || runningId !== null;
+  const blocked = (emailFallback && !gmailConnected) || eligible === 0 || runningId !== null;
 
   return (
     <Dialog.Root>
@@ -53,7 +56,7 @@ export function AutoApplyButton({
               Un lot est déjà en cours. <Link href={`/auto-apply?run=${runningId}`}>Voir la progression</Link>
             </p>
           ) : null}
-          {!gmailConnected ? (
+          {emailFallback && !gmailConnected ? (
             <p className="flash flash-warn" role="status">
               Gmail n’est pas connecté : lance <code>npm run gmail:auth</code> une fois, puis reviens ici.
             </p>
@@ -87,14 +90,23 @@ export function AutoApplyButton({
 
             <ul className="auto-apply-facts">
               <li>
-                <strong>Adresse publiée par l’entreprise :</strong> un brouillon est créé dans Gmail, avec ton CV et la lettre
-                joints. Tu cliques sur Envoyer toi-même ; la candidature passe à « Envoyé » dès que l’envoi est détecté.
+                <strong>Site carrières de l’entreprise d’abord :</strong>{" "}
+                {submitMode === "approve" ? (
+                  <>
+                    le formulaire est rempli page par page et vérifié, puis il t’attend sur <Link href="/approvals">À approuver</Link>.
+                    Rien n’est envoyé sans ton « Approuver et envoyer ».
+                  </>
+                ) : submitMode === "auto" ? (
+                  "il est rempli page par page puis envoyé si toutes les vérifications passent (PORTAL_SUBMIT=auto) ; sinon il t’attend, avec ce qui bloque."
+                ) : (
+                  "ignoré : PORTAL_SUBMIT=off dans .env.local."
+                )}
               </li>
               <li>
-                <strong>Formulaire en ligne :</strong>{" "}
-                {submitEnabled
-                  ? "il est rempli page par page puis envoyé si toutes les vérifications passent ; sinon il t’attend, avec ce qui bloque, la page où il s’est arrêté et un bouton pour continuer à la main."
-                  : "ignoré pour l’instant, l’envoi automatique est désactivé (PORTAL_ALLOW_SUBMIT=true dans .env.local pour l’activer)."}
+                <strong>Pas de formulaire que le bureau peut remplir :</strong>{" "}
+                {emailFallback
+                  ? "s’il y a une adresse publiée, un brouillon Gmail est créé (APPLY_EMAIL_FALLBACK=true) ; tu cliques sur Envoyer toi-même."
+                  : "l’offre est sautée, avec le lien vers le site carrières pour postuler toi-même. Aucun courriel."}
               </li>
               <li>
                 Les offres que le bureau ne peut pas traiter (portails avec compte, doublons) sont sautées et ne comptent pas

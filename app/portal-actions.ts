@@ -13,9 +13,10 @@ import { redirect } from "next/navigation";
 import { isJobBoardUrl } from "../lib/apply/apply-url";
 import { decideChannel, saveChannel } from "../lib/apply/route";
 import { approveField, getRun, pendingCount, planIsComplete, updateRun } from "../lib/apply/store";
+import { approveForSubmit, dismissApproval, listAwaitingApproval } from "../lib/apply/approval";
 import type { Lang } from "../lib/apply/types";
 import { pool } from "../lib/db";
-import { getApplication } from "../lib/queries";
+import { getApplication, setApplicationStatus } from "../lib/queries";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODES = new Set(["plan", "review", "submit"]);
@@ -147,4 +148,80 @@ export async function approvePortalFieldAction(form: FormData) {
   }
   revalidatePath(`/applications/${applicationId}`);
   redirect(`/applications/${applicationId}?portal=approved#portail`);
+}
+
+/**
+ * The submit queue for the forms you approved (scripts/portal-apply.ts --queue approved), in its own hidden process. Only
+ * one runs at a time: a second start finds the first one working and returns.
+ */
+function launchApprovedQueue(): void {
+  const dir = path.join("applications", "_portal");
+  mkdirSync(dir, { recursive: true });
+  const logPath = path.join(dir, "approved-queue.log");
+  const logFile = openSync(logPath, "a");
+  const child = spawn("npx", ["tsx", "scripts/portal-apply.ts", "--queue", "approved"], {
+    cwd: process.cwd(),
+    shell: true,
+    detached: true,
+    stdio: ["ignore", logFile, logFile],
+    env: { ...process.env, PORTAL_HEADLESS: "true" },
+    windowsHide: true,
+  });
+  child.on("error", (err) => {
+    try {
+      appendFileSync(logPath, `[launch] could not start: ${err.message}\n`);
+    } catch {
+      // the log folder itself is unwritable: nothing more to do
+    }
+  });
+  child.unref();
+}
+
+/** "Approuver et envoyer": your yes to one filled careers form, which is then submitted in the background. */
+export async function approveSubmitAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  const runId = uuid(form, "runId");
+  await approveForSubmit(applicationId, runId);
+  launchApprovedQueue();
+  revalidatePath("/approvals");
+  redirect(`/approvals?approved=1#attente`);
+}
+
+/** "Tout approuver": the same yes for every form shown on /approvals at that moment (the ones you read on the page). */
+export async function approveAllAction(form: FormData) {
+  const shown = new Set(form.getAll("runId").map(String).filter((id) => UUID.test(id)));
+  let n = 0;
+  for (const a of await listAwaitingApproval()) {
+    if (a.approved_at || !shown.has(a.run_id)) continue;
+    await approveForSubmit(a.application_id, a.run_id);
+    n += 1;
+  }
+  if (n) launchApprovedQueue();
+  revalidatePath("/approvals");
+  redirect(`/approvals?approved=${n}#attente`);
+}
+
+/** "Pas celle-ci": set aside, never submitted, out of the daily batch. */
+export async function dismissApprovalAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  await dismissApproval(applicationId);
+  revalidatePath("/approvals");
+  redirect(`/approvals?dismissed=1#attente`);
+}
+
+/** /blocked: you applied on the company's site yourself. The application is "Envoyé" and leaves the list and the batch. */
+export async function markBlockedAppliedAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  await setApplicationStatus(applicationId, "applied", "applied by hand from /blocked");
+  revalidatePath("/blocked");
+  revalidatePath("/pipeline");
+  redirect(`/blocked?applied=1`);
+}
+
+/** /blocked: not worth doing by hand. Off the list and out of the daily batch, like "Pas celle-ci" on /approvals. */
+export async function dismissBlockedAction(form: FormData) {
+  const applicationId = uuid(form, "applicationId");
+  await dismissApproval(applicationId);
+  revalidatePath("/blocked");
+  redirect(`/blocked?dismissed=1`);
 }

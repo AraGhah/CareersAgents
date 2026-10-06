@@ -27,6 +27,8 @@ export type PreflightInput = {
   autoApprove: boolean;
   submitRequested: boolean;
   submitEnabled: boolean;
+  /** You approved this filled form on /approvals: that is the review a priority company gets. */
+  approvedByYou?: boolean;
   /** A multi-step form the run could not take to its last page, and why (the page that needs you). */
   stoppedEarly?: string | null;
 };
@@ -97,8 +99,8 @@ export function runPreflight(p: PreflightInput): PreflightItem[] {
   add("no_form_errors", p.formErrors.length === 0, "The form shows no validation errors", p.formErrors.join("; ") || undefined);
 
   if (p.submitRequested) {
-    add("not_target", !p.isTarget, "Not a priority company (those are always reviewed by hand)", p.isTarget ? "is_target company: submit it yourself" : undefined);
-    add("submit_enabled", p.submitEnabled, "Automatic submit is enabled (PORTAL_ALLOW_SUBMIT=true)", p.submitEnabled ? undefined : "off: the form is left filled for you to submit");
+    add("not_target", !p.isTarget || p.approvedByYou === true, "Not a priority company, or approved by you (those are always reviewed by hand)", p.isTarget && !p.approvedByYou ? "is_target company: approve it on /approvals or submit it yourself" : undefined);
+    add("submit_enabled", p.submitEnabled, "Submit allowed (your approval, or PORTAL_SUBMIT=auto)", p.submitEnabled ? undefined : "waiting for your approval on /approvals");
   }
   return items;
 }

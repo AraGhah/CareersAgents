@@ -7,9 +7,12 @@
 //      (the same job found on LinkedIn and on the company's Greenhouse board)
 //   5. the same canonical posting URL was already submitted by another run
 //   6. a run clicked Submit and the portal never confirmed: it may have gone through, so it is not tried again
+//   7. the company's own system lists the form's job under another title that was applied to (CGI's Njoyn names each
+//      job in English and in French: "Winter 2027 Co-op: AS400 Developer" is "Stage coopératif - Hiver 2027: Développeur AS400")
 
 import { pool } from "../db";
 import type { ApplicationDetail } from "../types";
+import { boardFromUrl, searchBoard } from "./boards";
 import { canonicalPostingUrl } from "./platforms";
 import { norm } from "./text";
 
@@ -53,6 +56,26 @@ export function twinKeys<T extends { company_id: string; title: string }>(rows: 
     out.set(r, stripped && stripped !== key && plain.has(stripped) ? stripped : key);
   }
   return out;
+}
+
+/** The application done under one of the names the company's own system gives this job, if any. */
+export function appliedUnderOtherName<T extends { title: string }>(companyId: string, names: string[], done: T[]): T | undefined {
+  if (names.length === 0) return undefined;
+  const rows = [...names, ...done.map((d) => d.title)].map((title) => ({ company_id: companyId, title }));
+  const keys = twinKeys(rows);
+  const wanted = new Set(rows.slice(0, names.length).map((r) => keys.get(r)).filter((k): k is string => !!k));
+  return done.find((_, i) => wanted.has(keys.get(rows[names.length + i]) ?? ""));
+}
+
+/** The titles the company's own system lists a form's job under (one per language on Njoyn), or none when it is not one. */
+async function otherNames(formUrls: string[], title: string): Promise<string[]> {
+  for (const u of formUrls) {
+    const board = boardFromUrl(u);
+    if (!board) continue;
+    const canon = canonicalPostingUrl(u);
+    return (await searchBoard(board, title)).filter((j) => canonicalPostingUrl(j.url) === canon).map((j) => j.title);
+  }
+  return [];
 }
 
 export async function duplicateReason(app: ApplicationDetail, alsoUrls: string[] = []): Promise<string | null> {
@@ -99,6 +122,12 @@ export async function duplicateReason(app: ApplicationDetail, alsoUrls: string[]
   const key = keys.get(all[0]);
   const twin = key ? siblings.find((_, i) => keys.get(all[i + 1]) === key) : undefined;
   if (twin) return `The same role at ${app.company_name} was already applied to ("${twin.title}", application ${twin.id.slice(0, 8)}).`;
+
+  if (siblings.length) {
+    const named = await otherNames(alsoUrls, app.title);
+    const same = appliedUnderOtherName(app.company_id, named, siblings);
+    if (same) return `${app.company_name}'s own site lists this job also as "${same.title}", already applied to (application ${same.id.slice(0, 8)}).`;
+  }
 
   const mine = new Set([app.url, ...alsoUrls].map(canonicalPostingUrl));
   const { rows: sameUrl } = await pool.query<{ posting_url: string; form_url: string | null }>(

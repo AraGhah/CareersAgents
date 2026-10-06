@@ -59,7 +59,7 @@ function main() {
   }
   const submitCode = readFileSync(path.join(root, SUBMIT_MODULE), "utf8");
   const firstClick = submitCode.indexOf(".click(");
-  for (const gate of ["if (!submitEnabled())", "if (!preflightPasses(preflight))"]) {
+  for (const gate of ["if (!submitEnabled(", "if (!preflightPasses(preflight))"]) {
     const at = submitCode.indexOf(gate);
     if (at === -1 || (firstClick !== -1 && at > firstClick)) offenders.push(`${SUBMIT_MODULE} ~ "${gate}" must come before any click`);
   }
@@ -82,7 +82,7 @@ function main() {
     process.exit(1);
   }
   console.log(`no submit-click patterns in ${files.length} source files`);
-  console.log(`the only submit path (${SUBMIT_MODULE}) is gated by PORTAL_ALLOW_SUBMIT and the preflight`);
+  console.log(`the only submit path (${SUBMIT_MODULE}) is gated by the submit permission (approval or PORTAL_SUBMIT=auto) and the preflight`);
   console.log(`the only account path (${ACCOUNT_MODULE}) clicks inside press(), gated by the configured account`);
 
   if (!looksLikeSubmit("Submit") || !looksLikeSubmit("Submit application")) {

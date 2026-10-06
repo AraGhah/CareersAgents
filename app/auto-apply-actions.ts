@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { gmailWorks } from "../lib/gmail";
 import { isGmailAuthError } from "../lib/auto-apply/apply";
+import { emailFallbackEnabled } from "../lib/apply/route";
 import { configuredMinScore } from "../lib/auto-apply/select";
 import { syncSentDrafts } from "../lib/auto-apply/sent";
 import { createRun, finishRun, requestStop } from "../lib/auto-apply/store";
@@ -47,7 +48,8 @@ export async function startAutoApplyAction(form: FormData) {
   if (!(count >= 1 && count <= 50)) redirect("/auto-apply?error=count");
 
   // Asks Google, not just the token file: an expired authorization would otherwise fail on the first email.
-  if (!(await gmailWorks()).ok) redirect("/auto-apply?error=gmail");
+  // Gmail matters only for the email fallback: careers forms do not use it.
+  if (emailFallbackEnabled() && !(await gmailWorks()).ok) redirect("/auto-apply?error=gmail");
 
   let runId: string | null = null;
   try {

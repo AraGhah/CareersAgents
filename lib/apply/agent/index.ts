@@ -239,9 +239,16 @@ export async function runFormAgent(input: AgentInput): Promise<AgentOutcome> {
         if (/password/i.test(el!.kind) || /password field/.test(el!.value)) return { text: "Refused: password fields are never typed by the agent." };
         const text = String(a.text ?? "");
         await loc!.scrollIntoViewIfNeeded().catch(() => undefined);
+        // Workday redraws a field after it is typed in: the stamped node can be replaced by a new one with the same id,
+        // so the value is read back from the field as it is now (by its id), after the redraw.
+        const domId = await loc!.getAttribute("id").catch(() => null);
         await loc!.fill(text, { timeout: 8000 });
         await loc!.blur().catch(() => undefined);
-        const back = await loc!.inputValue().catch(() => "");
+        let back = await loc!.inputValue().catch(() => "");
+        if (norm(back) !== norm(text) && domId) {
+          await page.waitForTimeout(700);
+          back = await page.locator(`[id="${domId.replace(/"/g, '\\"')}"]`).first().inputValue().catch(() => back);
+        }
         const ok = norm(back) === norm(text);
         if (ok) record(id, text, { source: sourceOf(String(a.fact)), fact: String(a.fact) });
         return { text: ok ? `[${id}] now "${back.slice(0, 80)}".` : `[${id}] reads back "${back.slice(0, 80)}" instead.` };

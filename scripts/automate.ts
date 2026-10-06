@@ -1,11 +1,14 @@
 // Automatic mode — one process that runs discovery, inbox sync, and
 // follow-ups on their own schedule so nobody has to click "Find Internships"
-// or run a script by hand. Every qualifying job is auto-tracked, researched,
+// or run a script by hand. Every morning (DAILY_AT, default 09:00, until DAILY_UNTIL, default 15:00) the careers-page
+// run finds new companies, reads every careers board and fills the best forms,
+// which then wait on /approvals for you (scripts/daily.ts); forms you approve are
+// submitted by the approved queue, checked every 15 minutes too. Every qualifying job is auto-tracked, researched,
 // matched to a real published contact, and has a personalized email drafted
 // — see lib/workflow.ts's runFindInternships. Jobs with no published contact
 // get their online form read and their answers drafted (portal plan, headless,
 // read-only). Nothing here sends an email; a portal form is submitted only when
-// PORTAL_ALLOW_SUBMIT=true AND every field of its plan was decided (approved by
+// PORTAL_SUBMIT=auto (or you approved it on /approvals) AND every field of its plan was decided (approved by
 // you) AND the preflight passes. Stop it any time with Ctrl+C.
 //
 //   npx tsx scripts/automate.ts
@@ -15,6 +18,7 @@ import cron from "node-cron";
 import { spawn } from "node:child_process";
 import { pool } from "../lib/db";
 import { runFindInternships } from "../lib/workflow";
+import { submitMode } from "../lib/apply/submit";
 
 function runScript(label: string, file: string): Promise<void> {
   return new Promise((resolve) => {
@@ -50,7 +54,8 @@ async function runDiscover() {
 }
 
 const portalPlanOn = () => process.env.PORTAL_AUTO_PLAN?.trim().toLowerCase() !== "false";
-const portalSubmitOn = () => process.env.PORTAL_ALLOW_SUBMIT?.trim().toLowerCase() === "true";
+// Only with PORTAL_SUBMIT=auto: with approve (the default) the approved queue below submits what you approved.
+const portalSubmitOn = () => submitMode() === "auto";
 
 async function runPortal() {
   if (portalPlanOn()) await runScript("portal-plan", "scripts/portal-apply.ts --queue plan");
@@ -58,6 +63,10 @@ async function runPortal() {
 }
 
 const runSyncInbox = () => runScript("sync-inbox", "scripts/sync-inbox.ts");
+const dailyUntil = () => process.env.DAILY_UNTIL?.trim() || "15:00";
+const runDaily = () => runScript("daily", `scripts/daily.ts --until ${dailyUntil()}`);
+const runApproved = () => runScript("approved", "scripts/portal-apply.ts --queue approved");
+const dailyAt = () => process.env.DAILY_AT?.trim() || "0 9 * * *";
 const runFollowups = () => runScript("followups", "scripts/process-followups.ts");
 
 async function main() {
@@ -66,6 +75,8 @@ async function main() {
   console.log(`  portal     — after each discover: plan forms ${portalPlanOn() ? "on" : "off"}, submit approved plans ${portalSubmitOn() ? "ON" : "off"}`);
   console.log("  inbox sync — every 30m (Gmail replies matched to applications)");
   console.log("  follow-ups — daily 08:00 (day-7 / day-14 drafts)");
+  console.log(`  careers    — ${dailyAt()} (cron) until ${dailyUntil()} or the tokens run out: new companies, every careers board, forms filled for /approvals`);
+  console.log("  approved   — every 15m: submits the forms you approved on /approvals");
   console.log("Drafts wait for your approval in the app. Ctrl+C to stop.\n");
 
   // Run each once immediately so results show up right away, then schedule.
@@ -84,6 +95,12 @@ async function main() {
   });
   cron.schedule("0 8 * * *", () => {
     runFollowups().catch((err) => console.error("[followups]", err));
+  });
+  cron.schedule(dailyAt(), () => {
+    runDaily().catch((err) => console.error("[daily]", err));
+  });
+  cron.schedule("*/15 * * * *", () => {
+    runApproved().catch((err) => console.error("[approved]", err));
   });
 }
 

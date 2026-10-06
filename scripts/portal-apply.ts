@@ -4,13 +4,15 @@
 //   npm run portal -- --application <uuid> --mode submit   fill, validate, submit if every gate passes
 //   npm run portal -- --queue plan                         plan every portal application without a plan
 //   npm run portal -- --queue submit                       execute every complete (approved) plan
+//   npm run portal -- --queue approved                     submit, headless, every filled form you approved on /approvals
 //   npm run portal -- --route                              set email / portal / manual on every waiting application (no browser)
 // An employer portal that asks for an account (Workday, iCIMS...): a run for ONE application (--application) signs in to, or
 // creates, the account in .env.local (PORTAL_ACCOUNT_EMAIL / PORTAL_ACCOUNT_PASSWORD, PORTAL_CREATE_ACCOUNTS=true);
 // --no-accounts turns that off for the run. --queue and `automate` never open accounts.
 // Flags: --headed (show the browser in plan mode), --force-portal (use the form even if a contact exists),
 //        --keep-open (no terminal: keep the browser until you close its window; used by the desk's buttons).
-// Submit also needs PORTAL_ALLOW_SUBMIT=true in .env.local; without it, "submit" behaves like "review".
+// Submit needs your approval on /approvals (PORTAL_SUBMIT=approve, the default) or PORTAL_SUBMIT=auto; otherwise "submit"
+// behaves like "review".
 
 import type { Page } from "playwright";
 import { pool } from "../lib/db";
@@ -19,6 +21,8 @@ import { resolveApplyTarget } from "../lib/apply/apply-url";
 import { decideChannel, saveChannel } from "../lib/apply/route";
 import { portalQueue, runPortalApplication, type RunResult } from "../lib/apply/runner";
 import { getApplication } from "../lib/queries";
+import { approvedQueue } from "../lib/apply/approval";
+import { withLock } from "../lib/db-lock";
 import type { RunMode } from "../lib/apply/types";
 
 function arg(name: string): string | null {
@@ -103,13 +107,45 @@ async function routeAll() {
   for (const [k, n] of [...tally.entries()].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(3)}  ${k}`);
 }
 
+/**
+ * The forms you approved, one at a time with the usual pause, headless, until none is left (one approved while this runs
+ * is picked up too). Only one of these runs at a time: the approve button starts it, and a second start just returns.
+ */
+async function approvedLoop() {
+  const delay = Math.max(30, Number(process.env.PORTAL_DELAY_SECONDS ?? 90)) * 1000;
+  const held = await withLock(
+    "portal-queue",
+    "approved",
+    async () => {
+      const tried = new Set<string>();
+      for (;;) {
+        const id = (await approvedQueue()).find((x) => !tried.has(x));
+        if (!id) break;
+        if (tried.size) await new Promise((r) => setTimeout(r, delay));
+        tried.add(id);
+        console.log(`
+[approved ${tried.size}] ${id}`);
+        try {
+          report(await runPortalApplication(id, { mode: "submit", headless: true, log: (line) => console.log(`  ${line}`) }));
+        } catch (err) {
+          console.error(`  failed: ${err instanceof Error ? err.message : String(err)} (logged in portal_errors)`);
+        }
+      }
+      return tried.size;
+    },
+    { wait: false },
+  );
+  console.log(held.ok ? `${held.value} approved form(s) handled.` : "The approved queue is already running in another process.");
+}
+
 async function main() {
   if (flag("route")) return routeAll();
+  if (arg("queue") === "approved") return approvedLoop();
   const applicationId = arg("application");
   const queue = arg("queue");
   if (!applicationId && !queue) {
     console.log("Usage: npm run portal -- --application <uuid> [--mode plan|review|submit] [--headed] [--force-portal]");
-    console.log("       npm run portal -- --queue plan|submit");
+    console.log("       npm run portal -- --queue plan|submit|approved");
     console.log("       npm run portal -- --route");
     process.exit(1);
   }

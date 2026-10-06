@@ -82,11 +82,46 @@ export function usageSummary(): string | null {
     .join(" · ")}`;
 }
 
+// ---------------------------------------------------------------------------
+// When the tokens are finished
+// ---------------------------------------------------------------------------
+
+/** Set once the API says the account is out of credit or over its spend limit, or DAILY_TOKEN_BUDGET is used up. */
+let exhausted: string | null = null;
+
+/** The API's answer when the money, not the moment, is the limit (a 429 rate limit passes, this does not). */
+const OUT_OF_CREDIT = /credit balance|billing|insufficient (funds|credit|quota)|usage limit|spend(ing)? limit|quota (exceeded|reached)|exceeded your (current )?quota|reached your specified/i;
+
+export class TokensExhaustedError extends Error {}
+
+/** Tokens (in + out) this process has used, every model together. */
+export function tokensUsed(): number {
+  let n = 0;
+  for (const u of usage.values()) n += u.input + u.output;
+  return n;
+}
+
+/** DAILY_TOKEN_BUDGET: the most tokens one daily run may use (unset or 0 = no limit but the account's own). */
+export function tokenBudget(): number | null {
+  const n = Number(process.env.DAILY_TOKEN_BUDGET);
+  return process.env.DAILY_TOKEN_BUDGET?.trim() && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Why no more Claude calls should be made in this process, or null while tokens remain. */
+export function tokensExhausted(): string | null {
+  if (exhausted) return exhausted;
+  const budget = tokenBudget();
+  if (budget && tokensUsed() >= budget) exhausted = `DAILY_TOKEN_BUDGET reached (${tokensUsed()} of ${budget} tokens)`;
+  return exhausted;
+}
+
 /** Sends the request to the picked model with its effort, dropping the effort for a model that does not take one. */
 export async function createMessage(client: Anthropic, pick: ModelPick, params: Params): Promise<Anthropic.Message> {
   const send = (effort: Effort | null) =>
     client.messages.create({ ...params, model: pick.model, output_config: { ...params.output_config, ...(effort ? { effort } : {}) } });
 
+  const out = tokensExhausted();
+  if (out) throw new TokensExhaustedError(`No more Claude tokens: ${out}`);
   const effort = pick.effort && !/haiku/i.test(pick.model) && !rejectsEffort.has(pick.model) ? pick.effort : null;
   try {
     const response = await send(effort);
@@ -94,6 +129,10 @@ export async function createMessage(client: Anthropic, pick: ModelPick, params: 
     return response;
   } catch (err) {
     const status = (err as { status?: number }).status;
+    if ((status === 400 || status === 402 || status === 403 || status === 429) && OUT_OF_CREDIT.test(String((err as Error).message))) {
+      exhausted = `the Anthropic API refuses for lack of credit: ${String((err as Error).message).slice(0, 160)}`;
+      throw new TokensExhaustedError(`No more Claude tokens: ${exhausted}`);
+    }
     if (effort && status === 400 && /effort/i.test(String((err as Error).message))) {
       rejectsEffort.add(pick.model);
       const response = await send(null);

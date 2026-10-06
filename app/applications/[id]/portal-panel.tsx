@@ -1,4 +1,4 @@
-import { approvePortalFieldAction, planPortalAction, runPortalAction, setFormUrlAction } from "../../portal-actions";
+import { approvePortalFieldAction, approveSubmitAction, planPortalAction, runPortalAction, setFormUrlAction } from "../../portal-actions";
 import { Select, SubmitButton } from "../../components/client-ui";
 import { Disclosure } from "../../components/disclosure";
 import { ExtLink } from "../../components/ui";
@@ -354,6 +354,16 @@ export function PortalPanel({
               <input type="hidden" name="mode" value="review" />
               <SubmitButton className={(planReady && !submitEnabled) || run?.stop_step ? "primary" : ""} pendingLabel="Ouverture…">
                 {run?.stop_step ? `Continuer à la main (page ${run.stop_step})` : "Remplir dans le navigateur (je soumets)"}
+              </SubmitButton>
+            </form>
+          ) : null}
+          {run?.state === "ready_to_submit" && !submitEnabled ? (
+            // PORTAL_SUBMIT=approve: the form was filled and validated; your yes submits it, headless, in the background.
+            <form action={approveSubmitAction}>
+              <input type="hidden" name="applicationId" value={applicationId} />
+              <input type="hidden" name="runId" value={run.id} />
+              <SubmitButton className="primary" pendingLabel="Approbation…">
+                Approuver et envoyer
               </SubmitButton>
             </form>
           ) : null}

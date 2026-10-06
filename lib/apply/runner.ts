@@ -59,6 +59,7 @@ import { agentEnabled, runFormAgent } from "./agent";
 import { tailoredCvEnabled } from "../cv-tailor";
 import { safeDeskPath } from "../safe-path";
 import { assertPublicUrl, blockPrivateNetwork } from "../net-guard";
+import { needsVisibleBrowser } from "./boards";
 import { selectResume } from "./resume-select";
 import { decideChannel, saveChannel } from "./route";
 import {
@@ -73,12 +74,15 @@ import {
   updateRun,
 } from "./store";
 import { submitApplication, submitEnabled, type SubmitOutcome } from "./submit";
+import { clearSubmitApproval, submitApproved } from "./approval";
 import type { FieldDecision, FormField, PreflightItem, RunMode, RunState } from "./types";
 
 export type RunOptions = {
   mode: RunMode;
   /** Show the browser. Plan runs are headless unless this is set. */
   headed?: boolean;
+  /** Never show the browser (the daily batch, the approved-submit queue), whatever the mode. */
+  headless?: boolean;
   forcePortal?: boolean;
   /**
    * May this run sign in to, or create, an account on the employer's portal (lib/apply/account.ts)? True only for a run you
@@ -197,7 +201,19 @@ async function readFields(page: Page, adapter: PlatformAdapter): Promise<FormFie
  * page, `npm run portal`): two browsers on the same form would fill it, and maybe submit it, twice.
  */
 export async function runPortalApplication(applicationId: string, opts: RunOptions): Promise<RunResult> {
-  const held = await withLock("portal-run", applicationId, () => runPortalApplicationLocked(applicationId, opts), { wait: false });
+  const held = await withLock(
+    "portal-run",
+    applicationId,
+    async () => {
+      try {
+        return await runPortalApplicationLocked(applicationId, opts);
+      } finally {
+        // One approval, one attempt (lib/apply/approval.ts): a blocked form comes back to you before it is tried again.
+        if (opts.mode === "submit") await clearSubmitApproval(applicationId).catch(() => undefined);
+      }
+    },
+    { wait: false },
+  );
   if (held.ok) return held.value;
   const reason = "Another run is already working on this application (a browser window may still be open on it): finish or close that one first.";
   (opts.log ?? (() => undefined))(reason);
@@ -211,6 +227,8 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
   const app = await getApplication(applicationId);
   if (!app) throw new Error(`application not found: ${applicationId}`);
   const board = await boardContext(app);
+  // Your yes on /approvals to this filled form: with PORTAL_SUBMIT=approve, the only thing that lets this run submit.
+  const approvedByYou = opts.mode === "submit" && (await submitApproved(app.id));
 
   const target = await resolveApplyTarget(app);
   const dup = await duplicateReason(app, [target.url]);
@@ -267,8 +285,10 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       return { runId, state: "blocked", reason: manualOnly, preflight: [], decisions: [] };
     }
     // Fill runs are visible so a person can take over; PORTAL_HEADLESS=true forces headless (servers, tests).
+    // A Njoyn site (CGI) shows a hidden browser a bot check, never its form: it is opened in a window, headless asked or not.
     const forceHeadless = process.env.PORTAL_HEADLESS?.trim().toLowerCase() === "true";
-    browser = await chromium.launch({ headless: forceHeadless || (opts.mode === "plan" ? !opts.headed : false) });
+    const wanted = opts.headless === true || (opts.mode === "plan" ? !opts.headed : false);
+    browser = await chromium.launch({ headless: forceHeadless || (wanted && !needsVisibleBrowser(target.url)) });
     const context = await browser.newContext({ locale: lang === "fr" ? "fr-CA" : "en-CA" });
     // Nothing the employer's page loads may reach this machine's own network.
     await blockPrivateNetwork(context);
@@ -339,7 +359,8 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
         isTarget: board.is_target,
         autoApprove,
         submitRequested,
-        submitEnabled: submitEnabled(),
+        submitEnabled: submitEnabled(approvedByYou),
+        approvedByYou,
         stoppedEarly: stopReason,
       });
       await saveFields(runId, decisions);
@@ -360,7 +381,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
             "daily-limit",
             async () => {
               if ((await submittedToday()) >= dailyLimit()) return null;
-              const outcome = await submitApplication(submitPage, adapter, preflight, { beforeClick: () => markSubmitClicked(runId, true) });
+              const outcome = await submitApplication(submitPage, adapter, preflight, { beforeClick: () => markSubmitClicked(runId, true), approvedByYou });
               const shot = await screenshot(submitPage, runId, outcome.state);
               if (outcome.state === "submitted") {
                 await finishRun(runId, "submitted", { submitted_at: new Date(), confirmation_text: outcome.confirmation, screenshot_path: shot });

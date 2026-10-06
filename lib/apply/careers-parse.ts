@@ -58,13 +58,16 @@ const ASSET = /\.(?:css|js|mjs|json|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eo
  * Links on a page to some other application system (anchors, and iframes that embed one). `account` = the desk
  * never drives it (it needs a login).
  */
+/** An attribute's link as the browser reads it: "xweb.asp?page=joblisting&amp;CLID=21001" is "...&CLID=21001". */
+const hrefOf = (raw: string) => raw.trim().replace(/&amp;/gi, "&");
+
 export function findPortalLinks(html: string, baseUrl: string): PortalLink[] {
   const seen = new Set<string>();
   const out: PortalLink[] = [];
   for (const m of html.matchAll(/<a\b[^>]*?href=["']([^"'#]+)["']|<iframe\b[^>]*?src=["']([^"'#]+)["']/gi)) {
     let url: URL;
     try {
-      url = new URL((m[1] ?? m[2]).trim(), baseUrl);
+      url = new URL(hrefOf(m[1] ?? m[2]), baseUrl);
     } catch {
       continue;
     }
@@ -116,7 +119,7 @@ export function anchorsOf(html: string, baseUrl: string): Anchor[] {
     const text = m[2].replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
     if (!text || text.length > 200) continue;
     try {
-      const url = new URL(m[1].trim(), baseUrl);
+      const url = new URL(hrefOf(m[1]), baseUrl);
       if (!/^https?:$/.test(url.protocol)) continue;
       out.push({ url: url.toString(), text });
     } catch {
@@ -135,8 +138,12 @@ export function anchorsOf(html: string, baseUrl: string): Anchor[] {
  * separate the two: a dash usually introduces a specialization ("... Intern - Software Testing"), and reading
  * that as a second name would match the wrong job.
  */
-/** A title half that only names the program ("Stage universitaire", "Co-op collégial"), shared by every posting of it. */
-const PROGRAM_ONLY = /^((universitaire|collegiale?|university|college|cegep|technique|technical|programme?|undergraduate|graduate|new grad)\s*)+$/;
+/**
+ * A title half that only names the program or its length ("Stage universitaire", "Co-op 4 mois"), shared by every
+ * posting of it: "Développeur IA – Stage/Co-op 4 mois" is not "Stagiaire en Actuariat - Co-op/Stage 4 mois".
+ */
+const PROGRAM_ONLY =
+  /^((universitaire|collegiale?|university|college|cegep|technique|technical|programme?|undergraduate|graduate|new grad|\d+|mois|months?|weeks?|semaines?|full time|part time|temps (plein|partiel))\s*)+$/;
 
 function keysOf(title: string): string[] {
   const parts = title.split(/\s*[/|]\s*/);

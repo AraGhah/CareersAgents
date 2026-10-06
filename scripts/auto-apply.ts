@@ -4,13 +4,15 @@
 //   npm run auto-apply -- --run <uuid>          work through a run the desk already created (what the button does)
 // Flags: --min 70 (lowest match score, default AUTO_APPLY_MIN_SCORE or 60), --headed (show the browser for online forms).
 //
-// Email postings become Gmail DRAFTS with the CV and cover letter attached: you press Send. Online forms are submitted
-// only with PORTAL_ALLOW_SUBMIT=true and when every preflight gate passes. Nothing is ever sent by this script.
+// Careers forms come first: filled, then (PORTAL_SUBMIT=approve, the default) left on /approvals for you; email (only with
+// APPLY_EMAIL_FALLBACK=true) becomes a Gmail DRAFT you send. A form is submitted here only with PORTAL_SUBMIT=auto and when
+// every preflight gate passes. No email is ever sent by this script.
 
 import { pool } from "../lib/db";
 import { usageSummary } from "../lib/claude";
 import { gmailWorks } from "../lib/gmail";
-import { submitEnabled } from "../lib/apply/submit";
+import { submitMode } from "../lib/apply/submit";
+import { emailFallbackEnabled } from "../lib/apply/route";
 import { configuredMinScore, rankedCandidates } from "../lib/auto-apply/select";
 import { createRun } from "../lib/auto-apply/store";
 import { lookLimit, runAutoApply } from "../lib/auto-apply/run";
@@ -50,22 +52,35 @@ async function main() {
     console.log(`Best-scored postings at ${minPercent}+ (${list.length} looked at; ${count} wanted). Nothing is changed.\n`);
     for (const c of list) {
       const where = c.channel ?? (c.application_id ? "?" : "new");
-      console.log(`${String(Math.round(c.score * 100)).padStart(3)}  ${where.padEnd(6)} ${c.company_name} | ${c.title}`);
+      console.log(`${String(Math.round(c.score * 100)).padStart(3)}  ${c.level.padEnd(10)} ${where.padEnd(6)} ${c.company_name} | ${c.title}`);
     }
-    const gmail = await gmailWorks();
-    console.log(
-      `\nGmail: ${gmail.ok ? "working" : `NOT working (${gmail.reason}): run npm run gmail:auth`} · online forms: ${submitEnabled() ? "submitted" : "not submitted (PORTAL_ALLOW_SUBMIT is off)"}`,
-    );
+    const mode = submitMode();
+    const forms = mode === "approve" ? "filled, then wait for your approval on /approvals" : mode === "auto" ? "submitted when every check passes" : "not filled (PORTAL_SUBMIT=off)";
+    if (emailFallbackEnabled()) {
+      const gmail = await gmailWorks();
+      console.log(`\nGmail (email fallback): ${gmail.ok ? "working" : `NOT working (${gmail.reason}): run npm run gmail:auth`} · careers forms: ${forms}`);
+    } else {
+      console.log(`\nCareers forms: ${forms} · no email (APPLY_EMAIL_FALLBACK is off)`);
+    }
     return;
   }
 
-  const gmail = await gmailWorks();
-  if (!gmail.ok) throw new Error(`Gmail refuses the connection (${gmail.reason}): run \`npm run gmail:auth\` first, so the drafts can be made.`);
+  // Gmail is only needed for the email fallback: careers forms do not use it.
+  if (emailFallbackEnabled()) {
+    const gmail = await gmailWorks();
+    if (!gmail.ok) throw new Error(`Gmail refuses the connection (${gmail.reason}): run \`npm run gmail:auth\` first, or turn APPLY_EMAIL_FALLBACK off.`);
+  }
   const id = await createRun(count, minPercent);
   console.log(`Run ${id}: applying to ${count}, best score first (${minPercent}+).\n`);
   const { counted, note } = await runAutoApply(id, { log: (line) => console.log(line) });
   console.log(`\n${counted} application(s). ${note}`);
 }
+
+// A long batch drives many employer pages; one that closes itself mid-read can leave a stray rejected promise behind (a page
+// listener, a background read). The application it belonged to is already recorded as failed: the batch goes on.
+process.on("unhandledRejection", (err) => {
+  console.error(`(ignored, the batch goes on) ${err instanceof Error ? err.message : String(err)}`);
+});
 
 main()
   .catch((err) => {

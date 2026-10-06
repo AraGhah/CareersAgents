@@ -236,13 +236,30 @@ const ashby: PlatformAdapter = {
   confirmationUrl: /submitted|thank|confirmation/i,
 };
 
+/** "…/job/<place>/<title>_R123" → "…/job/<place>/<title>_R123/apply/applyManually"; anything else unchanged. */
+export function workdayApplyUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (!/\.myworkday(jobs|site)\.com$/i.test(u.hostname)) return raw;
+    const path = u.pathname.replace(/\/+$/, "");
+    if (!/\/job\//.test(path) || /\/apply(\/|$)/.test(path)) return raw;
+    u.pathname = `${path}/apply/applyManually`;
+    u.search = "";
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
 // Workday and SuccessFactors: their forms are filled by the AI form agent (lib/apply/agent), page by page behind an
 // account. These adapters only say where the final Submit is and what a confirmation looks like.
 const workday: PlatformAdapter = {
   id: "workday",
   label: "Workday",
   matches: (url) => /\.myworkday(jobs|site)\.com|\.workday\.com/i.test(url),
-  formUrl: (url) => url,
+  // A posting's own page only shows "Apply"; its /apply/applyManually page is the application itself (behind the
+  // Create Account / Sign In step), the same page "Apply → Apply Manually" leads to.
+  formUrl: (url) => workdayApplyUrl(url),
   scopes: ["[data-automation-id='applyFlowPage']", "main", "form"],
   async reveal() {},
   submitSelectors: [

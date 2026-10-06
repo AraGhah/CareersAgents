@@ -159,3 +159,15 @@ export async function reviewJobFit(job: ReviewJob, candidate: CandidateProfile, 
   }
   return review;
 }
+
+/**
+ * The review is low only because of the schooling the posting asks for (a bachelor's, a university program) while every
+ * other dimension holds (skills, place, timing, language at 3 or more). Such a posting is applied to anyway: a DEC student
+ * applies everywhere, college postings first (lib/match/college.ts). AUTO_APPLY_LEVEL_BLOCKS=true brings the old skip back.
+ */
+export function lowOnlyForLevel(review: FitReview): boolean {
+  if (process.env.AUTO_APPLY_LEVEL_BLOCKS?.trim().toLowerCase() === "true") return false;
+  const level = review.dimensions.filter((d) => /level|niveau|eligib|education|school/i.test(d.name));
+  const others = review.dimensions.filter((d) => !level.includes(d));
+  return level.some((d) => d.score < 3) && others.length > 0 && others.every((d) => d.score >= 3);
+}

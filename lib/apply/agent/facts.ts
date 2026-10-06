@@ -32,7 +32,12 @@ export function factsFor(candidate: CandidateProfile, job: AgentJob, memory: Map
     line("phone", c.phone),
     line("city", c.city),
     line("postal code", c.resumeText?.match(/\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?(\d[ABCEGHJ-NPRSTV-Z]\d)\b/i)?.slice(1, 3).join(" ").toUpperCase() ?? null),
-    "- street address: not in the facts (ask_person if required; the answer is then remembered)",
+    c.bank.street_address?.category === "green" && (c.bank.street_address.en ?? c.bank.street_address.fr)
+      ? line("street address (address line 1)", c.bank.street_address.en ?? c.bank.street_address.fr)
+      : "- street address: not in the facts (ask_person if required; the answer is then remembered)",
+    c.bank.how_heard?.category === "green" && (c.bank.how_heard.en ?? c.bank.how_heard.fr)
+      ? line("how you heard about the job (a 'source' / 'how did you hear about us' question)", (c.lang === "fr" ? c.bank.how_heard.fr ?? c.bank.how_heard.en : c.bank.how_heard.en ?? c.bank.how_heard.fr) ?? null)
+      : "- how you heard about the job: the company's own careers website",
     line("province/region", c.regionName ?? c.region),
     line("country", c.country),
     line("LinkedIn", c.links.linkedin),

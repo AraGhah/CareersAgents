@@ -5,9 +5,14 @@
 //   - SmartRecruiters: https://api.smartrecruiters.com/v1/companies/{id}/postings?q=..  → postings
 //   - iCIMS:          https://{host}/jobs/search?ss=1&searchKeyword=..&in_iframe=1          → job links
 //   - IBM:            POST https://www-api.ibm.com/search/api/v2 (its careers site's own search) → postings
+//   - BambooHR:       https://{company}.bamboohr.com/careers/list                                 → every open job
+//   - Njoyn:          https://{host}/corp/xweb/xweb.asp?clid=..&page=joblisting, its keyword search → job rows. Njoyn sites
+//                     (CGI) answer a script with a bot check and a person's browser with the page: they are read in a
+//                     visible Chrome window, like a person would, never through the check.
 // Which system a company uses comes from employers.json (verified by hand), from the company's other postings whose
 // link already leads to one, and from the links its careers site shows. Only public endpoints, through safeFetch.
 
+import path from "node:path";
 import employersFile from "../../employers.json";
 import { safeFetch } from "../net-guard";
 import { htmlToText } from "../discover-core";
@@ -19,7 +24,9 @@ export type EmployerBoard =
   | { ats: "successfactors"; host: string; locale: string }
   | { ats: "smartrecruiters"; company: string }
   | { ats: "icims"; host: string }
-  | { ats: "ibm"; host: string };
+  | { ats: "ibm"; host: string }
+  | { ats: "bamboohr"; company: string }
+  | { ats: "njoyn"; host: string; path: string; clid: string };
 
 type EmployerEntry = { name: string; aliases?: string[] } & EmployerBoard;
 
@@ -27,7 +34,8 @@ const EMPLOYERS = (employersFile as { employers: EmployerEntry[] }).employers;
 
 const HEADERS = { "user-agent": "InternshipDesk/0.1 (+public job search)", accept: "application/json, application/rss+xml, text/xml, */*" };
 
-const nameKey = (s: string) => norm(s).replace(/[^a-z0-9 ]+/g, " ").replace(/\b(inc|ltd|ltee|llc|corp|corporation|canada|group|groupe)\b/g, " ").replace(/\s+/g, " ").trim();
+/** A company name for comparing: no accents, punctuation or legal suffix ("Coveo Solutions Inc." → "coveo solutions"). */
+export const nameKey = (s: string) => norm(s).replace(/[^a-z0-9 ]+/g, " ").replace(/\b(inc|ltd|ltee|llc|corp|corporation|canada|group|groupe)\b/g, " ").replace(/\s+/g, " ").trim();
 
 /** The verified boards of a company in employers.json, by its name or an alias. */
 export function knownBoards(companyName: string): EmployerBoard[] {
@@ -46,7 +54,7 @@ const LOCALE = /^[a-z]{2}(-[A-Z]{2})?$/;
 export function boardFromUrl(raw: string): EmployerBoard | null {
   let url: URL;
   try {
-    url = new URL(raw);
+    url = new URL(raw.replace(/&amp;/gi, "&"));
   } catch {
     return null;
   }
@@ -59,6 +67,14 @@ export function boardFromUrl(raw: string): EmployerBoard | null {
   }
   if (/^[a-z0-9-]+\.icims\.com$/.test(host) && !/^(www|login|developer)\./.test(host)) return { ats: "icims", host };
   if (host === "careers.ibm.com") return { ats: "ibm", host };
+  const bamboo = host.match(/^([a-z0-9-]+)\.bamboohr\.com$/);
+  if (bamboo && !/^(www|api|app|help|marketplace|partners)$/.test(bamboo[1])) return { ats: "bamboohr", company: bamboo[1] };
+  if (/(^|\.)njoyn\.com$/.test(host) && /\/xweb\/xweb\.asp$/i.test(url.pathname)) {
+    const clid = [...url.searchParams].find(([k]) => k.toLowerCase() === "clid")?.[1];
+    // A job board's own door to the site (indeed.njoyn.com) credits the application to that board: the neutral one is used.
+    const neutral = /^(indeed|linkedin|glassdoor|monster|jobboom|workopolis)\.njoyn\.com$/.test(host) ? "clients.njoyn.com" : host;
+    if (clid && /^\d+$/.test(clid)) return { ats: "njoyn", host: neutral, path: url.pathname.toLowerCase(), clid };
+  }
   const sr = host === "jobs.smartrecruiters.com" || host === "careers.smartrecruiters.com" ? parts[0] : null;
   if (sr) return { ats: "smartrecruiters", company: sr };
   // A SuccessFactors career site: /job/<place-title>/<number>/ on the company's own host.
@@ -71,6 +87,9 @@ export function boardFromUrl(raw: string): EmployerBoard | null {
 export function boardKey(b: EmployerBoard): string {
   if (b.ats === "workday") return `workday:${b.host}/${b.site}`;
   if (b.ats === "smartrecruiters") return `sr:${b.company.toLowerCase()}`;
+  if (b.ats === "bamboohr") return `bamboohr:${b.company}`;
+  // One client, several hosts (clients.njoyn.com, cgi.njoyn.com): the client id is the site.
+  if (b.ats === "njoyn") return `njoyn:${b.clid}`;
   return `${b.ats}:${b.host}`;
 }
 
@@ -209,6 +228,84 @@ async function ibm(b: Extract<EmployerBoard, { ats: "ibm" }>, query: string): Pr
     .map((s) => ({ title: s.title!, url: s.url!, location: s.field_keyword_19 ?? s.field_keyword_17 ?? null }));
 }
 
+async function bamboohr(b: Extract<EmployerBoard, { ats: "bamboohr" }>): Promise<ListedJob[]> {
+  const res = await safeFetch(`https://${b.company}.bamboohr.com/careers/list`, { headers: HEADERS, timeoutMs: 15_000 });
+  if (!res.ok) throw new Error(`BambooHR ${b.company}: HTTP ${res.status}`);
+  type Place = { city?: string | null; state?: string | null; province?: string | null; country?: string | null };
+  const data = JSON.parse(res.text) as { result?: Array<{ id?: string | number; jobOpeningName?: string; location?: Place; atsLocation?: Place; isRemote?: boolean | null }> };
+  return (data.result ?? [])
+    .filter((j) => j.id !== undefined && j.jobOpeningName)
+    .map((j) => {
+      const p = j.atsLocation ?? j.location ?? {};
+      const place = [p.city, p.state ?? p.province, p.country].filter(Boolean).join(", ");
+      return {
+        title: j.jobOpeningName!,
+        url: `https://${b.company}.bamboohr.com/careers/${encodeURIComponent(String(j.id))}`,
+        location: j.isRemote ? [place, "Remote"].filter(Boolean).join(", ") : place || null,
+      };
+    });
+}
+
+/** A Njoyn site may run a host that only a person's browser gets past: the desk opens it in a visible window. */
+export function needsVisibleBrowser(url: string): boolean {
+  try {
+    return /(^|\.)njoyn\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+const NJOYN_LANGS = { en: { lang: "1", words: ["intern", "internship", "co-op"] }, fr: { lang: "2", words: ["stage", "stagiaire", "coopératif"] } } as const;
+/** A Njoyn site's internships, both languages, kept for 30 minutes: the daily search words and a role lookup share them. */
+const njoynLists = new Map<string, { at: number; jobs: ListedJob[] }>();
+
+/**
+ * Every internship a Njoyn site lists, from its keyword search for the internship words, in English and in French. Each
+ * job has one link whatever the language it was listed in (?Page=JobDetails&Jobid=..), so its two titles are one job.
+ */
+async function njoyn(b: Extract<EmployerBoard, { ats: "njoyn" }>): Promise<ListedJob[]> {
+  const cached = njoynLists.get(boardKey(b));
+  if (cached && Date.now() - cached.at < 30 * 60_000) return cached.jobs;
+  const { assertPublicUrl, blockPrivateNetwork } = await import("../net-guard");
+  const site = `https://${b.host}${b.path}?NTKN=c&clid=${encodeURIComponent(b.clid)}`;
+  await assertPublicUrl(site);
+  if (process.env.LOCALAPPDATA) process.env.PLAYWRIGHT_BROWSERS_PATH ||= path.join(process.env.LOCALAPPDATA, "ms-playwright");
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: false, channel: "chrome" }).catch(() => chromium.launch({ headless: false }));
+  const jobs: ListedJob[] = [];
+  try {
+    for (const { lang, words } of Object.values(NJOYN_LANGS)) {
+      const context = await browser.newContext({ locale: lang === "2" ? "fr-CA" : "en-CA" });
+      await blockPrivateNetwork(context);
+      const page = await context.newPage();
+      for (const word of words) {
+        await page.goto(`${site}&page=joblisting&lang=${lang}`, { waitUntil: "domcontentloaded", timeout: 45_000 });
+        const box = page.locator("#Inp_Keywords");
+        if ((await box.count()) === 0) throw new Error(`Njoyn ${b.host}: no job search on the page (${new URL(page.url()).hostname})`);
+        await box.fill(word);
+        await Promise.all([
+          page.waitForResponse((r) => /xweb\.asp/i.test(r.url()) && r.request().method() === "POST", { timeout: 30_000 }),
+          page.locator("#joblistingsearchbutton").click(),
+        ]);
+        await page.waitForLoadState("domcontentloaded");
+        const rows = await page
+          .locator("table.table-result-search tbody tr")
+          .evaluateAll((trs) => trs.map((tr) => [tr.querySelector("a")?.getAttribute("href") ?? "", ...[...tr.querySelectorAll("td")].map((td) => (td.textContent ?? "").replace(/\s+/g, " ").trim())]));
+        for (const [href, , title, , city, country] of rows) {
+          const id = href.match(/[?&]jobid=([^&]+)/i)?.[1];
+          if (!id || !title) continue;
+          jobs.push({ title, url: `${site}&Page=JobDetails&Jobid=${id}`, location: [city, country].filter(Boolean).join(", ") || null });
+        }
+      }
+      await context.close();
+    }
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+  njoynLists.set(boardKey(b), { at: Date.now(), jobs });
+  return jobs;
+}
+
 /** Jobs on the board that answer the search (the role's own words). Never throws: a board that does not answer is empty. */
 export async function searchBoard(board: EmployerBoard, title: string): Promise<ListedJob[]> {
   const query = searchText(title) || title;
@@ -233,6 +330,9 @@ export async function searchBoard(board: EmployerBoard, title: string): Promise<
     }
     if (board.ats === "icims") return await icims(board, query);
     if (board.ats === "ibm") return await ibm(board, query);
+    // Both list every job (BambooHR) or every internship (Njoyn): which one is this role is pickRole's to say.
+    if (board.ats === "bamboohr") return await bamboohr(board);
+    if (board.ats === "njoyn") return await njoyn(board);
     return await smartrecruiters(board, query);
   } catch {
     return [];

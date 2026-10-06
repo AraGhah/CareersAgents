@@ -6,7 +6,7 @@
 
 import path from "node:path";
 import type { Locator, Page } from "playwright";
-import { matchOption } from "../options";
+import { heardFromOption, matchOption } from "../options";
 import { norm } from "../text";
 import type { FieldDecision, FormField } from "../types";
 import { ensureEvalShim } from "./shim";
@@ -32,6 +32,10 @@ async function mark(target: Locator, color: string) {
 
 export const COLORS = { filled: "#27ae60", review: "#f1c40f", manual: "#c0392b", skipped: "#95a5a6" } as const;
 
+/** The option meaning the value; for "How did you hear about us?" the closest source when none says it outright. */
+const pick = (value: string, options: string[], intent: FieldDecision["intent"]) =>
+  matchOption(value, options) ?? (intent === "how_heard" ? heardFromOption(options) : null);
+
 async function fillText(page: Page, field: FormField, value: string): Promise<FillResult> {
   const el = loc(page, field).first();
   await el.scrollIntoViewIfNeeded().catch(() => undefined);
@@ -42,16 +46,16 @@ async function fillText(page: Page, field: FormField, value: string): Promise<Fi
   return { ok, detail: ok ? "typed and read back" : `read back "${back.slice(0, 60)}"`, readBack: back };
 }
 
-async function fillSelect(page: Page, field: FormField, value: string): Promise<FillResult> {
+async function fillSelect(page: Page, field: FormField, value: string, intent: FieldDecision["intent"]): Promise<FillResult> {
   const el = loc(page, field).first();
-  const m = matchOption(value, field.options);
+  const m = pick(value, field.options, intent);
   if (!m) return { ok: false, detail: `no option matches "${value}"`, readBack: null };
   await el.selectOption({ index: m.index });
   const back = await el.evaluate((s) => (s as HTMLSelectElement).selectedOptions[0]?.text.trim() ?? "");
   return { ok: back === m.option, detail: `selected "${back}"`, readBack: back };
 }
 
-async function fillCombobox(page: Page, field: FormField, value: string): Promise<FillResult> {
+async function fillCombobox(page: Page, field: FormField, value: string, intent: FieldDecision["intent"]): Promise<FillResult> {
   const el = loc(page, field).first();
   await el.scrollIntoViewIfNeeded().catch(() => undefined);
   await el.click();
@@ -61,8 +65,16 @@ async function fillCombobox(page: Page, field: FormField, value: string): Promis
   else await page.keyboard.type(query, { delay: 20 });
   const listbox = page.locator("[role='option']:visible");
   await listbox.first().waitFor({ timeout: 5000 }).catch(() => undefined);
-  const texts = (await listbox.allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
-  const m = matchOption(value, texts) ?? matchOption(query, texts);
+  let texts = (await listbox.allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
+  let m = matchOption(value, texts) ?? matchOption(query, texts);
+  // A searchable list filters on what was typed, and "Company website" hides "Cohere careers page": the typing is cleared
+  // and the whole list is read instead.
+  if (!m && (await el.evaluate((n) => n.tagName === "INPUT"))) {
+    await el.fill("");
+    await listbox.first().waitFor({ timeout: 3000 }).catch(() => undefined);
+    texts = (await listbox.allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim());
+    m = pick(value, texts, intent);
+  }
   if (!m) {
     await page.keyboard.press("Escape").catch(() => undefined);
     return { ok: false, detail: `no listed option matches "${value}" (${texts.slice(0, 5).join(" | ") || "no options"})`, readBack: null };
@@ -146,10 +158,10 @@ export async function fillField(page: Page, field: FormField, decision: FieldDec
         result = await fillFile(page, field, value);
         break;
       case "select":
-        result = await fillSelect(page, field, value);
+        result = await fillSelect(page, field, value, decision.intent);
         break;
       case "combobox":
-        result = await fillCombobox(page, field, value);
+        result = await fillCombobox(page, field, value, decision.intent);
         break;
       case "radio":
       case "checkbox-group":

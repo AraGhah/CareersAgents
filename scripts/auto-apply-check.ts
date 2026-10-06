@@ -44,6 +44,7 @@ const candidate = (applicationId: string, jobId: string, n: number): Candidate =
   status: "ready",
   channel: "email",
   score: 0.9 - n * 0.01,
+  level: "open",
 });
 
 const draft = (detail = "draft"): ApplyResult => ({ outcome: "draft", detail, channel: "email", counts: true });

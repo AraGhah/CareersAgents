@@ -3,9 +3,83 @@
 A CRM for my Winter 2027 stage search. It tracks openings, applications and their status.
 Finding, matching, tracking, researching and drafting all run themselves (see "Automatic
 mode"), and one button, **Postuler automatiquement**, applies to the N best offers for me (see
-"Postuler automatiquement"). Nothing is emailed without a click. An online application form is submitted by the
-desk only if you turn that on (`PORTAL_ALLOW_SUBMIT=true`), only after you approved every
-answer, and only when every preflight check passes (see "Portal applications").
+"Postuler automatiquement"). Applications go through each company's **own careers page** first: every day the desk
+finds new companies, reads their careers sites, fills the best forms and leaves them on **/approvals**; nothing is
+submitted until you approve it (see "Careers page first"). Nothing is emailed by default.
+
+## Careers page first (V17)
+
+Companies asked for applications through their official careers page, not emails to HR. So the desk now goes to each
+company's own careers site, every day, and finds new companies to apply to on its own:
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v17.sql
+npm run daily                 # new companies → every careers board read → the best forms filled, waiting on /approvals
+npm run daily -- --count 0    # find and prepare only, no browser
+npm run registry:check        # offline checks of the rules below
+```
+
+**Every day from 9:00 to 15:00.** A Windows scheduled task ("InternshipDesk Daily Careers Run", registered by
+`scripts/register-daily-task.ps1`, which also takes `-At` / `-Until`) starts `scripts/daily-task.ps1` at 9:00: it starts
+Docker and the database if needed, then runs `npm run daily -- --until 15:00`. That run finds new companies, reads every
+careers board, then fills forms batch after batch (`DAILY_APPLY_COUNT` per batch) until **15:00 or until the Claude tokens
+are finished** (the API refusing for lack of credit, or `DAILY_TOKEN_BUDGET` tokens used), whichever comes first; the form in
+hand is finished, no new one is started. Out of postings before then, it looks for new ones every two hours. Log:
+`applications/_daily/daily-YYYY-MM-DD.log`. `npm run automate` does the same at `DAILY_AT` (default `0 9 * * *`) until
+`DAILY_UNTIL` (15:00); only one daily run works at a time.
+
+**DEC / college postings first, every posting applied to.** Each posting is read for who it is for
+(`lib/match/college.ts`): *college* (CÉGEP, collégial, DEC / AEC, a technique program, college students), *open* (no level
+named), *university* (bachelor's, baccalauréat, university program, and no mention of college). The batch takes them in
+that order, best score first within each. The fit review (`AUTO_APPLY_MIN_GRADE`) no longer skips a posting whose only
+problem is the schooling it asks for: it is applied to anyway (`AUTO_APPLY_LEVEL_BLOCKS=true` brings the skip back). A
+posting low on skills, place or timing is still skipped.
+
+**Workday.** A Workday posting is opened on its `/apply/applyManually` page (the application itself, behind Create
+Account / Sign In), the account is created or signed in to with `PORTAL_ACCOUNT_*` (Workday's buttons are pressed through
+the transparent layer it puts over them), and the AI form agent fills the wizard page by page. It never presses the final
+Submit: that waits for your approval like every other form.
+
+**1. New companies, every day.** Two ways in (`lib/registry/expand.ts`):
+- [freehire](https://github.com/strelov1/freehire) (MIT) crawls ~300,000 companies' careers boards and has a public,
+  unauthenticated search API. The desk asks it for the internships posted in Canada in the last days
+  (`FREEHIRE_QUERIES`, `FREEHIRE_COUNTRIES`), keeps the ones around Montréal / Québec / remote-Canada
+  (`lib/registry/where.ts`), and adds each new company **with its careers board** (Workday, Greenhouse, Lever, Ashby,
+  Workable, SuccessFactors, SmartRecruiters, iCIMS) to the registry. Postings freehire got from a job board that copied
+  them (WhatJobs, ...) only bring the company: its own careers site is looked up instead.
+- Companies the desk knows with no board yet (from LinkedIn, Indeed, a copy, or added by hand) have their own site read
+  for its careers board (`lib/apply/careers.ts`), `--lookups` (25) a day, each re-checked every two weeks.
+
+**2. The registry, read every day** (`career_boards`, `lib/registry/crawl.ts`), the idea of freehire's `sources/*.yml`
+and jobseek's `boards.csv` kept in the database. One row per board, three ways to read it (jobseek's "monitors"):
+a job board's public API (all jobs with their text), an employer system's own search (`intern`, `stage`, `stagiaire`,
+`co-op`), or, for a company with neither, its careers page itself: its schema.org `JobPosting` data and its job links
+(`lib/registry/jsonld.ts`). A board that keeps failing for a week is *retired*, never deleted, and comes back if it is
+seen again. A posting found twice (freehire and the crawl) is one job (`postingKey`). Postings with no text get it
+from Workday's job API or the posting page, so the CV match has something to read.
+
+**3. Careers form first, email last** (`lib/apply/route.ts`). A form on the company's careers site or job system → filled
+there. No form the desk can fill → **manual**, with the careers page link, unless `APPLY_EMAIL_FALLBACK=true` and a
+recruiting address is published (then the old Gmail-draft flow). Nothing is emailed by default.
+
+**4. You approve, then it is sent** (`PORTAL_SUBMIT`, `lib/apply/approval.ts`).
+
+| `PORTAL_SUBMIT` | What happens to a filled careers form |
+| --- | --- |
+| `approve` (default) | Filled and validated in a hidden browser, then it waits on **/approvals** with a screenshot and every value written. **Approuver et envoyer** submits it (headless, in the background, one at a time with `PORTAL_DELAY_SECONDS`); **Ouvrir et finir moi-même** opens it in a window; **Pas celle-ci** sets it aside for good. |
+| `auto` | Submitted when every preflight gate passes (what `PORTAL_ALLOW_SUBMIT=true` meant; still read when `PORTAL_SUBMIT` is unset). |
+| `off` | Never submitted, and the batch does not fill forms. |
+
+One approval is one attempt: the submit run clears it whatever happens, so a form that was blocked comes back to you
+before it is tried again. An approval older than 24 hours is not acted on. Every value the reviewed run wrote is
+approved as written, so the submit run types what you read. A priority company (`is_target`) you approved may be
+submitted; without your approval it never is. The daily run fills `DAILY_APPLY_COUNT` (10) forms; the auto-apply
+button does the same for the number you ask.
+
+What the open-source projects contributed: freehire (registry per ATS, retire-don't-delete, run-once crawl, one key per
+posting, and its live index as the daily source of new companies), jobseek (companies + boards registry, one monitor per
+kind of board, JSON-LD and DOM extraction of careers pages). JobPortal is an employer-posted job board with no sourcing
+of its own, so nothing from it applied here.
 
 ## Pipeline & Find Internships (V9)
 

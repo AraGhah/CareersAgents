@@ -155,14 +155,14 @@ function scan(max: number): Omit<Snapshot, "errors"> {
     .filter((t) => t && t.length < 160)
     .slice(0, 8);
   const active = document.querySelector("[data-automation-id='progressBarActiveStep']");
-  const printed = (document.body.innerText || "").match(/(?:step|[ée]tape|page)\s*\d+\s*(?:of|sur|de|\/)\s*\d+/i)?.[0] ?? null;
+  const printed = (document.body?.innerText || "").match(/(?:step|[ée]tape|page)\s*\d+\s*(?:of|sur|de|\/)\s*\d+/i)?.[0] ?? null;
   return {
     url: location.href,
     title: document.title,
     headings,
     step: (active ? textOf(active) : null) || printed,
     elements: out,
-    text: clean(document.body.innerText).slice(0, 1500),
+    text: clean(document.body?.innerText ?? "").slice(0, 1500),
   };
 }
 

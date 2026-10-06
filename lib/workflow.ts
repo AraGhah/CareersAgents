@@ -1,17 +1,13 @@
 import { pool } from "./db";
-import {
-  fetchBoard,
-  isInternshipTitle,
-  isSoftwareRelevant,
-  type BoardCompany,
-  type NormalizedJob,
-} from "./discover-core";
+import { fetchBoard, type BoardCompany } from "./discover-core";
+import { upsertJob } from "./job-store";
+import { crawlRegistry } from "./registry/crawl";
+import { registryReady } from "./registry/store";
 import { fetchIndeedJobs, fetchLinkedInJobs, type ExternalJob } from "./sources-external";
 import filtersConfig from "../filters.json";
 import { COMPONENT_NAMES, gatedSql, scoreJob, type ComponentName } from "./score";
 import { resolveResumeForJob, loadActiveCv } from "./resumes";
 import { fillDescriptionsFromTwins } from "./match/enrich";
-import { isCybersecurityRole } from "./match/lexicon";
 import { listSourceCapabilities, type SourceCapability } from "./sources";
 import {
   startApplication,
@@ -27,8 +23,7 @@ import { detectCategories } from "./category";
 import { detectInternshipCategories } from "./internship-category";
 import { detectLetterLang, parseLinks } from "./letter";
 import type { ApplicationStatus } from "./types";
-import { manualOnlyReason } from "./apply/platforms";
-import { saveChannel } from "./apply/route";
+import { decideChannel, emailFallbackEnabled, saveChannel } from "./apply/route";
 import { resolveApplyTarget } from "./apply/apply-url";
 import { twinKeys } from "./apply/dedupe";
 
@@ -46,71 +41,6 @@ export type DiscoverySummary = {
   boards: number;
   errors: string[];
 };
-
-async function upsertJob(
-  companyId: string,
-  job: NormalizedJob,
-): Promise<"inserted" | "updated" | "skipped"> {
-  if (!isInternshipTitle(job.title)) return "skipped";
-  if (!isSoftwareRelevant(job.title, job.description)) return "skipped";
-  // Cybersecurity is never wanted: not stored, so it is never scored, tracked or prepared.
-  if (isCybersecurityRole(job.title, job.description)) return "skipped";
-
-  const result = await pool.query<{ id: string; inserted: boolean }>(
-    `INSERT INTO jobs (company_id, external_id, title, location, workplace_type, url, description, posted_at, source)
-     SELECT $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text, $7::text, $8::timestamptz, $9::text
-      WHERE (
-              $4 IS NULL
-           OR $5 = 'remote'
-           OR $4 ~* 'montr|laval|vaudreuil|saint-?laurent|st[ .\\-]?laurent|qu[eé]bec|quebec'
-           OR (
-                $4 ~* 'canada|remote|anywhere'
-            AND $4 !~* 'toronto|vancouver|calgary|ottawa|mississauga|waterloo|edmonton|winnipeg'
-              )
-            )
-     ON CONFLICT (company_id, external_id)
-     DO UPDATE SET
-          last_seen_at    = now(),
-          title           = EXCLUDED.title,
-          location        = EXCLUDED.location,
-          workplace_type  = EXCLUDED.workplace_type,
-          url             = EXCLUDED.url,
-          -- A later run without details must not wipe a description this job already has.
-          description     = COALESCE(EXCLUDED.description, jobs.description),
-          posted_at       = COALESCE(EXCLUDED.posted_at, jobs.posted_at),
-          source          = EXCLUDED.source,
-          closed_at       = NULL
-     RETURNING id, (xmax = 0) AS inserted`,
-    [
-      companyId,
-      job.externalId,
-      job.title,
-      job.location,
-      job.workplaceType,
-      job.url,
-      job.description,
-      job.postedAt,
-      job.source,
-    ],
-  );
-
-  if (result.rowCount === 0) return "skipped";
-  if (job.applyUrl) await saveApplyUrl(result.rows[0].id, job.applyUrl);
-  return result.rows[0].inserted ? "inserted" : "updated";
-}
-
-let warnedNoApplyUrl = false;
-
-/** Kept apart from the upsert so discovery still runs on a database without schema-v11.sql. */
-async function saveApplyUrl(jobId: string, applyUrl: string) {
-  try {
-    await pool.query(`UPDATE jobs SET apply_url = $2 WHERE id = $1`, [jobId, applyUrl]);
-  } catch (err) {
-    if ((err as { code?: string }).code !== "42703") throw err;
-    if (!warnedNoApplyUrl) console.warn("[discover] jobs.apply_url missing: apply schema-v11.sql");
-    warnedNoApplyUrl = true;
-  }
-}
 
 async function scoreAllOpenJobs(): Promise<number> {
   // The CV first (its levels and projects), and the text of postings that arrived without any.
@@ -226,7 +156,7 @@ async function autoTrackAndQualify(minPercent = 70): Promise<{ qualified: number
  * Find Internships — real ATS/Ashby boards only.
  * LinkedIn/Indeed run only when authorized credentials exist (otherwise reported, not faked).
  */
-export async function runFindInternships(opts: { fresh?: boolean } = {}): Promise<DiscoverySummary> {
+export async function runFindInternships(opts: { fresh?: boolean; boardMaxAgeHours?: number } = {}): Promise<DiscoverySummary> {
   const sources = listSourceCapabilities();
   const { rows: runRows } = await pool.query<{ id: string }>(
     `INSERT INTO discovery_runs (sources_json) VALUES ($1::jsonb) RETURNING id`,
@@ -242,26 +172,38 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
   let updated = 0;
   let skipped = 0;
 
+  let boards = 0;
   try {
-    const { rows: companies } = await pool.query<BoardCompany>(
-      `SELECT id, name, ats, board_token
-         FROM companies
-        WHERE board_token IS NOT NULL
-          AND ats IN ('greenhouse', 'lever', 'workable', 'ashby')
-        ORDER BY is_target DESC, name`,
-    );
-
-    for (const company of companies) {
-      try {
-        const jobs = await fetchBoard(company, { fresh: opts.fresh });
-        for (const job of jobs) {
-          const outcome = await upsertJob(company.id, job);
-          if (outcome === "inserted") inserted += 1;
-          else if (outcome === "updated") updated += 1;
-          else skipped += 1;
+    if (await registryReady()) {
+      // Every company's own careers board in the registry (schema-v17.sql): job boards, employer systems, careers pages.
+      const crawl = await crawlRegistry({ maxAgeHours: opts.boardMaxAgeHours ?? 6, fresh: opts.fresh });
+      boards = crawl.boards;
+      inserted += crawl.inserted;
+      updated += crawl.updated;
+      skipped += crawl.skipped;
+      errors.push(...crawl.errors);
+    } else {
+      // Before schema-v17.sql: the companies' own Greenhouse / Lever / Workable / Ashby boards only.
+      const { rows: companies } = await pool.query<BoardCompany>(
+        `SELECT id, name, ats, board_token
+           FROM companies
+          WHERE board_token IS NOT NULL
+            AND ats IN ('greenhouse', 'lever', 'workable', 'ashby')
+          ORDER BY is_target DESC, name`,
+      );
+      boards = companies.length;
+      for (const company of companies) {
+        try {
+          const jobs = await fetchBoard(company, { fresh: opts.fresh });
+          for (const job of jobs) {
+            const outcome = await upsertJob(company.id, job);
+            if (outcome === "inserted") inserted += 1;
+            else if (outcome === "updated") updated += 1;
+            else skipped += 1;
+          }
+        } catch (err) {
+          errors.push(`${company.name}: ${err instanceof Error ? err.message : String(err)}`);
         }
-      } catch (err) {
-        errors.push(`${company.name}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -301,10 +243,8 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
       filtersConfig.autoTrackMinPercent,
     );
 
-    // Auto-prepare: research the company, find a real published contact,
-    // and draft (never send) a personalized email for every application
-    // that just qualified — so by the time a person opens the app, only the
-    // approve-and-send click is left.
+    // Auto-prepare: research the company, build the cover letter, and route every application that just qualified to
+    // the company's own careers form (an email is drafted only with APPLY_EMAIL_FALLBACK=true and no form to fill).
     let prepared = 0;
     for (const applicationId of newlyQualifiedIds) {
       try {
@@ -344,7 +284,7 @@ export async function runFindInternships(opts: { fresh?: boolean } = {}): Promis
       sources,
       linkedin: linkedin.reason,
       indeed: indeed.reason,
-      boards: companies.length,
+      boards,
       errors,
     };
   } catch (err) {
@@ -408,25 +348,33 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     await logWorkflow(applicationId, "build_cover_letter", false, message);
   }
 
-  const hiring = await researchHiringContacts({
-    companyId: app.company_id,
-    companyName: app.company_name,
-    website: app.company_website,
-    postingUrl: app.url,
-  });
-  await logWorkflow(
-    applicationId,
-    "research_recruiter",
-    true,
-    `added=${hiring.added} contacts=${hiring.contacts.length}`,
-  );
+  // The company's careers page first (lib/apply/route.ts). Only when it has no form the desk can fill, and the email
+  // fallback is on (APPLY_EMAIL_FALLBACK=true), is a published recruiting address looked for and an email drafted.
+  const target = await resolveApplyTarget(app);
+  let decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint });
+  let contact: ReturnType<typeof pickBestContact> = null;
+  if (decision.channel === "manual" && emailFallbackEnabled()) {
+    const hiring = await researchHiringContacts({
+      companyId: app.company_id,
+      companyName: app.company_name,
+      website: app.company_website,
+      postingUrl: app.url,
+    });
+    await logWorkflow(applicationId, "research_recruiter", true, `added=${hiring.added} contacts=${hiring.contacts.length}`);
+    steps.push(hiring.contacts.length ? `Hiring contacts found (${hiring.contacts.length})` : "No public email found either.");
+    decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint });
+    if (decision.channel === "email") contact = pickBestContact(hiring.contacts);
+  }
+  await saveChannel(applicationId, decision.channel);
+  await logWorkflow(applicationId, "route_channel", true, `${decision.channel} (${target.via}): ${decision.reason}`.slice(0, 500));
   steps.push(
-    hiring.contacts.length
-      ? `Hiring contacts found (${hiring.contacts.length})`
-      : "No public email found. Add a contact with source_url",
+    decision.channel === "portal"
+      ? `Routed to the company's careers form (${target.note}): the daily run fills it and waits for your approval`
+      : decision.channel === "email"
+        ? `No careers form the desk can fill: email fallback to ${decision.contactEmail}`
+        : `Apply on the company's careers page yourself: ${decision.reason}`,
   );
 
-  const contact = pickBestContact(hiring.contacts);
   const resume = await resolveResumeForJob(lang, detectInternshipCategories(app.title, app.description));
   const projects = await projectsForCategories(detectCategories(app.title, app.description));
 
@@ -444,7 +392,7 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
   let subject: string | null = null;
   let body: string | null = null;
 
-  if (contact?.email) {
+  if (decision.channel === "email" && contact?.email) {
     const crafted = buildPersonalizedOutreach({
       app,
       dossier,
@@ -481,19 +429,6 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     } else {
       steps.push(`Open outreach already exists for ${contact.email}, skipped duplicate`);
     }
-    await saveChannel(applicationId, "email");
-  } else {
-    // No published recruiter or HR address: this one goes through the company's own form
-    // (lib/apply). A posting that needs the candidate's account is marked manual instead.
-    const target = await resolveApplyTarget(app);
-    const manualOnly = manualOnlyReason(target.url);
-    await saveChannel(applicationId, manualOnly ? "manual" : "portal");
-    await logWorkflow(applicationId, "route_channel", true, manualOnly ? `manual: ${manualOnly}` : `portal (${target.via})`);
-    steps.push(
-      manualOnly
-        ? `No public contact email, and ${manualOnly}${target.hint ? ` ${target.hint}` : ""}`
-        : `No public contact email: routed to the online application form (${target.note}) — plan it with npm run portal`,
-    );
   }
 
   if (resume) {
@@ -508,7 +443,7 @@ export async function prepareOutreachWorkflow(applicationId: string): Promise<Pr
     await setApplicationStatus(applicationId, "ready", "assisted prepare complete");
   }
 
-  await logWorkflow(applicationId, "prepare_email", Boolean(outreachId || subject), outreachId ?? undefined);
+  if (decision.channel === "email") await logWorkflow(applicationId, "prepare_email", Boolean(outreachId || subject), outreachId ?? undefined);
 
   return {
     applicationId,

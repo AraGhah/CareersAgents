@@ -22,7 +22,7 @@ const CACHE_DIR = path.join("cache", "careers");
 const FOUND_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const MISS_TTL_MS = 24 * 60 * 60 * 1000;
 
-type CompanyCareers = {
+export type CompanyCareers = {
   checkedAt: string;
   website: string | null;
   careersUrl: string | null;
@@ -67,7 +67,7 @@ async function saveCache(companyId: string, info: CompanyCareers): Promise<void>
   await writeFile(path.join(CACHE_DIR, `${companyId}.json`), JSON.stringify(info, null, 2));
 }
 
-async function crawl(app: ApplicationDetail): Promise<{ info: CompanyCareers; pages: SitePage[] }> {
+async function crawl(app: { company_name: string; company_website: string | null }): Promise<{ info: CompanyCareers; pages: SitePage[] }> {
   const fetcher = new Fetcher();
   try {
     // The posting is on LinkedIn or Indeed: reading it would only read the job board, so it is left out.
@@ -147,6 +147,8 @@ const PLATFORM_LABEL: Record<string, string> = {
   smartrecruiters: "SmartRecruiters",
   icims: "iCIMS",
   ibm: "careers",
+  bamboohr: "BambooHR",
+  njoyn: "Njoyn",
 };
 
 /**
@@ -278,6 +280,30 @@ export async function findCompanyPosting(app: ApplicationDetail, opts: { fresh?:
     return { hit: null, careersUrl: info.careersUrl, portal: account ? new URL(account.url).hostname : null, note: boardNote };
   } catch (err) {
     return { hit: null, careersUrl: null, portal: null, note: `The company careers lookup failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * A company's careers site, read once and remembered (two weeks when something was found, a day otherwise): the job
+ * boards it uses, the application systems it links to, its careers page. For a company the desk has no posting of yet
+ * (lib/registry/expand.ts). Never throws: a site that cannot be read is a note.
+ */
+export async function companyCareers(company: { id: string; name: string; website: string | null }, opts: { fresh?: boolean } = {}): Promise<CompanyCareers> {
+  const cached = opts.fresh ? null : await loadCache(company.id);
+  if (cached) return cached;
+  try {
+    const { info } = await crawl({ company_name: company.name, company_website: company.website });
+    if (info.website) await saveCache(company.id, info);
+    return info;
+  } catch (err) {
+    return {
+      checkedAt: new Date().toISOString(),
+      website: null,
+      careersUrl: null,
+      boards: [],
+      portals: [],
+      note: `The careers site could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 

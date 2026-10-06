@@ -1,3 +1,4 @@
+import { submitMode } from "../../../lib/apply/submit";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buildPackage, findRecipientAction, markAppliedAction, saveGmailDraftAction } from "../../actions";
@@ -409,7 +410,7 @@ export default async function ApplicationPage({
           lang={lang}
           view={portal}
           postingUrl={app.url}
-          submitEnabled={process.env.PORTAL_ALLOW_SUBMIT?.trim().toLowerCase() === "true"}
+          submitEnabled={submitMode() === "auto"}
         />
       ) : null}
 

@@ -5,6 +5,7 @@ import { pool } from "../db";
 import { twinKey, twinKeys } from "../apply/dedupe";
 import { SCORE_CTE } from "../queries";
 import type { ApplicationStatus } from "../types";
+import { COLLEGE_ACRONYM_SRC, COLLEGE_RE_SRC, schoolRankSql, UNIVERSITY_RE_SRC, type SchoolLevel } from "../match/college";
 
 /**
  * When the desk's form reading last changed in a way that turns earlier stops into applications it can now finish (button
@@ -29,6 +30,8 @@ export type Candidate = {
   application_id: string | null;
   status: ApplicationStatus | null;
   channel: "email" | "portal" | "manual" | null;
+  /** Who the posting is for (lib/match/college.ts): college postings go first, then open ones, then university ones. */
+  level: SchoolLevel;
   /** 0 to 1. */
   score: number;
 };
@@ -38,13 +41,13 @@ export type Candidate = {
  *   - an application that already went out, or whose Gmail draft is waiting for you to send it;
  *   - one the desk already knows it cannot drive (channel "manual": Workday-style account portals);
  *   - one whose form was filled and waits for you, or was blocked, in the last 7 days (a retry would stop at the same place).
- * Best score first, then the most recently seen.
+ * College postings first (lib/match/college.ts), then best score, then the most recently seen.
  */
 async function eligibleRows(minPercent: number, limit: number): Promise<Candidate[]> {
-  const { rows } = await pool.query<Omit<Candidate, "score"> & { score: string }>(
+  const { rows } = await pool.query<Omit<Candidate, "score" | "level"> & { score: string; school_rank: number }>(
     `${SCORE_CTE}
      SELECT j.id AS job_id, j.company_id, c.name AS company_name, j.title,
-            a.id AS application_id, a.status, a.channel, t.score
+            a.id AS application_id, a.status, a.channel, t.score, ${schoolRankSql(4, 5, 6)} AS school_rank
        FROM jobs j
        JOIN companies c ON c.id = j.company_id
        JOIN totals t ON t.job_id = j.id
@@ -53,6 +56,8 @@ async function eligibleRows(minPercent: number, limit: number): Promise<Candidat
         AND t.gated IS NOT TRUE
         AND t.score >= $1
         AND (a.id IS NULL OR a.status IN ('discovered', 'qualified', 'ready'))
+        -- Set aside on /approvals ("Pas celle-ci"): never picked again by the batch.
+        AND (a.id IS NULL OR a.approval_dismissed_at IS NULL)
         AND NOT EXISTS (
           SELECT 1 FROM outreach_drafts o
            WHERE o.application_id = a.id AND o.gmail_draft_id IS NOT NULL
@@ -65,11 +70,13 @@ async function eligibleRows(minPercent: number, limit: number): Promise<Candidat
         AND NOT (COALESCE(a.channel, '') = 'manual' AND EXISTS (
           SELECT 1 FROM auto_apply_items s
            WHERE s.application_id = a.id AND s.outcome = 'skipped' AND s.finished_at > GREATEST(now() - interval '1 day', $3::timestamptz)))
-      ORDER BY t.score DESC, j.first_seen_at DESC, j.id
+      -- A DEC / college student first: postings for college students, then those naming no level, then university ones.
+      ORDER BY school_rank, t.score DESC, j.first_seen_at DESC, j.id
       LIMIT $2`,
-    [minPercent / 100, limit, PORTAL_LOGIC_SINCE],
+    [minPercent / 100, limit, PORTAL_LOGIC_SINCE, COLLEGE_RE_SRC, COLLEGE_ACRONYM_SRC, UNIVERSITY_RE_SRC],
   );
-  return rows.map((r) => ({ ...r, score: Number(r.score) }));
+  const levels: SchoolLevel[] = ["college", "open", "university"];
+  return rows.map(({ school_rank, ...r }) => ({ ...r, score: Number(r.score), level: levels[Number(school_rank)] ?? "open" }));
 }
 
 /** (company, role) keys of applications that are already out or whose Gmail draft is waiting: a twin posting of one is not a new application. */

@@ -141,6 +141,28 @@ export function matchOption(value: string | null, options: string[]): OptionMatc
   return null;
 }
 
+/**
+ * "How did you hear about this role?" when no option reads like the answer itself: the closest one, tier by tier
+ * (the employer's own site, then the web / a job board, then Other). The first tier with a candidate decides, and two
+ * candidates there are a tie: nothing is picked.
+ */
+const HEARD_TIERS: RegExp[] = [
+  /\b(career|careers|carriere|carrieres|website|web site|company site|site web|site de l.entreprise|corporate site)\b/,
+  /\b(job board|job site|job posting|internet|online|web|google|search engine|site d.emploi)\b/,
+  /^(other|autre|others|autres)\b/,
+];
+const NOT_A_SITE = /\b(referr|referenc|recruit|recrut|employee|employe|fair|salon|event|evenement)\w*/;
+
+export function heardFromOption(options: string[]): OptionMatch | null {
+  const opts = realOptions(options).map((o) => ({ ...o, n: norm(o.text) }));
+  for (const tier of HEARD_TIERS) {
+    const hits = opts.filter((o) => tier.test(o.n) && !NOT_A_SITE.test(o.n));
+    if (hits.length > 1) return null;
+    if (hits.length === 1) return { option: hits[0].text, index: hits[0].index, strategy: "closest-source" };
+  }
+  return null;
+}
+
 /** A two- or three-choice question whose options are a yes and a no (also bilingual "Oui/Yes", "Non/No"). */
 export function isYesNoOptionSet(options: string[]): boolean {
   const opts = realOptions(options).map((o) => o.text);

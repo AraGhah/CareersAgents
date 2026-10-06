@@ -128,7 +128,17 @@ async function pageFacts(page: Page): Promise<PageFacts> {
 }
 
 export async function accountPageKind(page: Page): Promise<AccountPageKind> {
-  return classifyAccountPage(await pageFacts(page));
+  // A sign-in often navigates while the page is being read ("Execution context was destroyed"): the new page is waited
+  // for and read instead, a few times at most.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return classifyAccountPage(await pageFacts(page));
+    } catch (err) {
+      if (attempt >= 3 || !/context was destroyed|navigat|Target closed|frame was detached/i.test(String((err as Error).message))) throw err;
+      await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => undefined);
+      await page.waitForTimeout(1500);
+    }
+  }
 }
 
 /** Required fields on the page other than the email, the passwords and check boxes: what the desk cannot fill. */
@@ -243,7 +253,11 @@ async function findButton(page: Page, ids: string[], text: RegExp, links = false
  */
 async function press(ctx: AccountContext, target: Locator): Promise<void> {
   if (!ctx.creds?.email || !ctx.creds.password) throw new Error("account actions need PORTAL_CREATE_ACCOUNTS=true and the account email and password");
-  await target.click({ timeout: 8000 }).catch(() => target.evaluate((el) => (el as HTMLElement).click()));
+  // Workday lays a transparent "click_filter" over its buttons and listens on that layer: a click on the button under
+  // it (or a DOM click on the button) does nothing, so the layer is what gets pressed when there is one.
+  const layer = target.locator("xpath=../*[@data-automation-id='click_filter']").first();
+  const hit = (await layer.count().catch(() => 0)) > 0 ? layer : target;
+  await hit.click({ timeout: 8000 }).catch(() => hit.evaluate((el) => (el as HTMLElement).click()));
 }
 
 /** Waits for the page to react to a press: a new page or a changed form. */
@@ -307,7 +321,17 @@ async function problems(page: Page): Promise<string> {
   return (await visibleFormErrors(page).catch(() => [])).join(" ");
 }
 
-const MANUAL_CHOICE = /^(apply manually|postuler manuellement|saisir (mes|vos) informations manuellement)$/i;
+/** What a settled Workday page shows: the account form, a message about it, or the application's first page. */
+const WORKDAY_SETTLED = [
+  "input[type='password']",
+  "[data-automation-id='errorMessage']",
+  "[data-automation-id='errorBanner']",
+  "[data-automation-id='applyFlowMyInfoPage']",
+  "[data-automation-id='legalNameSection_firstName']",
+  "[data-automation-id='pageFooterNextButton']",
+].join(", ");
+
+const MANUAL_CHOICE =/^(apply manually|postuler manuellement|saisir (mes|vos) informations manuellement)$/i;
 const TO_SIGNUP = /(create( an)? account|sign up|register|new (user|here)|first time|cr[ée]er (un |mon )?compte|s['’]inscrire)/i;
 const TO_SIGNIN = /(sign in|log ?in|already (have|registered)|se connecter|d[ée]j[àa] un compte)/i;
 
@@ -335,7 +359,22 @@ export async function passAccountWall(page: Page, ctx: AccountContext): Promise<
   let created = false;
   let signedIn = false;
 
+  // Workday draws each of its pages (the account form, an error, the application's first page) seconds after the page has
+  // "loaded", behind a grey placeholder: judged too early, any of them reads as "no account step". So before every look,
+  // one of those is waited for.
+  const workday = /\.myworkday(jobs|site)\.com$/i.test(host);
+  const workdayReady = async (): Promise<void> => {
+    if (!workday) return;
+    const shown = await page
+      .waitForSelector(WORKDAY_SETTLED, { timeout: 20000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!shown) say(`Workday showed neither its account form nor the application within 20 s (${page.url()})`);
+    await page.waitForTimeout(800);
+  };
+
   for (let step = 0; step < 10; step++) {
+    await workdayReady();
     const captcha = await detectCaptcha(page).catch(() => ({ challenge: false, kind: null as string | null, present: false }));
     if (captcha.challenge) return stop(`${captcha.kind ?? "A CAPTCHA"} on the account page: open it in review mode and solve it yourself.`);
 

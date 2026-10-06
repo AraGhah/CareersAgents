@@ -12,7 +12,7 @@ import { projects as seedProjects } from "../seed/project-data";
 import { applyMemory, memoryKey, rememberable } from "../lib/apply/memory";
 import { buildCandidateProfile } from "../lib/apply/candidate";
 import { classifyField, questionTypeOf } from "../lib/apply/classify";
-import { matchOption } from "../lib/apply/options";
+import { heardFromOption, matchOption } from "../lib/apply/options";
 import { lintAnswer, lengthTarget, blockingFailures } from "../lib/apply/answers/humanize";
 import { buildCorpus, checkGrounding } from "../lib/apply/answers/grounding";
 import { buildStyleProfile } from "../lib/apply/answers/style";
@@ -38,7 +38,7 @@ import {
 import { resolveField } from "../lib/apply/resolve";
 import { preflightPasses, runPreflight } from "../lib/apply/preflight";
 import { submitApplication } from "../lib/apply/submit";
-import { roleKey, twinKey, twinKeys } from "../lib/apply/dedupe";
+import { appliedUnderOtherName, roleKey, twinKey, twinKeys } from "../lib/apply/dedupe";
 import { collapseCopies } from "../lib/queries";
 import type { ResumeChoice } from "../lib/apply/resume-select";
 import type { FieldDecision, FormField } from "../lib/apply/types";
@@ -116,6 +116,11 @@ function unitChecks() {
   check(matchOption("Montreal", ["Montreal, Quebec, Canada", "Montreal West, Quebec, Canada"]) === null, "ambiguous Montreal → no match (never the first one)");
   check(matchOption("Montréal, Quebec, Canada", ["Montreal, Quebec, Canada", "Montreal West, Quebec, Canada"])?.option === "Montreal, Quebec, Canada", "full location picks the exact city");
   check(matchOption("Company website", ["LinkedIn", "Company careers page", "Referral"])?.option === "Company careers page", "Company website → careers page (synonym)");
+  check(heardFromOption(["LinkedIn", "Cohere Careers Page", "Referral", "Other"])?.option === "Cohere Careers Page", "how heard: the employer's careers page is the closest source");
+  check(heardFromOption(["LinkedIn", "Employee referral", "Job board", "Other"])?.option === "Job board", "how heard: no company site → job board, never a referral");
+  check(heardFromOption(["LinkedIn", "Referral", "Autre"])?.option === "Autre", "how heard: nothing close → Other");
+  check(heardFromOption(["Career fair", "Referral", "LinkedIn"]) === null, "how heard: a career fair is not the careers site, and no Other → no guess");
+  check(heardFromOption(["Company website", "Careers page", "Other"]) === null, "how heard: two company-site options tie → no guess");
   check(matchOption("DEC", ["High School", "DEC (Diplôme d'études collégiales)", "Bachelor's Degree"])?.option.startsWith("DEC") === true, "DEC → DEC option");
   check(matchOption("Winter 2027", ["Summer 2026", "Fall 2026", "Winter 2027"])?.option === "Winter 2027", "Winter 2027 exact");
 
@@ -618,7 +623,7 @@ async function main() {
     check(outcome.state === "blocked", "submitApplication refuses a failing preflight");
     check(!/thanks/.test(page.url()), "…and nothing was sent");
 
-    console.log("\nsubmit path (simple fixture, PORTAL_ALLOW_SUBMIT=true in-process)");
+    console.log("\nsubmit path (simple fixture, PORTAL_SUBMIT=auto in-process)");
     await page.goto(`${base}/simple-form.html`);
     const sFields = await extractFields(page, "#application-form");
     const sDecisions: FieldDecision[] = await planFields(sFields, ctx);
@@ -629,7 +634,7 @@ async function main() {
     }
     const sEmpty: string[] = [];
     for (const f of sFields) if (f.required && !(await currentValue(page, f))) sEmpty.push(f.label);
-    process.env.PORTAL_ALLOW_SUBMIT = "true";
+    process.env.PORTAL_SUBMIT = "auto";
     const sPre = runPreflight({
       decisions: sDecisions, fills: sFills, requiredEmpty: sEmpty, resume: resumeChoice, resumeFieldPresent: true, coverLetter: null, coverLetterUsed: false,
       captcha: await detectCaptcha(page), formErrors: await visibleFormErrors(page), duplicate: null, isTarget: false,
@@ -641,7 +646,7 @@ async function main() {
     const sOutcome = await submitApplication(page, adapterFor(`${base}/simple-form.html`), sPre);
     check(sOutcome.state === "submitted", "submits and reads the confirmation", sOutcome);
     check(!!(await confirmationText(page, adapterFor(page.url()))), "confirmation page recognized");
-    delete process.env.PORTAL_ALLOW_SUBMIT;
+    process.env.PORTAL_SUBMIT = "approve";
 
     console.log("\nmulti-step form: page 1 → Next → page 2 → Submit (PORTAL_AUTO_CONFIRM_PERSONAL=true)");
     const wizCandidate = buildCandidateProfile({
@@ -660,7 +665,7 @@ async function main() {
     check(!!early && !early.disabled, "the Next button of page 1 is found");
     const refused = await advanceStep(page, early!.button);
     check(!refused.moved && /required field/.test(refused.reason ?? ""), "Next on an empty page: the form stays, and says why", refused);
-    process.env.PORTAL_ALLOW_SUBMIT = "true";
+    process.env.PORTAL_SUBMIT = "auto";
     const notFinal = await submitApplication(page, wizAdapter, okPre);
     check(notFinal.state === "blocked" && (await page.locator("#page1").isVisible()), "a type=submit Next button is never pressed as the final Submit", notFinal);
     const w1d = await planFields(w1, wizCtx);
@@ -692,7 +697,7 @@ async function main() {
     check(wizOutcome.state === "submitted", "the final Submit is pressed on the last page and the confirmation read", wizOutcome);
     const sent = await page.evaluate(() => (window as unknown as { __submitted?: Record<string, unknown> }).__submitted);
     check(sent?.cv === "Ara-Ghahramanyan-CV.pdf" && sent?.auth === "yes" && sent?.privacy === true && sent?.alerts === false, "what the employer received: CV, Yes, privacy ticked, job alerts not", sent);
-    delete process.env.PORTAL_ALLOW_SUBMIT;
+    process.env.PORTAL_SUBMIT = "approve";
 
     console.log("\nreal-world page shapes (found on live portals)");
     const ctxPage = await browser.newContext();
@@ -761,6 +766,14 @@ async function main() {
   check(twinKey("c1", "Software Developer Intern") !== twinKey("c2", "Software Developer Intern"), "the same title at another company is another role");
   check(twinKey("c1", "Intern, AI Developer") !== twinKey("c1", "Intern, Software Developer"), "different roles at one company stay apart");
   check(twinKey("c1", "Intern") === null, "a title with nothing left after the noise is never compared");
+  {
+    const done = [{ id: "a1", title: "Winter 2027 Co-op: AS400 / IBM i Developer (4 months)" }, { id: "a2", title: "Winter 2027 Co-op: Quality Assurance (4 months)" }];
+    const asListed = ["Stage coopératif - Hiver 2027: Développeur AS400 / IBM i (4 mois)", "Winter 2027 Co-op: AS400 / IBM i Developer (4 months)"];
+    check(appliedUnderOtherName("c1", asListed, done)?.id === "a1", "a job applied to under its English name is not applied to again under its French one");
+    const qa8 = ["Stage coopératif - Hiver 2027: Analyste en assurance qualité (8 mois)", "Winter 2027 Co-op: Quality Assurance Analyst (8 months)"];
+    check(appliedUnderOtherName("c1", qa8, done) === undefined, "another job of the company (8-month QA analyst vs 4-month QA) is not a duplicate");
+    check(appliedUnderOtherName("c1", [], done) === undefined, "no listed names, no verdict");
+  }
   check(roleKey("C-GE-112 Stagiaire développeur(se) logiciel – Environnement immersif-EN") === roleKey("C-GE-112 Stagiaire développeur(se) logiciel – Environnement immersif"), "a copy tagged -EN is the same role");
   const coded = [
     { company_id: "c1", title: "Stagiaire en Développement Cloud, Intern Cloud Developer – FCAP" },

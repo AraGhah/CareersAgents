@@ -4,7 +4,8 @@
 // so asking for 5 means 5 applications, not "the top 5 postings, however many of those were Workday".
 
 import { startApplication, setApplicationStatus } from "../queries";
-import { submitEnabled } from "../apply/submit";
+import { submitMode, type SubmitMode } from "../apply/submit";
+import { tokensExhausted } from "../claude";
 import { applyOne, isGmailAuthError, type ApplyContext, type ApplyResult } from "./apply";
 import { rankedCandidates, type Candidate } from "./select";
 import { finishItem, finishRun, getRun, listItems, startItem, stopRequested, summarize, touchRun, type ItemOutcome } from "./store";
@@ -16,11 +17,13 @@ export type RunDeps = {
   apply?: (applicationId: string, ctx: ApplyContext) => Promise<ApplyResult>;
   /** Tracks a posting that was not tracked yet and returns its application id. */
   track?: (candidate: Candidate) => Promise<string>;
-  submitAllowed?: boolean;
+  submitMode?: SubmitMode;
   /** Seconds between two online applications. */
   portalDelaySeconds?: number;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
+  /** No new posting is started after this moment (the daily window's end, DAILY_UNTIL). */
+  deadline?: Date | null;
 };
 
 async function trackCandidate(c: Candidate): Promise<string> {
@@ -46,7 +49,7 @@ export async function runAutoApply(runId: string, deps: RunDeps = {}): Promise<{
   const delayMs = Math.max(30, deps.portalDelaySeconds ?? Number(process.env.PORTAL_DELAY_SECONDS ?? 90)) * 1000;
   let lastPortalAt = 0;
   const ctx: ApplyContext = {
-    submitAllowed: deps.submitAllowed ?? submitEnabled(),
+    submitMode: deps.submitMode ?? submitMode(),
     portalExhausted: false,
     // One at a time with a pause, as the portal queue does: no burst of traffic at any employer.
     paceNextPortal: async () => {
@@ -64,9 +67,18 @@ export async function runAutoApply(runId: string, deps: RunDeps = {}): Promise<{
     let counted = 0;
     let position = 0;
     let stopped = false;
+    let endReason: string | null = null;
     for (const candidate of candidates) {
       if (counted >= run.requested) break;
       if (await stopRequested(runId)) {
+        stopped = true;
+        break;
+      }
+      // The tokens are finished, or the day's window closed: the posting in hand is finished, no new one is started.
+      const out = tokensExhausted();
+      if (out || (deps.deadline && Date.now() >= deps.deadline.getTime())) {
+        endReason = out ? `Plus de jetons Claude : ${out}.` : `Fin de la plage horaire (${deps.deadline!.toLocaleTimeString("fr-CA", { hour: "2-digit", minute: "2-digit" })}).`;
+        log(endReason);
         stopped = true;
         break;
       }
@@ -96,7 +108,7 @@ export async function runAutoApply(runId: string, deps: RunDeps = {}): Promise<{
       }
     }
 
-    const note = summarize(countOutcomes(await listItems(runId)), run.requested, stopped);
+    const note = `${endReason ? `${endReason} ` : ""}${summarize(countOutcomes(await listItems(runId)), run.requested, stopped)}`;
     await finishRun(runId, stopped ? "stopped" : "done", note);
     return { counted, note };
   } catch (err) {

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { startAutoApplyAction } from "../auto-apply-actions";
 import { configuredMinScore, countEligible } from "../../lib/auto-apply/select";
 import { liveRun } from "../../lib/auto-apply/store";
-import { submitEnabled } from "../../lib/apply/submit";
+import { submitMode } from "../../lib/apply/submit";
+import { emailFallbackEnabled } from "../../lib/apply/route";
 import { gmailIsConnected } from "../../lib/gmail";
 import { AutoApplyButton } from "./auto-apply-button";
 
@@ -34,7 +35,8 @@ export async function AutoApplyAction() {
       eligible={state.eligible}
       minScore={minScore}
       gmailConnected={state.gmailConnected}
-      submitEnabled={submitEnabled()}
+      submitMode={submitMode()}
+      emailFallback={emailFallbackEnabled()}
       runningId={state.runningId}
     />
   );

@@ -1,20 +1,21 @@
-// One posting, from "picked" to "as far as the desk is allowed to take it":
-//   a published recruiter address  → the letter and email are built (or the ones you already made are kept), and the
-//                                    email goes into Gmail as a DRAFT with the CV and cover letter attached. Never sent:
-//                                    you press Send, and inbox sync then moves the status to "Envoyé".
-//   no address, a form that works  → the company's own form is filled and, only with PORTAL_ALLOW_SUBMIT=true and when
-//                                    every preflight gate passes, submitted (lib/apply/runner.ts). A confirmed submit
-//                                    sets the status itself.
-//   anything else                  → skipped, with the reason, so the batch moves on to the next-best posting.
+// One posting, from "picked" to "as far as the desk is allowed to take it". The company's careers page comes first:
+//   a careers form the desk can fill → filled in a hidden browser and validated (lib/apply/runner.ts). With PORTAL_SUBMIT=
+//                                      approve (the default) it then waits on /approvals for your "Approuver et envoyer";
+//                                      with PORTAL_SUBMIT=auto it is submitted when every preflight gate passes. A confirmed
+//                                      submit sets the status itself.
+//   no such form, APPLY_EMAIL_FALLBACK=true and a published recruiter address
+//                                    → the letter and email are built and go into Gmail as a DRAFT with the CV and cover
+//                                      letter attached. Never sent: you press Send.
+//   anything else                    → skipped, with the reason (and the careers page), so the batch moves on.
 // Nothing here presses Submit or Send: those stay in submit.ts and in Gmail.
 
-import { decideChannel, saveChannel } from "../apply/route";
+import { decideChannel, emailFallbackEnabled, saveChannel } from "../apply/route";
 import { resolveApplyTarget } from "../apply/apply-url";
 import { batchAccountsEnabled } from "../apply/account-config";
 import { loadCandidateProfile } from "../apply/candidate";
 import { selectResume } from "../apply/resume-select";
 import { buildTailoredCv, tailoredCvEnabled } from "../cv-tailor";
-import { minGrade, reviewJobFit } from "../match/fit-review";
+import { lowOnlyForLevel, minGrade, reviewJobFit } from "../match/fit-review";
 import { duplicateReason } from "../apply/dedupe";
 import { runPortalApplication } from "../apply/runner";
 import { existingApplicationFiles } from "../attachments";
@@ -28,6 +29,7 @@ import { pickBestContact } from "../recruiter";
 import { researchCompanyForApplication } from "../research";
 import type { ApplicationDetail } from "../types";
 import type { Channel, ItemOutcome } from "./store";
+import type { SubmitMode } from "../apply/submit";
 
 export type ApplyResult = {
   outcome: Exclude<ItemOutcome, "working">;
@@ -40,8 +42,8 @@ export type ApplyResult = {
 };
 
 export type ApplyContext = {
-  /** PORTAL_ALLOW_SUBMIT=true: only then is an online form submitted. */
-  submitAllowed: boolean;
+  /** Who presses Submit (lib/apply/submit.ts): you after reading the filled form, the desk, or nobody. */
+  submitMode: SubmitMode;
   /** The daily limit of automatic submissions was reached: no more forms today. */
   portalExhausted: boolean;
   /** Waits, if needed, so two online applications are never sent back to back. */
@@ -72,7 +74,9 @@ export async function applyOne(applicationId: string, ctx: ApplyContext): Promis
       { id: app.job_id, title: app.title, companyName: app.company_name, location: app.location, description: app.description },
       await loadCandidateProfile(lang, (await selectResume(lang, app.title, app.description)).resume),
     ).catch(() => null);
-    if (review && review.grade < minGrade()) {
+    if (review && review.grade < minGrade() && lowOnlyForLevel(review)) {
+      ctx.log(`fit review ${review.grade}/5 only for the schooling asked (${review.verdict.slice(0, 160)}): applying anyway, a DEC student applies everywhere.`);
+    } else if (review && review.grade < minGrade()) {
       const flags = review.redFlags.length ? ` Signaux : ${review.redFlags.map((f) => `${f.flag} (« ${f.quote} »)`).join("; ")}.` : "";
       return skipped(`Avis d'adéquation ${review.grade}/5 (minimum ${minGrade()}) : ${review.verdict}${flags}`);
     }
@@ -83,21 +87,20 @@ export async function applyOne(applicationId: string, ctx: ApplyContext): Promis
     await buildTailoredCv(app).catch((err) => ctx.log(`tailored CV not built: ${err instanceof Error ? err.message : String(err)}`));
   }
 
-  // Where the company's own public pages publish an address (cheap when it is already known).
+  // Where the company's own public pages publish an address: only wanted for the email fallback (cheap when already known).
   let newWebsite: string | null = null;
-  try {
-    newWebsite = (await findRecipientForApplication(app)).newWebsite;
-  } catch (err) {
-    ctx.log(`address search failed: ${err instanceof Error ? err.message : String(err)}`);
+  if (emailFallbackEnabled()) {
+    try {
+      newWebsite = (await findRecipientForApplication(app)).newWebsite;
+    } catch (err) {
+      ctx.log(`address search failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  let decision = await decideChannel(app);
-  if (decision.channel !== "email") {
-    // No address: the form is the way in, and the posting may be on Indeed or LinkedIn while the form is elsewhere.
-    // With PORTAL_BATCH_ACCOUNTS=true an employer portal that needs an account (Workday...) is the batch's to try too.
-    const target = await resolveApplyTarget(app);
-    decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint, allowAccountPortals: batchAccountsEnabled() });
-  }
+  // The company's own careers form first; the posting may be on Indeed or LinkedIn while the form is on the company's
+  // site. With PORTAL_BATCH_ACCOUNTS=true an employer portal that needs an account (Workday...) is the batch's to try too.
+  const target = await resolveApplyTarget(app);
+  const decision = await decideChannel(app, { applyUrl: target.url, hint: target.hint, allowAccountPortals: batchAccountsEnabled() });
   await saveChannel(app.id, decision.channel);
 
   if (decision.channel === "manual") return skipped(decision.reason, "manual");
@@ -168,13 +171,41 @@ async function draftEmail(app: ApplicationDetail, newWebsite: string | null, ctx
   return { outcome: "draft", detail, channel: "email", counts: true };
 }
 
-async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<ApplyResult> {
-  if (!ctx.submitAllowed) {
-    return skipped(
-      "Formulaire en ligne : l'envoi automatique est désactivé. Ajoute PORTAL_ALLOW_SUBMIT=true dans .env.local pour que le bureau soumette les formulaires. Rien n'a été ouvert.",
-      "portal",
-    );
+/**
+ * PORTAL_SUBMIT=approve: the form is filled and validated in a hidden browser and left there. Ready = one of the N asked for
+ * (like an email draft waiting for Send): it waits on /approvals for your yes, and only then is it submitted.
+ */
+async function fillForApproval(app: ApplicationDetail, ctx: ApplyContext): Promise<ApplyResult> {
+  await ctx.paceNextPortal();
+  const run = await runPortalApplication(app.id, { mode: "review", headless: true, log: ctx.log, allowAccounts: batchAccountsEnabled() });
+  const done = run.filled ? ` ${run.filled} champ${run.filled > 1 ? "s" : ""} rempli${run.filled > 1 ? "s" : ""}.` : "";
+  const where = run.step ? ` à la page ${run.step}` : "";
+  switch (run.state) {
+    case "ready_to_submit":
+      if (["discovered", "qualified"].includes(app.status)) await setApplicationStatus(app.id, "ready", "careers form filled, waiting for your approval");
+      return { outcome: "review", detail: `Formulaire rempli et vérifié : en attente de ton approbation sur /approvals.${done}`, channel: "portal", counts: true };
+    case "submitted":
+      return { outcome: "sent", detail: `Formulaire envoyé et confirmé : ${run.reason}`, channel: "portal", counts: true };
+    case "needs_review":
+    case "planned":
+      return { outcome: "review", detail: `Arrêté${where} : ${run.reason}${done}`, channel: "portal", counts: false };
+    case "blocked":
+      if (run.filled) return { outcome: "review", detail: `Arrêté${where} : ${run.reason}${done}`, channel: "portal", counts: false };
+      return skipped(`Formulaire non rempli : ${run.reason}`, "portal");
+    case "duplicate":
+      return skipped(`Déjà envoyée : ${run.reason}`, "portal");
+    case "busy":
+      return skipped(`Déjà en cours ailleurs : ${run.reason}`, "portal");
+    default:
+      return failed(`Formulaire : ${run.state} (${run.reason})`, "portal");
   }
+}
+
+async function submitForm(app: ApplicationDetail, ctx: ApplyContext): Promise<ApplyResult> {
+  if (ctx.submitMode === "off") {
+    return skipped("Formulaire en ligne : PORTAL_SUBMIT=off, le lot ne remplit pas les formulaires. Rien n'a été ouvert.", "portal");
+  }
+  if (ctx.submitMode === "approve") return fillForApproval(app, ctx);
   if (ctx.portalExhausted) {
     return skipped("Limite quotidienne d'envois par formulaire atteinte (PORTAL_DAILY_LIMIT). Réessaie demain.", "portal");
   }
