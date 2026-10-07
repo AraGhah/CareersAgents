@@ -8,11 +8,13 @@
 //                                      finished (DAILY_TOKEN_BUDGET, or the account's credit); DAILY_UNTIL sets the default
 // The scheduled task (scripts/daily-task.ps1) and `npm run automate` start it at 9:00 with --until 15:00.
 // Nothing is submitted here with PORTAL_SUBMIT=approve (the default): approving on /approvals does that.
+// With MUSE_BRIDGE_URL set, the summary also goes to your Muse chat (lib/notify/muse.ts, muse/README.md).
 
 import { pool } from "../lib/db";
 import { usageSummary } from "../lib/claude";
 import { dailyCount, runDaily, todayAt } from "../lib/registry/daily";
 import { registryReady } from "../lib/registry/store";
+import { dailyRunMessage, museConfigured, notifyMuse } from "../lib/notify/muse";
 
 function argText(name: string): string | null {
   const i = process.argv.indexOf(`--${name}`);
@@ -39,12 +41,22 @@ async function main() {
     return;
   }
   const started = Date.now();
-  const summary = await runDaily({
+  const options = {
     until,
     count: intArg("count", dailyCount(), 0, 50),
     lookups: intArg("lookups", 25, 0, 200),
-    log: (line) => console.log(line),
-  });
+    log: (line: string) => console.log(line),
+  };
+  let summary: Awaited<ReturnType<typeof runDaily>>;
+  try {
+    summary = await runDaily(options);
+  } catch (err) {
+    // A run that never started (another one holds the lock) is not news; one that broke is.
+    if (museConfigured() && !/already working/.test(err instanceof Error ? err.message : "")) {
+      await notifyMuse({ kind: "daily_failed", text: `Internship desk: today's careers run stopped with an error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+    throw err;
+  }
   const r = summary.registry;
   console.log(
     `\nDone in ${Math.round((Date.now() - started) / 60000)} min. Registry: ${r.active} active board(s) at ${r.companies} compan${r.companies === 1 ? "y" : "ies"} ` +
@@ -55,6 +67,19 @@ async function main() {
   if (summary.discovery.notes.length) {
     console.log(`\nNotes (${summary.discovery.notes.length}):`);
     for (const n of summary.discovery.notes.slice(0, 15)) console.log(`  ${n}`);
+  }
+  if (museConfigured()) {
+    const sent = await notifyMuse({
+      kind: "daily_run",
+      text: dailyRunMessage({
+        newCompanies: summary.expand.newCompanies.length,
+        newJobs: summary.discovery.inserted,
+        filled: summary.filled?.counted ?? null,
+        waitingApproval: summary.waitingApproval,
+        ended: summary.ended,
+      }),
+    });
+    console.log(sent.ok ? "Summary sent to Muse." : `Muse: not delivered (${sent.detail}).`);
   }
 }
 

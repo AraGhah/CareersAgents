@@ -25,6 +25,8 @@
     "package:check": "tsx scripts/package-check.ts",
     "mcp": "tsx mcp/server.ts",
     "mcp:check": "tsx scripts/mcp-check.ts",
+    "muse:check": "tsx scripts/muse-check.ts",
+    "muse:send": "tsx scripts/muse-send.ts",
     "seed:contacts": "tsx seed/contacts.ts",
     "gmail:auth": "tsx scripts/gmail-auth.ts",
     "sync:inbox": "tsx scripts/sync-inbox.ts",

@@ -19,6 +19,7 @@ import { spawn } from "node:child_process";
 import { pool } from "../lib/db";
 import { runFindInternships } from "../lib/workflow";
 import { submitMode } from "../lib/apply/submit";
+import { museConfigured, notifyMuse } from "../lib/notify/muse";
 
 function runScript(label: string, file: string): Promise<void> {
   return new Promise((resolve) => {
@@ -69,6 +70,12 @@ const runApproved = () => runScript("approved", "scripts/portal-apply.ts --queue
 const dailyAt = () => process.env.DAILY_AT?.trim() || "0 9 * * *";
 const runFollowups = () => runScript("followups", "scripts/process-followups.ts");
 
+// With a Muse gadget (muse/README.md): keeps what `desk-status` shows on the Pi fresh between the runs that post news.
+async function runMuseSnapshot() {
+  const sent = await notifyMuse({ kind: "snapshot" });
+  if (!sent.ok) console.error(`[muse] snapshot not delivered: ${sent.detail}`);
+}
+
 async function main() {
   console.log("Automatic mode.");
   console.log("  discover   — every 4h  (postings, matching, auto-track, research, draft)");
@@ -77,6 +84,7 @@ async function main() {
   console.log("  follow-ups — daily 08:00 (day-7 / day-14 drafts)");
   console.log(`  careers    — ${dailyAt()} (cron) until ${dailyUntil()} or the tokens run out: new companies, every careers board, forms filled for /approvals`);
   console.log("  approved   — every 15m: submits the forms you approved on /approvals");
+  if (museConfigured()) console.log("  muse       — hourly: the desk's snapshot to the Muse gadget (desk-status)");
   console.log("Drafts wait for your approval in the app. Ctrl+C to stop.\n");
 
   // Run each once immediately so results show up right away, then schedule.
@@ -102,6 +110,12 @@ async function main() {
   cron.schedule("*/15 * * * *", () => {
     runApproved().catch((err) => console.error("[approved]", err));
   });
+  if (museConfigured()) {
+    await runMuseSnapshot();
+    cron.schedule("5 * * * *", () => {
+      runMuseSnapshot().catch((err) => console.error("[muse]", err));
+    });
+  }
 }
 
 process.on("SIGINT", async () => {

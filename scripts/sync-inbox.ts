@@ -2,6 +2,7 @@
 //   npx tsx scripts/sync-inbox.ts
 //   npx tsx scripts/sync-inbox.ts --loop     (every 30 minutes)
 // Nothing is sent. Unclassified mail is stored with classification NULL for you to read.
+// With MUSE_BRIDGE_URL set, employer news (interview, offer, rejection...) is passed on to your Muse chat (lib/notify/muse.ts).
 
 import cron from "node-cron";
 import { classifyMessage, shouldApplyStatus, statusFromClassification } from "../lib/classify";
@@ -17,6 +18,7 @@ import {
 import { syncSentDrafts } from "../lib/auto-apply/sent";
 import { markOutreachSentFromOutbound } from "../lib/outreach";
 import { setApplicationStatus } from "../lib/queries";
+import { inboxMessage, museConfigured, notifyMuse, type InboxChange } from "../lib/notify/muse";
 
 const LOOP = process.argv.includes("--loop");
 const STATE_KEY = "inbox_last_sync";
@@ -26,6 +28,8 @@ type AppMatch = {
   status: string;
   submitted_at: Date | null;
   company_id: string;
+  company_name: string;
+  title: string;
   website: string | null;
 };
 
@@ -53,7 +57,7 @@ async function saveSync(at: Date) {
 
 async function applications(): Promise<AppMatch[]> {
   const { rows } = await pool.query<AppMatch>(
-    `SELECT a.id, a.status, a.submitted_at, c.id AS company_id, c.website
+    `SELECT a.id, a.status, a.submitted_at, c.id AS company_id, c.name AS company_name, j.title, c.website
        FROM applications a
        JOIN jobs j ON j.id = a.job_id
        JOIN companies c ON c.id = j.company_id
@@ -114,6 +118,7 @@ async function run() {
   let stored = 0;
   let classified = 0;
   let statusChanges = 0;
+  const news: InboxChange[] = [];
 
   do {
     const listed = await gmail.users.messages.list({
@@ -179,6 +184,7 @@ async function run() {
           );
           app.status = next;
           statusChanges += 1;
+          news.push({ company: app.company_name, title: app.title, label });
         }
       }
     }
@@ -236,6 +242,11 @@ async function run() {
   for (const message of drafts.errors) console.error(`[sent-drafts] ${message}`);
 
   await saveSync(new Date());
+  const text = inboxMessage(news);
+  if (text && museConfigured()) {
+    const sent = await notifyMuse({ kind: "inbox", text });
+    console.log(sent.ok ? "Employer news sent to Muse." : `Muse: not delivered (${sent.detail}).`);
+  }
   console.log(
     `Done. ${seen} listed, ${stored} new, ${classified} classified, ${statusChanges} status change(s), ${sentMarked} sent scanned, ${drafts.sent} of ${drafts.checked} desk drafts found sent.`,
   );

@@ -1,0 +1,2 @@
+# muse/ is copied to a Linux gadget (Raspberry Pi): bash and systemd need LF line endings, whatever core.autocrlf says.
+muse/** text eol=lf

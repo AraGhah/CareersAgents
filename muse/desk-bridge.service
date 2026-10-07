@@ -1,0 +1,22 @@
+# The internship desk's bridge to Muse (muse/desk_bridge.py). install.sh fills in @USER@ and installs it as
+# /etc/systemd/system/desk-bridge.service. It runs as the account musegadget runs commands as, which is in the
+# musegadget socket's group, so `musegadget send-user-msg` works without credentials of its own.
+
+[Unit]
+Description=Internship desk to Muse bridge (via musegadget)
+Wants=network-online.target
+After=network-online.target musegadget.service
+
+[Service]
+User=@USER@
+EnvironmentFile=/etc/desk-bridge/env
+ExecStart=/usr/bin/python3 /opt/desk-bridge/desk_bridge.py serve
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/desk-bridge
+
+[Install]
+WantedBy=multi-user.target

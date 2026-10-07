@@ -7,6 +7,25 @@ mode"), and one button, **Postuler automatiquement**, applies to the N best offe
 finds new companies, reads their careers sites, fills the best forms and leaves them on **/approvals**; nothing is
 submitted until you approve it (see "Careers page first"). Nothing is emailed by default.
 
+## Muse gadget
+
+The desk can talk to **Muse** through a Raspberry Pi set up as a Muse gadget with Meta's open source
+[Muse Gadget SDK](https://github.com/facebookincubator/muse-gadget-sdk) (Linux Device SDK) and the bridge in `muse/`:
+
+```
+# on the Pi, once the SDK is installed and paired:   cd muse && bash install.sh
+# on the PC, with the two lines it prints in .env.local (MUSE_BRIDGE_URL, MUSE_BRIDGE_TOKEN):
+npm run muse:send                 # a test message in the Muse chat, with a fresh snapshot of the desk
+npm run muse:check                # offline checks (python -m unittest discover -s muse/tests for the Pi side)
+```
+
+The daily careers run posts its summary in a Muse side chat ("2 applications wait for my approval"), and so does a
+failed run. The inbox sync posts employer news (interview, assessment, offer, rejection, application received). Ask Muse
+"anything waiting on my internship desk?" and it runs `desk-status` on the Pi: what waits for approval, what needs you
+(CAPTCHA, codes, questions only you can answer), the day's submissions, due follow-ups, the latest daily run. The desk
+only sends: it stays served on 127.0.0.1, and approving and submitting stay on /approvals. Setup and security notes:
+[`muse/README.md`](muse/README.md).
+
 ## Accounts, authorization and availability (V18)
 
 ```
