@@ -36,13 +36,51 @@ export const COLORS = { filled: "#27ae60", review: "#f1c40f", manual: "#c0392b",
 const pick = (value: string, options: string[], intent: FieldDecision["intent"]) =>
   matchOption(value, options) ?? (intent === "how_heard" ? heardFromOption(options) : null);
 
+/** Every year-month-day a numeric date can mean: 2027-01-15, 01/15/2027 and 15/01/2027 (both readings when ambiguous). */
+function dayReadings(s: string): string[] {
+  const iso = s.match(/^\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*$/);
+  if (iso) return [`${+iso[1]}-${+iso[2]}-${+iso[3]}`];
+  const slash = s.match(/^\s*(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\s*$/);
+  return slash ? [`${+slash[3]}-${+slash[1]}-${+slash[2]}`, `${+slash[3]}-${+slash[2]}-${+slash[1]}`] : [];
+}
+
+/** A date picker shows the typed date in its own format: the same day reads back, whatever the separators. */
+const sameDay = (back: string, value: string) => dayReadings(value).some((d) => dayReadings(back).includes(d));
+
+/** A calendar a date box opened. Blur leaves it open, over the next questions, where it takes every click meant for them. */
+const OPEN_PICKER = ".react-datepicker-popper:visible, .react-datepicker:visible, [class*='date-popup']:visible, [class*='datepicker-popup']:visible";
+
+/**
+ * The order a picker writes its dates in, from one it wrote ("01/14/2027": month first) or its placeholder. Null when
+ * neither says (03/04/2027 could be either), so nothing is typed on a guess.
+ */
+function pickerOrder(shown: string, placeholder: string | null): "MD" | "DM" | null {
+  const m = shown.match(/^\s*(\d{1,2})[/.-](\d{1,2})[/.-]\d{4}\s*$/);
+  if (m && +m[1] > 12) return "DM";
+  if (m && +m[2] > 12) return "MD";
+  const p = (placeholder ?? "").toUpperCase();
+  return /MM\W*DD/.test(p) ? "MD" : /DD\W*MM/.test(p) ? "DM" : null;
+}
+
+async function typeAndClose(page: Page, el: Locator, value: string): Promise<string> {
+  await el.fill(value);
+  // Closed before reading back: a picker that could not parse the typing empties the box as it closes.
+  if (await page.locator(OPEN_PICKER).count().catch(() => 0)) await el.press("Escape").catch(() => undefined);
+  await el.blur().catch(() => undefined);
+  return el.inputValue();
+}
+
 async function fillText(page: Page, field: FormField, value: string): Promise<FillResult> {
   const el = loc(page, field).first();
   await el.scrollIntoViewIfNeeded().catch(() => undefined);
-  await el.fill(value);
-  await el.blur().catch(() => undefined);
-  const back = await el.inputValue();
-  const ok = back === value || back.replace(/\s+/g, " ").trim() === value.replace(/\s+/g, " ").trim();
+  let back = await typeAndClose(page, el, value);
+  // A calendar text box reads 2027-01-15 as UTC midnight, the 14th here: typed again in the order the picker writes.
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (field.kind === "date" && iso && !sameDay(back, value) && (await el.getAttribute("type")) !== "date") {
+    const order = pickerOrder(back, field.placeholder);
+    if (order) back = await typeAndClose(page, el, order === "MD" ? `${iso[2]}/${iso[3]}/${iso[1]}` : `${iso[3]}/${iso[2]}/${iso[1]}`);
+  }
+  const ok = back === value || back.replace(/\s+/g, " ").trim() === value.replace(/\s+/g, " ").trim() || (field.kind === "date" && sameDay(back, value));
   return { ok, detail: ok ? "typed and read back" : `read back "${back.slice(0, 60)}"`, readBack: back };
 }
 
@@ -99,8 +137,13 @@ async function fillChoice(page: Page, field: FormField, value: string): Promise<
     const input = loc(page, field, m.index).first();
     await input.scrollIntoViewIfNeeded().catch(() => undefined);
     // A choice drawn as buttons (Ashby's Yes / No) is pressed; a real radio or box is checked.
-    if (await input.evaluate((n) => n.tagName === "BUTTON")) await input.click();
-    else await input.check({ force: true });
+    if (await input.evaluate((n) => n.tagName === "BUTTON")) {
+      // A popup left open by another field (a calendar, a list) can sit over the button: closed once, then pressed again.
+      await input.click({ timeout: 8000 }).catch(async () => {
+        await page.keyboard.press("Escape").catch(() => undefined);
+        await input.click({ timeout: 5000 });
+      });
+    } else await input.check({ force: true });
     picked.push(m.option);
   }
   await page.waitForTimeout(150);

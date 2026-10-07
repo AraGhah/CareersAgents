@@ -27,7 +27,7 @@ export type PlatformAdapter = {
 };
 
 const CONFIRM_TEXT =
-  /thank(s| you) for (applying|your application|your interest)|application (has been |was )?(submitted|received|sent)|we('ve| have) received your application|merci (d'avoir postul[ée]|pour votre candidature)|candidature (a (bien )?[ée]t[ée] )?(envoy[ée]e|re[çc]ue|soumise)/i;
+  /thank(s| you) for (applying|your application|your interest)|application (has been |was )?(successfully )?(submitted|received|sent)|we('ve| have) received your application|merci (d'avoir postul[ée]|pour votre candidature)|candidature (a (bien )?[ée]t[ée] )?(envoy[ée]e|re[çc]ue|soumise)/i;
 
 /** Posting URL without tracking params, fragment, trailing slash or the /apply suffix (Lever, Ashby, Workable split one job across two URLs). */
 export function canonicalPostingUrl(url: string): string {

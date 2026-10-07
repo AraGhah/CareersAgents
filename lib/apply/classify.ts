@@ -98,7 +98,8 @@ const FACT_RULES: Rule[] = [
   { intent: "internship_duration", test: /duration|how long|length of (the )?(internship|term)|duree|nombre de mois|months? (available|long)/ },
   {
     intent: "available_from",
-    test: /start date|available to start|availability|when can you start|when are you (available|able to start)|earliest (start|date)|date de debut|disponib|date d'entree/,
+    // "What is your notice period to begin working with Exegy?" asks the same thing as "when can you start".
+    test: /start date|available to start|availability|when can you start|when are you (available|able to start)|earliest (start|date)|notice period|preavis|(begin|start|commence) (working|work|employment)|date de debut|disponib|date d'entree|commencer a travailler/,
   },
   {
     intent: "language_level_fr",

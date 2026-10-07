@@ -862,7 +862,9 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       fields = await fillPage(fields);
     }
 
-    return conclude({
+    // Awaited, not returned bare: a promise returned from inside `try` skips the catch, and the finally would close the
+    // browser under conclude's checks (the run then dies on an unhandled rejection, never recorded).
+    return await conclude({
       decisions,
       fills,
       requiredEmpty: await requiredEmptyOn(fields),

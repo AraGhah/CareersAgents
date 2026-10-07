@@ -207,7 +207,9 @@ function scanForm(scopeSelector: string | null): RawField[] {
     else if (type === "tel") kind = "tel";
     else if (type === "url") kind = "url";
     else if (type === "number") kind = "number";
-    else if (type === "date") kind = "date";
+    // A text box behind a calendar widget (Ashby's react-datepicker "Pick date...") takes a date, not prose.
+    else if (type === "date" || el.closest(".react-datepicker__input-container, .react-datepicker-wrapper") || /\b(datepicker|input-date)\b/i.test(el.className?.toString() ?? ""))
+      kind = "date";
     else if (type === "month") kind = "month";
 
     const label = ownLabel(el) || questionText(el, []) || clean(el.getAttribute("placeholder")) || clean(name);
