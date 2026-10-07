@@ -7,6 +7,46 @@ mode"), and one button, **Postuler automatiquement**, applies to the N best offe
 finds new companies, reads their careers sites, fills the best forms and leaves them on **/approvals**; nothing is
 submitted until you approve it (see "Careers page first"). Nothing is emailed by default.
 
+## Accounts, authorization and availability (V18)
+
+```
+docker exec -i internship-desk-db psql -U internship -d internship_desk -f - < schema-v18.sql
+npm run auth:check         # offline: password rules, vault, codes, states, field wording, cases G-J (-- --db: state trail)
+npm run account:check      # fixture portals in headless Chromium: cases A-F, slow portals, guest, vault
+```
+
+**The account step** (`lib/apply/account.ts`, `lib/apply/auth/*`), on a run allowed to use accounts:
+
+| The portal shows | The desk |
+| --- | --- |
+| an "Apply as guest" / "without an account" choice | takes it: no account is made in your name |
+| a sign-in form, account known on this host (`portal_accounts`) | signs in (the vault's password for this portal, else the configured one; two tries at most) |
+| a sign-in form, no account known | goes to "Create account / Create your profile / New candidate / Register" |
+| a sign-up form | fills name, phone, city, province, country (labels read by the shared classifier: "Given name", "Legal First Name" and "Prénom" are one question), email, password twice, the terms box only; never a hidden robots-only field |
+| password rules printed, or a refusal naming one | the configured password if it meets them; else one made for that portal, kept encrypted in the vault (`PORTAL_VAULT_KEY`), retried once |
+| "already exists" | switches to signing in |
+| "check your email" / a code box | opens the mailed link, or types the mailed code (Gmail, only from the portal's own domain; two codes at most) |
+| CAPTCHA, SMS / authenticator code, security question, ID check | stops: `MANUAL_INTERVENTION_REQUIRED` with the reason; rerun once done, it resumes signed in |
+| a portal slow to answer | waits for its answer (35 s on Workday), presses once more if nothing happened, then stops with what the page showed |
+
+After signing in, a portal that lands on a dashboard is sent back to the application. Every run keeps its state and the
+trail of states it went through (`portal_runs.flow_state` / `flow_log`, `lib/apply/flow-state.ts`): FOUND_JOB →
+OPENED_APPLICATION → PLATFORM_DETECTED → AUTH_REQUIRED → CHECKING_EXISTING_ACCOUNT → SIGNING_IN / REGISTERING_ACCOUNT →
+EMAIL_VERIFICATION_REQUIRED → AUTHENTICATED → APPLICATION_FORM → UPLOADING_DOCUMENTS / ANSWERING_QUESTIONS →
+READY_FOR_REVIEW / READY_FOR_SUBMISSION / SUBMITTED, or FAILED / MANUAL_INTERVENTION_REQUIRED, each with its page and reason.
+
+**Work authorization** comes from the answer bank's `work_authorization` ("Canadian citizen") and `sponsorship_required`
+("No"), confirmed for automatic use on /answers, as structure (`candidate.authorization`): for Canada, authorized yes,
+unrestricted yes, visa no, work permit no, sponsorship now or later no, citizenship Canadian ("Canadian Citizen" /
+"Citizen" in a list). An expiry date for a visa or permit is **never made up**: "Not applicable" / "N/A" when offered,
+"Not applicable (Canadian citizen)" in a text box, empty when optional, and flagged for you when a date is required.
+Questions about another country (the United States...) stay yours.
+
+**Availability** (`lib/apply/availability.ts`): full time from `available_from` (January 1, 2027). Earlier only part time
+alongside school (`work_while_studying`), and only when the posting says its schedule fits (part time, hours a week,
+during the school year): then "Available immediately". A notice-period list takes the option containing the weeks until
+January 1; "available in January 2027?" is Yes; an earlier full-time start is never claimed and goes to you.
+
 ## Careers page first (V17)
 
 Companies asked for applications through their official careers page, not emails to HR. So the desk now goes to each

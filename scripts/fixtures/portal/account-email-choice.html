@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Fixture: a newer Workday sign-in (globalhr.wd5, 2026-10-06): Google, LinkedIn or email, and the email + password form
+     only after "Sign in with email". Records any press on Google / LinkedIn, which must never happen. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Sign In</title></head>
+  <body>
+    <h1>Sign In</h1>
+    <div data-automation-id="signInContent">
+      <button type="button" data-automation-id="GoogleSignInButton" onclick="localStorage.setItem('social','google')">Sign in with Google</button>
+      <button type="button" data-automation-id="LinkedInSignInButton" onclick="localStorage.setItem('social','linkedin')">Sign in with LinkedIn</button>
+      <button type="button" data-automation-id="SignInWithEmailButton" onclick="location.href='/account-generic-signin.html' + location.search">Sign in with email</button>
+    </div>
+  </body>
+</html>

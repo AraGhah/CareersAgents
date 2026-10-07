@@ -75,6 +75,20 @@ export function factsFor(candidate: CandidateProfile, job: AgentJob, memory: Map
     confirmed("sponsorship") && c.personal.sponsorship
       ? `- needs visa sponsorship to work in Canada: ${c.personal.sponsorship}`
       : "- sponsorship: NOT confirmed for automatic use → ask_person if a required question asks it",
+    ...(confirmed("work_authorization") && c.authorization.status === "citizen"
+      ? [
+          "- citizenship: Canadian (Canadian citizen). 'Type of work authorization' → Canadian Citizen (or Citizen)",
+          "- for Canada: legally authorized to work: Yes; unrestricted authorization: Yes; requires a visa: No; requires a work permit: No; requires sponsorship now or in the future: No",
+          "- work authorization / visa / permit expiry date: NOT APPLICABLE (a citizen's authorization does not expire). Choose 'Not applicable' / 'N/A' if offered; leave an optional date empty; in a text box write 'Not applicable (Canadian citizen)'. NEVER type a date. If a required field forces a date, ask_person.",
+        ]
+      : []),
+    c.availability.fullTimeStart
+      ? `- start availability: full time from ${c.availability.fullTimeStart} (a date field takes this date; a notice-period choice takes the option that contains the time until then).${
+          c.availability.canWorkWhileStudying
+            ? " Earlier only part time alongside school, and only when the posting says the schedule fits around studies (part time, a few hours a week); then 'Available immediately' is true. Never claim full-time availability before that date; if unsure, ask_person."
+            : ""
+        }`
+      : null,
     confirmed("salary") && c.personal.salary ? `- salary expectation (text fields only): ${c.personal.salary}` : "- salary: NOT confirmed → ask_person if required",
     workedHere === false ? `- previously worked at ${job.companyName}: No (the company is nowhere in the CV)` : `- previously worked at ${job.companyName}: unknown → ask_person if required`,
     c.personal.criminal_record && /^\s*(no|aucun)/i.test(c.personal.criminal_record) ? `- criminal record: ${c.personal.criminal_record}` : null,

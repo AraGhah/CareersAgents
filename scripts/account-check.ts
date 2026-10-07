@@ -2,10 +2,13 @@
 // behave like the account pages of an employer portal, with fake credentials (never the real ones).
 //   npm run account:check
 
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { credentialProvider } from "../lib/apply/auth/credentials";
+import { fileVault } from "../lib/apply/auth/vault";
 import { chromium, type Page } from "playwright";
 import { accountCredentials, accountHostAllowed, portalHost, redact } from "../lib/apply/account-config";
 import { accountPageKind, classifyAccountPage, passAccountWall, type AccountState } from "../lib/apply/account";
@@ -76,6 +79,13 @@ function unitChecks() {
   check(pick([mail({ receivedMs: now - 3_600_000, html: '<a href="https://careers.acme.com/verify/old">Verify</a>' })]) === null, "a message from before the account was created is ignored");
   check(pick([mail({ subject: "Your weekly jobs", html: '<a href="https://careers.acme.com/jobs/1">Job</a>' })]) === null, "a message that does not read like verification is ignored");
   check(pick([mail({ html: '<a href="https://evil.co.uk/verify?t=1">Verify</a>' })], "careers.acme.co.uk") === null, "another site under the same country suffix (.co.uk) is not the portal's own");
+  check(
+    pick(
+      [mail({ from: "ABB Workday <abb@otp.workday.com>", subject: "Verify your candidate account", html: "<style>body { font-size: 12px; }</style><div>Click this link to confirm your email address and complete setup for your candidate account https://abb.wd3.myworkdayjobs.com/External_Career_Page/activate/abc123tok/?redirect=%2FExternal_Career_Page&amp;x=1</div>" })],
+      "abb.wd3.myworkdayjobs.com",
+    ) === "https://abb.wd3.myworkdayjobs.com/External_Career_Page/activate/abc123tok/?redirect=%2FExternal_Career_Page&x=1",
+    "Workday's activation link printed as bare text in an HTML-only message (abb.wd3)",
+  );
   check(registrable("careers.acme.qc.ca") === "acme.qc.ca" && registrable("a.wd1.myworkdayjobs.com") === "myworkdayjobs.com", "the registered name keeps a country's second level");
 
   console.log("\nwhere the account password may be typed");
@@ -257,6 +267,224 @@ async function main() {
       check((await wizardReason(page)) === null, "a single-page application is not a wizard");
       await context.close();
     }
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // The account subsystem's cases (A to F), on an unknown portal worded its own way.
+    // ------------------------------------------------------------------------------------------------------------------
+    const vaultFile = path.join(os.tmpdir(), `desk-vault-check-${process.pid}.json`);
+    const freshVault = () => {
+      rmSync(vaultFile, { force: true });
+      return fileVault(vaultFile, "check-only-key-0123456789");
+    };
+    const local = (page: Page, key: string) => page.evaluate((k) => localStorage.getItem(k), key);
+    const PROFILE = { firstName: "Ara", lastName: "Ghahramanyan", phone: "438-993-6997", country: "Canada", region: "Quebec", city: "Montréal", postalCode: null };
+
+    console.log("\nCASE A: no account needed");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-after.html`);
+      const states: string[] = [];
+      const r = await run(page, { known: null, onState: (s) => void states.push(s) });
+      check(r.outcome.ok && r.outcome.action === "none" && r.records.length === 0, "the application form itself: nothing to do, nothing recorded", r.outcome);
+      check(!states.includes("REGISTERING_ACCOUNT") && !states.includes("SIGNING_IN"), "…and no sign-in or registration was attempted", states);
+      await context.close();
+    }
+
+    console.log("\nCASE B / F: an unknown portal, no account yet: created, the slow way (the abb / cisco regression)");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?delay=6`);
+      const states: string[] = [];
+      const started = Date.now();
+      const r = await run(page, { known: null, profile: PROFILE, onState: (s) => void states.push(s) });
+      check(r.outcome.ok && r.outcome.action === "created", "'Create your profile' → 'Create Profile' → created, though the portal took 6 s to answer", { outcome: r.outcome, logs: r.logs });
+      check(Date.now() - started >= 6000 && /account-after/.test(page.url()), "it waited for the portal's answer and landed on the application");
+      const acct = JSON.parse((await local(page, "acct")) ?? "null") as { given: string; family: string; province: string; email: string } | null;
+      check(acct?.given === "Ara" && acct.family === "Ghahramanyan" && acct.province === "Québec" && acct.email === CREDS.email, "'Given name', 'Family Name' and a Province list were filled from your profile (shared classifier)", acct);
+      check((await local(page, "honeypot")) === "", "the robots-only field was left empty");
+      check((await local(page, "presses")) === "1", "Create Profile was pressed once, not again while the portal worked");
+      check(["CHECKING_EXISTING_ACCOUNT", "REGISTERING_ACCOUNT", "AUTHENTICATED"].every((s) => states.includes(s)), "states: checking → registering → authenticated", states);
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-slow-signup.html?delay=60`);
+      const r = await run(page, { known: null, profile: PROFILE, reactionMs: 1500 });
+      check(!r.outcome.ok && /did not react to Create Account/.test(r.outcome.reason) && /run the application again/.test(r.outcome.reason), "a portal that never answers: pressed once more, then stops and says what the page showed (bounded)", { outcome: r.outcome, logs: r.logs });
+      check((await local(page, "presses")) === "2", "…exactly two presses, no loop");
+      await context.close();
+    }
+
+    console.log("\nCASE C: the account exists: signed in, nothing created");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: true })), CREDS);
+      const states: string[] = [];
+      const r = await run(page, { known: "created", onState: (s) => void states.push(s) });
+      check(r.outcome.ok && r.outcome.action === "signed_in" && states.includes("SIGNING_IN") && !states.includes("REGISTERING_ACCOUNT"), "a known portal: 'Log in' with the username field, no new profile", { outcome: r.outcome, states });
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-slow-signup.html?delay=0`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: true })), CREDS);
+      const r = await run(page, { known: null, profile: PROFILE });
+      check(r.outcome.ok && r.outcome.action === "signed_in", "'A candidate profile already exists for this email': switches to signing in", { outcome: r.outcome, logs: r.logs });
+      await context.close();
+    }
+
+    console.log("\nCASE D: a mailed verification code");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?delay=0&code=1`);
+      let askedFor = "";
+      const r = await run(page, {
+        known: null,
+        profile: PROFILE,
+        verificationCode: async (host) => {
+          askedFor = host;
+          return "482913";
+        },
+      });
+      check(r.outcome.ok && r.outcome.action === "created" && askedFor === portalHost(base), "the code from the mailbox is typed and the account goes through", { outcome: r.outcome, logs: r.logs });
+      check(r.records.some((x) => x[1] === "verify_email") && r.records.at(-1)?.[1] === "created", "the wait for the code was recorded, then the account");
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?delay=0&code=1`);
+      const r = await run(page, { known: null, profile: PROFILE });
+      check(!r.outcome.ok && /Type the code the portal mailed to test@example\.com/.test(r.outcome.reason) && r.records.at(-1)?.[1] === "verify_email", "no mailbox: stops, says where the code went, resumes signed in next run", r.outcome);
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?delay=0&code=1`);
+      let asked = 0;
+      const r = await run(page, { known: null, profile: PROFILE, verificationCode: async () => (asked++, "000000") });
+      check(!r.outcome.ok && asked === 2 && /did not accept the mailed code/.test(r.outcome.reason), "a refused code: one newer code is fetched, then it stops (two tries, no loop)", { outcome: r.outcome, asked });
+      await context.close();
+    }
+
+    console.log("\nCASE E: what only a person may answer");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?mfa=1`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: true })), CREDS);
+      const r = await run(page, { known: "created", verificationCode: async () => "123456" });
+      check(!r.outcome.ok && r.outcome.intervention === true && /second factor|SMS/.test(r.outcome.reason), "a code sent to a phone: stops for you, flagged as an intervention", r.outcome);
+      check((await local(page, "mfaTyped")) === null, "…and nothing was typed into it, even with a mailbox at hand");
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-captcha.html`);
+      const states: string[] = [];
+      const r = await run(page, { known: null, onState: (s) => void states.push(s) });
+      check(!r.outcome.ok && r.outcome.intervention === true && states.at(-1) === "MANUAL_INTERVENTION_REQUIRED", "a CAPTCHA: MANUAL_INTERVENTION_REQUIRED, never solved", { outcome: r.outcome, states });
+      await context.close();
+    }
+    check(classifyAccountPage({ pw: 0, confirm: false, buttons: [], text: "postal code phone number email first name we sent you a verification code", codeInput: true, inputs: 12 }) === "none", "an application form that mentions a code and a phone is not a challenge page");
+
+    console.log("\nan account that exists but was never verified (abb.wd3)");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?unverified=1`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: false })), CREDS);
+      let since = 0;
+      const r = await run(page, {
+        known: "failed",
+        profile: PROFILE,
+        verificationLink: async (_host, s) => {
+          since = s;
+          return `${base}/account-verified.html`;
+        },
+      });
+      check(r.outcome.ok && r.outcome.action === "signed_in", "'Verify your account before you sign in': a new email is asked for, its link opened, then signed in", { outcome: r.outcome, logs: r.logs });
+      check((await local(page, "resent")) === "1" && since > 0, "…'Resend Account Verification' pressed once, the mailbox read from that moment");
+      await context.close();
+    }
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?unverified=1`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: false })), CREDS);
+      const r = await run(page, { known: "failed", profile: PROFILE });
+      check(!r.outcome.ok && /exists but is not verified/.test(r.outcome.reason) && r.records.at(-1)?.[1] === "verify_email", "no mailbox: says the account exists and needs verifying (not 'wrong password')", r.outcome);
+      await context.close();
+    }
+
+    console.log("\na portal that opens on Create Account, for a portal the desk has an account on");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-slow-signup.html?delay=0`);
+      await page.evaluate((c) => localStorage.setItem("acct", JSON.stringify({ email: c.email, password: c.password, verified: true })), CREDS);
+      const r = await run(page, { known: "created", profile: PROFILE });
+      check(r.outcome.ok && r.outcome.action === "signed_in" && (await local(page, "presses")) === null, "it goes to 'Log in' and signs in, without pressing Create Profile", { outcome: r.outcome, logs: r.logs });
+      await context.close();
+    }
+
+    console.log("\na sign-in page offering Google, LinkedIn or email (newer Workday tenants)");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-email-choice.html?delay=0`);
+      const r = await run(page, { known: null, profile: PROFILE });
+      check(r.outcome.ok && r.outcome.action === "created", "'Sign in with email' is chosen, then the account is created", { outcome: r.outcome, logs: r.logs });
+      check((await local(page, "social")) === null, "Google and LinkedIn are never pressed");
+      await context.close();
+    }
+
+    console.log("\napplying without an account");
+    {
+      const { context, page } = await session();
+      await page.goto(`${base}/account-generic-signin.html?guest=1`);
+      const states: string[] = [];
+      const r = await run(page, { known: null, onState: (s) => void states.push(s) });
+      check(r.outcome.ok && r.outcome.action === "guest" && (await local(page, "acct")) === null, "'Apply as Guest' is taken: no account is made in your name", r.outcome);
+      check(states.includes("APPLYING_WITHOUT_ACCOUNT"), "…recorded as APPLYING_WITHOUT_ACCOUNT", states);
+      await context.close();
+    }
+
+    console.log("\npassword rules and the vault");
+    {
+      // The portal prints "a minimum of 24 characters": the configured 14-character password cannot be used there.
+      const { context, page } = await session();
+      await page.goto(`${base}/account-slow-signup.html?delay=0&min=24`);
+      const r = await run(page, { known: null, profile: PROFILE });
+      check(!r.outcome.ok && /shorter than 24 characters/.test(r.outcome.reason) && /PORTAL_VAULT_KEY/.test(r.outcome.reason), "rules the configured password breaks, no vault: stops before pressing, says which rule and how to fix it", r.outcome);
+      check((await local(page, "presses")) === null, "…nothing was pressed");
+      await context.close();
+    }
+    {
+      const vault = freshVault();
+      const provider = credentialProvider(CREDS, vault);
+      const { context, page } = await session();
+      await page.goto(`${base}/account-slow-signup.html?delay=0&min=24`);
+      const r = await run(page, { known: null, profile: PROFILE, credentials: provider });
+      const acct = JSON.parse((await local(page, "acct")) ?? "null") as { password: string } | null;
+      const kept = vault.get(portalHost(base), CREDS.email);
+      check(r.outcome.ok && r.outcome.action === "created", "with the vault: a password meeting the printed rules is made for this portal and the account is created", { outcome: r.outcome, logs: r.logs });
+      check(!!acct && acct.password.length >= 24 && acct.password !== CREDS.password && kept?.password === acct.password && kept.confirmed, "the portal holds the generated password, the vault holds the same, confirmed");
+      check(!r.logs.some((l) => l.includes(acct?.password ?? "\u0000")), "the generated password appears in no log line");
+      // The next run on this portal signs in with the vault's password.
+      const again = await context.newPage();
+      await again.goto(`${base}/account-generic-signin.html`);
+      const back = await run(again, { known: "created", credentials: provider });
+      check(back.outcome.ok && back.outcome.action === "signed_in", "the next run signs in with the password kept for this portal", back.outcome);
+      await context.close();
+      check(!readFileSync(vaultFile, "utf8").includes(acct?.password ?? "\u0000"), "the vault file holds no password in clear");
+    }
+    {
+      // No printed rule, then a refusal that names one: one compliant password, once.
+      const vault = freshVault();
+      const { context, page } = await session();
+      await page.goto(`${base}/account-signup.html?rule=1`);
+      const r = await run(page, { known: null, credentials: credentialProvider(CREDS, vault) });
+      const acct = JSON.parse((await local(page, "acct")) ?? "null") as { password: string } | null;
+      check(r.outcome.ok && r.outcome.action === "created" && (acct?.password.length ?? 0) >= 30, "a refusal naming the rule (30 characters): one password meeting it is made and the account goes through", { outcome: r.outcome, logs: r.logs });
+      await context.close();
+      rmSync(vaultFile, { force: true });
+    }
   } finally {
     await browser.close();
     server.close();
@@ -268,7 +496,7 @@ async function main() {
   const source = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8").replace(/\r\n/g, "\n");
   const account = source(path.join("lib", "apply", "account.ts"));
   const uses = account.split("\n").filter((l) => /\.password/.test(l) && !l.trim().startsWith("//") && !l.trim().startsWith("*"));
-  check(uses.every((l) => /\.fill\(ctx\.creds\.password\)|\.length !== ctx\.creds\.password\.length|!ctx\.creds\.password/.test(l)), "account.ts uses the password only to type it, compare its length and check it is set", uses);
+  check(uses.every((l) => /\.fill\(creds\.password\)|\.length !== creds\.password\.length|!ctx\.creds\.password/.test(l)), "account.ts uses the password only to type it, compare its length and check it is set", uses);
   check(!/console\./.test(account), "account.ts never prints");
   const press = account.match(/async function press\([\s\S]*?\n}\n/)?.[0] ?? "";
   check((account.match(/\.click\(/g) ?? []).length === (press.match(/\.click\(/g) ?? []).length && press.length > 0, "every click in account.ts is inside press(), which refuses without the account");

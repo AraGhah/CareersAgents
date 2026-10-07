@@ -1,0 +1,79 @@
+<!doctype html>
+<!-- Fixture: an unknown portal's "Create Profile" form, shaped like the ones that failed on 2026-10-04/05 (abb, cisco):
+     printed password rules, a hidden robots-only field (Workday's "beecatcher"), and an account that takes several seconds
+     to be created. Labels are worded differently from the other fixtures (Given name, Family Name, Province).
+     ?delay=N  seconds the portal takes to create the account (default 6)
+     ?min=N    the minimum password length it prints and enforces (default 8)
+     ?code=1   the new account must type a code mailed to it (account-code.html) -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Create Profile</title></head>
+  <body>
+    <h1>Create Profile</h1>
+    <p>Password Requirements:</p>
+    <ul id="rules">
+      <li id="minrule">A minimum of 8 characters</li>
+      <li>An uppercase character</li>
+      <li>A lowercase character</li>
+      <li>A numeric character</li>
+      <li>A special character</li>
+    </ul>
+    <div id="err" role="alert"></div>
+    <label for="gn">Given name *</label>
+    <input id="gn" name="givenName" required />
+    <label for="fn">Family Name *</label>
+    <input id="fn" name="familyName" required />
+    <label for="prov">Province *</label>
+    <select id="prov" name="province" required>
+      <option value="">Select one</option>
+      <option>Ontario</option>
+      <option>Québec</option>
+      <option>British Columbia</option>
+    </select>
+    <label for="mail">Email Address *</label>
+    <input id="mail" name="mail" type="text" required />
+    <label for="pw">Password *</label>
+    <input id="pw" type="password" />
+    <label for="pw2">Verify New Password *</label>
+    <input id="pw2" type="password" />
+    <div style="position:absolute;left:-10000px;top:-10000px">
+      <label for="bee">Enter website. This input is for robots only, do not enter if you're human.</label>
+      <input id="bee" name="website" data-automation-id="beecatcher" type="text" tabindex="-1" />
+    </div>
+    <button id="go" type="button">Create Profile</button>
+    <p>Already registered? <a id="signin" href="/account-generic-signin.html">Log in</a></p>
+    <script>
+      var q = new URLSearchParams(location.search);
+      var delay = Number(q.get("delay") || 6) * 1000;
+      var min = Number(q.get("min") || 8);
+      document.getElementById("minrule").textContent = "A minimum of " + min + " characters";
+      document.getElementById("signin").href = "/account-generic-signin.html" + location.search;
+      document.getElementById("go").onclick = function () {
+        var err = document.getElementById("err");
+        err.textContent = "";
+        var pw = document.getElementById("pw").value;
+        var email = document.getElementById("mail").value;
+        localStorage.setItem("honeypot", document.getElementById("bee").value);
+        localStorage.setItem("presses", String(Number(localStorage.getItem("presses") || 0) + 1));
+        if (pw !== document.getElementById("pw2").value) return (err.textContent = "Passwords do not match.");
+        if (pw.length < min || !/[A-Z]/.test(pw) || !/[a-z]/.test(pw) || !/[0-9]/.test(pw) || !/[^A-Za-z0-9]/.test(pw))
+          return (err.textContent = "Password must be at least " + min + " characters and include an uppercase, a lowercase, a numeric and a special character.");
+        var existing = JSON.parse(localStorage.getItem("acct") || "null");
+        if (existing && existing.email === email) return (err.textContent = "A candidate profile already exists for this email address.");
+        var profile = {
+          email: email,
+          password: pw,
+          given: document.getElementById("gn").value,
+          family: document.getElementById("fn").value,
+          province: document.getElementById("prov").value,
+          verified: !q.get("code"),
+        };
+        // The portal works on it for a while, the form still on screen, before answering (Workday takes 10 to 20 s).
+        document.getElementById("go").textContent = "Create Profile";
+        setTimeout(function () {
+          localStorage.setItem("acct", JSON.stringify(profile));
+          location.href = q.get("code") ? "/account-code.html" + location.search : "/account-after.html";
+        }, delay);
+      };
+    </script>
+  </body>
+</html>

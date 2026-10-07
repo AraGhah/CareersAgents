@@ -26,10 +26,15 @@ const PERSON_ONLY: Rule[] = [
     test: /date of birth|birth ?date|date de naissance|\bage\b|how old|social insurance|\bsin\b|\bnas\b|social security|\bssn\b|passport|passeport|driver'?s? licen|permis de conduire|marital|etat civil|religio|criminal|casier|convicted|condamn|background (check|screening|investigation)|antecedents|security (clearance|screening|check|issue|concern|problem)|reliability status|cote de securite|enquete de securite|probleme de securite|\bhealth\b|medical|medic|sante/,
   },
   { intent: "salary", test: /salary|compensation|pay expectation|expected pay|remuneration|salaire|hourly rate|taux horaire|wage/ },
+  // Before "visa" below: "When does your visa expire?" asks for a date, not whether sponsorship is needed.
+  {
+    intent: "authorization_expiry",
+    test: /(expir|expiry|valid until|valid through|end date|date de fin|echeance|valide jusqu).{0,60}(visa|permit|permis|authori[sz]ation|autorisation|status|statut)|(visa|permit|permis|authori[sz]ation|autorisation|status|statut).{0,60}(expir|expiry|valid until|valid through|end date|date de fin|echeance|valide jusqu)/,
+  },
   { intent: "sponsorship", test: /sponsor|\bvisa\b|parrainage/ },
   {
     intent: "work_authorization",
-    test: /authori[sz]ed to work|work authori[sz]ation|authori[sz]ation to work|employment (eligibility|authori[sz]ation)|legally (able|eligible|entitled|permitted)|eligible to work|eligibility to work|right to work|work permit|study permit|permis (de travail|d'etudes)|autorisation (de|a) travailler|autorisation de travail|autorise a travailler|citizen|citoyen|permanent resident|resident permanent|immigration|work status|statut (legal|au canada)/,
+    test: /authori[sz]ed to work|work authori[sz]ation|authori[sz]ation to work|employment (eligibility|authori[sz]ation)|legally (able|eligible|entitled|permitted)|eligible to work|eligibility to work|right to work|work permit|study permit|permis (de travail|d'etudes)|autorisation (de|a) travailler|autorisation de travail|autorise a travailler|citizen|citoyen|nationalit|permanent resident|resident permanent|immigration|work status|statut (legal|au canada)/,
   },
   {
     intent: "legal_declaration",
@@ -181,7 +186,8 @@ export function classifyField(field: FormField): FieldIntent {
 
   const fact = FACT_RULES.find((r) => r.test.test(label));
   // "Will your internship count for credits at your school?" mentions a school but asks yes or no.
-  if (fact && VALUE_INTENTS.has(fact.intent) && hasYesNoOptions(field)) return "unknown";
+  // "Are you available to start in January 2027?" is still about availability: answered from the start date (availability.ts).
+  if (fact && VALUE_INTENTS.has(fact.intent) && hasYesNoOptions(field)) return fact.intent === "available_from" ? "available_from" : "unknown";
   if (fact?.intent === "address") return subFieldIntent(field) ?? "address";
   if (fact) return fact.intent;
   const sub = field.kind === "text" ? subFieldIntent(field) : null;
@@ -229,6 +235,7 @@ export function questionTypeOf(label: string): QuestionType {
 /** Intents that are never filled automatically, whatever data exists. */
 export const PERSON_ONLY_INTENTS: ReadonlySet<FieldIntent> = new Set<FieldIntent>([
   "work_authorization",
+  "authorization_expiry",
   "sponsorship",
   "legal_declaration",
   "consent",

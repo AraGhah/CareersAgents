@@ -201,6 +201,62 @@ const CHOICE = new Set<FormField["kind"]>(["select", "radio", "combobox"]);
 /** `confirmed`: the owner already vouched for this one (the screening topics), so it needs no click. */
 export type PersonalSuggestion = { value: string; what: string; confirmed?: boolean; why?: string };
 
+// Read against norm() output, which turns "N/A" into "n a".
+const NOT_APPLICABLE = /^(n ?a|not applicable|does not apply|doesn'?t apply|none|no expiry|no expiration|sans objet|ne s'?applique pas|non applicable|aucune?|i am a (canadian )?citizen|canadian citizen|citoyen canadien)$/;
+const ASKS_NEED = /\b(require|requires|need|needs|besoin|exig\w*|necessit\w*)\b/;
+const CITIZENSHIP_QUESTION = /citizenship|citoyennete|nationalit|country of (citizenship|nationality)|pays de citoyennete/;
+const OTHER_CITIZENSHIP = /\b(other|another|dual|second|additional|any other|autre|double|deuxieme)\b/;
+
+/**
+ * Answers that follow from a Canadian citizenship (candidate.authorization), about Canada only:
+ *   "Do you require a visa / work permit to work in Canada?"            → No
+ *   "What is your citizenship / country of citizenship / nationality?" → Canadian (Canada in a country list)
+ *   "When does your visa / work permit / authorization expire?"        → the form's "Not applicable" option, or
+ *                                                                         "Not applicable (Canadian citizen)" in a text box;
+ *                                                                         never a date (a date-only field stays yours)
+ * Undefined: not one of these questions (the regular topics decide). Null: one of these, with no truthful answer to give.
+ */
+function citizenshipAnswer(field: FormField, intent: FieldIntent, candidate: CandidateProfile, jobLocation: string | null): PersonalSuggestion | null | undefined {
+  const auth = candidate.authorization;
+  const l = label(field);
+  const choice = CHOICE.has(field.kind) && realOptions(field.options).length > 0;
+  const text = field.kind === "text" || field.kind === "textarea";
+  const fr = candidate.lang === "fr";
+  const confirmed = candidate.autoUse.has("work_authorization");
+  const what = `work authorization: "${candidate.personal.work_authorization ?? "—"}"`;
+
+  if (intent === "authorization_expiry") {
+    if (auth.status !== "citizen") return null;
+    if (choice) {
+      const na = realOptions(field.options).find((o) => NOT_APPLICABLE.test(norm(o.text).replace(/[.\s]+$/, "")));
+      return na ? { value: na.text, what, confirmed, why: `"${na.text}": a Canadian citizen has no work authorization that expires.` } : null;
+    }
+    if (text) return { value: fr ? "Sans objet (citoyen canadien)" : "Not applicable (Canadian citizen)", what, confirmed, why: "A Canadian citizen has no work authorization that expires." };
+    // A date box: no date is true. A required one stays yours (the planner flags it); an optional one stays empty.
+    return null;
+  }
+
+  if ((intent === "sponsorship" || intent === "work_authorization") && ASKS_NEED.test(l) && /\b(visa|permit|permis)\b/.test(l) && !/sponsor|parrain/.test(l)) {
+    if (auth.canada.requiresWorkPermit !== false || !aboutCanada(l, jobLocation)) return null;
+    if (field.kind === "checkbox" || field.kind === "checkbox-group") return null;
+    if (choice) {
+      const m = isYesNoOptionSet(field.options) ? matchOption("No", field.options) : null;
+      return m ? { value: m.option, what, confirmed, why: "No: a Canadian citizen needs no visa or work permit to work in Canada." } : null;
+    }
+    return text ? { value: fr ? "Non" : "No", what, confirmed, why: "A Canadian citizen needs no visa or work permit to work in Canada." } : null;
+  }
+
+  if (intent === "work_authorization" && CITIZENSHIP_QUESTION.test(l) && !/canad/.test(l) && !OTHER_CITIZENSHIP.test(l)) {
+    if (!auth.citizenship || (choice && isYesNoOptionSet(field.options))) return null;
+    if (choice) {
+      const m = matchOption("Canada", field.options) ?? matchOption("Canadian", field.options) ?? matchOption("Canadienne", field.options);
+      return m ? { value: m.option, what, confirmed, why: "Your citizenship: Canadian." } : null;
+    }
+    return text ? { value: fr ? "Canadienne" : "Canadian", what, confirmed, why: "Your citizenship: Canadian." } : null;
+  }
+  return undefined;
+}
+
 /** The value to offer for this question, already mapped onto the form's own option, or null. */
 export function personalSuggestion(
   field: FormField,
@@ -209,6 +265,8 @@ export function personalSuggestion(
   jobLocation: string | null,
   companyName: string | null = null,
 ): PersonalSuggestion | null {
+  const derived = citizenshipAnswer(field, intent, candidate, jobLocation);
+  if (derived !== undefined) return derived;
   const topic = personalTopic(intent, field);
   if (!topic) return null;
 

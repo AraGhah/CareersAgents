@@ -285,7 +285,11 @@ function personalChecks() {
   check(auth.status === "manual" && auth.value === "Yes", "authorized to work in Canada → suggests Yes, still yours to confirm", auth);
   check(ask(mk("Are you legally authorized to work in the United States?", "radio", YN)).value === null, "the same question about the United States is not answered from a Canadian citizenship");
   check(ask(mk("Are you a citizen of another country?", "radio", YN)).value === null, "'citizen of another country' is not answered");
-  check(ask(mk("Do you require a work permit to work in Canada?", "radio", YN)).value === null, "'do you require a work permit' is a different question");
+  // A work permit is not "authorized": it follows from the citizenship itself (a Canadian citizen needs none), never
+  // from a yes to the authorization question. No stored status: nothing is derived.
+  const permit = ask(mk("Do you require a work permit to work in Canada?", "radio", YN));
+  check(permit.value === "No" && permit.status === "manual", "'do you require a work permit': No from the Canadian citizenship, still yours to confirm", permit);
+  check(ask(mk("Do you require a work permit to work in Canada?", "radio", YN), bare).value === null, "…and nothing without a stored status");
   check(ask(mk("Work authorization status", "select", ["Canadian citizen", "Permanent resident", "Work permit", "Study permit"])).value === "Canadian citizen", "a status list gets the status itself");
   check(ask(mk("Are you authorized to work for any employer?", "radio", YN), withPersonal("en"), { ...job, location: "Remote" }).value === null, "no country named and a job outside Canada: nothing suggested");
   check(ask(mk("Will you now or in the future require sponsorship to work in Canada?", "radio", YN)).value === "No", "no sponsorship needed → suggests No");

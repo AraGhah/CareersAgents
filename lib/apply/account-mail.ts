@@ -1,10 +1,13 @@
-// An account on an employer portal usually has to be verified through a link mailed to the address it was created with.
-// This reads the mailbox the desk is already connected to (Gmail, readonly) for exactly that one thing: a link in a message
-// that arrived after the account was created. It stores nothing from the message, and it accepts a link only when:
+// An account on an employer portal usually has to be verified through a link (or a short code) mailed to the address it was
+// created with. This reads the mailbox the desk is already connected to (Gmail, readonly) for exactly that one thing: a
+// link or a code in a message that arrived after the account was created. It stores nothing from the message, and it
+// accepts a link only when:
 //   - the message arrived after the account was created (a minute of slack for clock drift),
 //   - it reads like a verification message,
 //   - the link goes to the portal's own site or to a known application system (Workday, iCIMS...), never anywhere else,
 //   - and it is not an unsubscribe, privacy or terms link.
+// A code is accepted only from a message that reads like verification and was sent by the portal's own site or a known
+// application system (the sender's domain), never from any other mail that happens to hold digits.
 
 import { getGmail } from "../gmail";
 import { isPublicUrl } from "../net-guard";
@@ -44,6 +47,9 @@ function linksIn(message: MailMessage): Array<{ url: string; text: string }> {
     out.push({ url: m[1].replace(/&amp;/g, "&"), text: m[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() });
   }
   for (const m of message.text.matchAll(/https?:\/\/[^\s<>"')]+/gi)) out.push({ url: m[0].replace(/[.,;]+$/, ""), text: "" });
+  // Workday prints its activation link as bare text inside the HTML, with no <a> and no text part (abb.wd3, 2026-10-06).
+  const htmlText = message.html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&");
+  for (const m of htmlText.matchAll(/https?:\/\/[^\s<>"')]+/gi)) out.push({ url: m[0].replace(/[.,;]+$/, ""), text: "" });
   return out;
 }
 
@@ -67,6 +73,39 @@ export function pickVerificationLink(messages: MailMessage[], portalHost: string
   return null;
 }
 
+const CODE_CUE = /\b(code|passcode|otp|pin)\b|code (de )?(v[ée]rification|confirmation|s[ée]curit[ée]|acc[eè]s)|mot de passe (à|a) usage unique/i;
+
+function senderHost(from: string): string | null {
+  const addr = from.match(/<([^>]+)>/)?.[1] ?? from;
+  const at = addr.lastIndexOf("@");
+  return at >= 0 ? addr.slice(at + 1).trim().toLowerCase().replace(/[>\s].*$/, "") : null;
+}
+
+/**
+ * The one-time code in these messages (4 to 8 digits, or 6 to 8 letters and digits printed on their own), or null. Only a
+ * fresh message that reads like a code message, from the portal's own domain or a known application system.
+ */
+export function pickVerificationCode(messages: MailMessage[], portalHost: string, sinceMs: number): string | null {
+  const portal = registrable(portalHost);
+  const fresh = messages.filter((m) => m.receivedMs >= sinceMs - 60_000).sort((a, b) => b.receivedMs - a.receivedMs);
+  for (const message of fresh) {
+    const sender = senderHost(message.from);
+    if (!sender || !(registrable(sender) === portal || APPLICATION_SYSTEMS.test(sender))) continue;
+    const html = message.html.replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<br\s*\/?>|<\/(p|div|td|tr|h\d)>/gi, "\n").replace(/<[^>]+>/g, " ");
+    const text = [message.subject, message.text, html].join("\n").replace(/[ \t]+/g, " ");
+    if (!CODE_CUE.test(text) && !VERIFY_CUE.test(message.subject)) continue;
+    // The code printed right after the words that announce it, then a code standing alone on its own line.
+    const near = text.match(
+      /\b(?:code|passcode|otp|pin|usage unique)\b(?:\s+(?:de\s+|d['’])?(?:v[ée]rification|verification|confirmation|s[ée]curit[ée]|security|acc[eè]s|access))?[^\n0-9A-Za-z]{0,40}?(?:is|est)?[^\n0-9A-Za-z]{0,10}\b([0-9]{4,8}|(?=[A-Z0-9]*[0-9])[A-Z0-9]{6,8})\b/i,
+    );
+    if (near) return near[1];
+    // A code printed on a line of its own: digits, or capitals and digits (never a plain word).
+    const alone = text.split("\n").map((l) => l.trim()).find((l) => /^[0-9]{4,8}$/.test(l) || /^(?=[A-Z0-9]*[0-9])(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,8}$/.test(l));
+    if (alone) return alone;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Gmail
 // ---------------------------------------------------------------------------
@@ -85,10 +124,10 @@ function collect(part: Part | undefined, into: { text: string; html: string }) {
 }
 
 /**
- * Waits for the verification link of an account just created on `host`, polling the mailbox. Null when none arrives in time.
- * Only messages newer than `sinceMs` are looked at, and only their links are read.
+ * Polls the mailbox for messages newer than `sinceMs` until `pick` finds what it wants, at most `timeoutMs` (90 s by
+ * default). Bounded on purpose: a portal that never mails gives the run back, it does not hang it.
  */
-export async function gmailVerificationLink(host: string, sinceMs: number, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<string | null> {
+async function pollMailbox<T>(pick: (messages: MailMessage[]) => Promise<T | null> | T | null, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<T | null> {
   const gmail = await getGmail();
   const deadline = Date.now() + (opts.timeoutMs ?? 90_000);
   const seen = new Map<string, MailMessage>();
@@ -104,10 +143,26 @@ export async function gmailVerificationLink(host: string, sinceMs: number, opts:
       collect(res.data.payload as Part | undefined, body);
       seen.set(id, { from: header("from"), subject: header("subject"), receivedMs, ...body });
     }
-    const link = pickVerificationLink([...seen.values()], host, sinceMs);
-    // A link from a mailbox is opened in the desk's browser: only one that leads to a public site.
-    if (link && (await isPublicUrl(link))) return link;
+    const found = await pick([...seen.values()]);
+    if (found !== null) return found;
     await new Promise((r) => setTimeout(r, opts.pollMs ?? 6000));
   }
   return null;
+}
+
+/**
+ * Waits for the verification link of an account just created on `host`, polling the mailbox. Null when none arrives in time.
+ * Only messages newer than `sinceMs` are looked at, and only their links are read.
+ */
+export async function gmailVerificationLink(host: string, sinceMs: number, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<string | null> {
+  return pollMailbox(async (messages) => {
+    const link = pickVerificationLink(messages, host, sinceMs);
+    // A link from a mailbox is opened in the desk's browser: only one that leads to a public site.
+    return link && (await isPublicUrl(link)) ? link : null;
+  }, opts);
+}
+
+/** Waits for the one-time code the portal on `host` mailed after `sinceMs`. Null when none arrives in time. */
+export async function gmailVerificationCode(host: string, sinceMs: number, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<string | null> {
+  return pollMailbox((messages) => pickVerificationCode(messages, host, sinceMs), opts);
 }

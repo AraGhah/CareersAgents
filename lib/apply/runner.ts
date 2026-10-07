@@ -36,9 +36,12 @@ import { duplicateReason } from "./dedupe";
 import { loadAnswerMemory, noteMemoryUse } from "./memory-store";
 import { companyNotes, mergeApprovals, planField, planFields, type PlanContext } from "./planner";
 import { gmailIsConnected } from "../gmail";
-import { gmailVerificationLink } from "./account-mail";
+import { gmailVerificationCode, gmailVerificationLink } from "./account-mail";
 import { accountCredentials, portalHost, redact } from "./account-config";
 import { knownAccountState, passAccountWall } from "./account";
+import { credentialProvider } from "./auth/credentials";
+import { openVault } from "./auth/vault";
+import { FlowTracker } from "./flow-state";
 import {
   accountPortalReason,
   adapterFor,
@@ -70,6 +73,7 @@ import {
   logPortalError,
   markSubmitClicked,
   planIsComplete,
+  recordFlow,
   saveFields,
   updateRun,
 } from "./store";
@@ -192,6 +196,17 @@ async function openForm(
   return { adapter, page: current };
 }
 
+/** Same address apart from the query and fragment: the account step left the run where it found it. */
+function samePage(a: string, b: string): boolean {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname.replace(/\/+$/, "") === y.pathname.replace(/\/+$/, "");
+  } catch {
+    return a === b;
+  }
+}
+
 async function readFields(page: Page, adapter: PlatformAdapter): Promise<FormField[]> {
   return extractFieldsWithOptions(page, await scopeSelector(page, adapter));
 }
@@ -249,6 +264,9 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
   const previousFields = await listApprovals(app.id);
   const runId = await createRun({ applicationId, mode: opts.mode, postingUrl: app.url, companyName: app.company_name, roleTitle: app.title });
   await logWorkflow(app.id, "portal_start", true, `${opts.mode} run ${runId}`);
+  // The run's explicit state (lib/apply/flow-state.ts), each step written to the run as it is entered.
+  const flow = new FlowTracker((event) => recordFlow(runId, event));
+  await flow.to("FOUND_JOB", `${app.company_name}: ${app.title}`, app.url);
 
   if (channel.channel === "manual") {
     await finishRun(runId, "blocked", { blocked_reason: channel.reason });
@@ -298,6 +316,8 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
     page = opened.page;
     await updateRun(runId, { platform: adapter.id, form_url: page.url(), lang });
     log(`form: ${adapter.label} ${page.url()}`);
+    await flow.to("OPENED_APPLICATION", null, page.url());
+    await flow.to("PLATFORM_DETECTED", adapter.label, page.url());
 
     // A window you are watching (review runs) is never closed on a stop: it stays on the page that needs you, and an
     // application you finish there is recorded as submitted.
@@ -452,6 +472,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       stage = "agent";
       log(`AI form agent takes over: ${trigger}`);
       await updateRun(runId, { state: "filling" });
+      await flow.to("ANSWERING_QUESTIONS", `AI form agent: ${trigger}`, page?.url() ?? null);
       let agentLetter: CoverLetter | null = null;
       const out = await runFormAgent({
         page: page!,
@@ -531,12 +552,27 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
     // started for this application; anything it should not decide (a CAPTCHA, a form wanting more) stops here with why.
     if ((wall || accountPortalReason(page.url())) && creds) {
       stage = "account";
+      await flow.to("AUTH_REQUIRED", wall ?? accountPortalReason(page.url()), page.url());
+      const beforeWall = page.url();
+      const mailbox = await gmailIsConnected().catch(() => false);
       const outcome = await passAccountWall(page, {
         creds,
         log,
         known: await knownAccountState(portalHost(page.url())),
-        verificationLink: (await gmailIsConnected().catch(() => false)) ? gmailVerificationLink : undefined,
-        profile: { firstName: candidate.firstName, lastName: candidate.lastName, phone: candidate.phone, country: candidate.country },
+        verificationLink: mailbox ? gmailVerificationLink : undefined,
+        verificationCode: mailbox ? gmailVerificationCode : undefined,
+        // The configured account everywhere, and a password made for one portal only when its rules need it (PORTAL_VAULT_KEY).
+        credentials: credentialProvider(creds, openVault()),
+        onState: (state, detail) => flow.to(state, detail ?? null, page?.url() ?? null),
+        profile: {
+          firstName: candidate.firstName,
+          lastName: candidate.lastName,
+          phone: candidate.phone,
+          country: candidate.country,
+          region: candidate.regionName ?? candidate.region,
+          city: candidate.city,
+          postalCode: candidate.resumeText?.match(/\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?(\d[ABCEGHJ-NPRSTV-Z]\d)\b/i)?.slice(1, 3).join(" ").toUpperCase() ?? null,
+        },
       });
       if (!outcome.ok) {
         await saveChannel(app.id, "manual");
@@ -545,9 +581,32 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
         await finishRun(runId, "blocked", { blocked_reason: redact(outcome.reason, creds), screenshot_path: await screenshot(page, runId, "account"), stop_step: 1 });
         return { runId, state: "blocked", reason: outcome.reason, preflight: [], decisions: [], step: 1, filled: 0 };
       }
-      log(outcome.action === "none" ? "no account step needed" : `account ${outcome.action === "created" ? "created" : "signed in"} on ${portalHost(page.url())}`);
+      log(
+        outcome.action === "none"
+          ? "no account step needed"
+          : outcome.action === "guest"
+            ? `applying without an account on ${portalHost(page.url())}`
+            : `account ${outcome.action === "created" ? "created" : "signed in"} on ${portalHost(page.url())}`,
+      );
+      // Some portals land on a candidate dashboard after signing in, not on the application: back to it, once. The
+      // session (cookies) is kept, so the application opens signed in.
+      if (outcome.action !== "none" && !(await wizardReason(page)) && !samePage(page.url(), beforeWall) && (await readFields(page, adapterFor(page.url()))).length < 2) {
+        log(`the portal left the run on ${page.url()} after the account step: going back to the application`);
+        const back = await openForm(page, target.url, { boardToken: board.board_token, externalId: board.external_id });
+        page = back.page;
+        await updateRun(runId, { form_url: page.url() });
+      }
       wall = await detectLoginWall(page);
       stage = "guards";
+    }
+    // A removed posting still carries the portal's "Sign In" in its header: it is closed, not an account wall.
+    const gone = wall ? await detectClosedPosting(page) : null;
+    if (gone) {
+      await pool.query(`UPDATE jobs SET closed_at = COALESCE(closed_at, now()) WHERE id = $1`, [app.job_id]);
+      const reason = `The posting is closed: the portal says "${gone}".`;
+      await finishRun(runId, "blocked", { blocked_reason: reason, screenshot_path: await screenshot(page, runId, "closed"), stop_step: 1 });
+      await logWorkflow(app.id, "portal_closed", true, gone);
+      return { runId, state: "blocked", reason, preflight: [], decisions: [], step: null, filled: 0 };
     }
     if (wall) {
       await saveChannel(app.id, "manual");
@@ -599,6 +658,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
       return { runId, state: "blocked", reason, preflight: [], decisions: [], step: 1, filled: 0 };
     }
     log(`${fields.length} fields (${fields.filter((f) => f.required).length} required)`);
+    await flow.to("APPLICATION_FORM", `${fields.length} fields on page 1`, page.url());
 
     const autoApprove = autoApproveAnswers();
     const ctx: PlanContext = {
@@ -716,6 +776,7 @@ async function runPortalApplicationLocked(applicationId: string, opts: RunOption
           await markField(page!, f, d.status === "skipped" ? COLORS.skipped : COLORS.manual);
           continue;
         }
+        await flow.to(f.kind === "file" ? "UPLOADING_DOCUMENTS" : "ANSWERING_QUESTIONS", null, page!.url());
         const r = await fillField(page!, f, d);
         fills.set(f.signature, r);
         d.status = r.ok ? (d.status === "generated" ? "generated" : "filled") : "failed";

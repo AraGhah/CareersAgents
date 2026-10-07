@@ -6,6 +6,7 @@
 //               (e.g. a full date when only "January 2027" is written down)
 //   skipped   — optional, and nothing true to put there
 
+import { availabilityAnswer } from "./availability";
 import { candidateHasSkill, type CandidateProfile } from "./candidate";
 import { PERSON_ONLY_INTENTS } from "./classify";
 import { isYesNoOptionSet, matchOption, realOptions } from "./options";
@@ -40,6 +41,8 @@ export type ResolveOptions = {
    * stays as strict as for a suggestion: a question the bank does not clearly answer still goes to you.
    */
   autoConfirm?: boolean;
+  /** Today, for "how many weeks until you can start" (tests pass a fixed date). */
+  now?: Date;
 };
 
 const CHOICE_KINDS = new Set<FormField["kind"]>(["select", "radio", "checkbox-group", "combobox"]);
@@ -48,6 +51,8 @@ const PERSON_ONLY_REASON: Outcome["reason"] = "Legal, eligibility or personal qu
 
 const REASON_BY_INTENT: Record<string, string> = {
   work_authorization: "Work authorization: a legal statement, you answer it yourself.",
+  authorization_expiry:
+    "Work authorization expiry: it does not apply to a Canadian citizen, and the desk never makes up a date. The form insists on one: flagged for you to review.",
   sponsorship: "Visa sponsorship: a legal statement, you answer it yourself.",
   legal_declaration: "A legal declaration: read it and tick it yourself.",
   consent: "Consent / privacy terms: read them and decide yourself.",
@@ -74,15 +79,20 @@ function unavailable(field: FormField, what: string): Outcome {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** A month + year written down, shaped for this field. Day-precision formats need a day nobody wrote: suggest. */
-function dateFor(field: FormField, year: number | null, month: number | null, text: string | null, what: string): Outcome {
+/**
+ * A date written down, shaped for this field. Day-precision formats need a day: used when the answer bank gives one
+ * ("January 1, 2027"), else only suggested, since nobody wrote it.
+ */
+function dateFor(field: FormField, year: number | null, month: number | null, text: string | null, what: string, day: number | null = null): Outcome {
   if (!year) return text ? resolved(text, "bank", `${what} from your answer bank.`) : unavailable(field, what);
   const fmt = `${field.placeholder ?? ""} ${field.hint ?? ""}`.toUpperCase();
   if (field.kind === "month" && month) return resolved(`${year}-${pad(month)}`, "derived", `${what}: ${text}.`);
   if (field.kind === "date" || /DD/.test(fmt)) {
     if (!month) return manual(`${what} needs a full date; only "${text}" is written down.`);
-    const iso = `${year}-${pad(month)}-01`;
-    const shaped = field.kind === "date" ? iso : /DD\/MM/.test(fmt) ? `01/${pad(month)}/${year}` : `${pad(month)}/01/${year}`;
+    const d = pad(day ?? 1);
+    const iso = `${year}-${pad(month)}-${d}`;
+    const shaped = field.kind === "date" ? iso : /DD\/MM/.test(fmt) ? `${d}/${pad(month)}/${year}` : /YYYY-MM-DD/.test(fmt) ? iso : `${pad(month)}/${d}/${year}`;
+    if (day) return resolved(shaped, "derived", `${what}: ${text}.`);
     return manual(`${what}: the form wants a day, your data says "${text}". Confirm the 1st or change it.`, shaped);
   }
   if (/MM\s*\/\s*YYYY/.test(fmt) && month) return resolved(`${pad(month)}/${year}`, "derived", `${what}: ${text}.`);
@@ -181,7 +191,8 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
       };
     }
     // Voluntary questions nobody has to answer stay blank rather than guessed.
-    if (!field.required && (intent === "demographic" || intent === "referral")) {
+    // An expiry date that does not apply, asked optionally, stays empty: nothing is truer than no date.
+    if (!field.required && (intent === "demographic" || intent === "referral" || intent === "authorization_expiry")) {
       return { value: null, source: "none", status: "skipped", reason: `${reason} Optional, left blank.` };
     }
     return manual(reason);
@@ -243,8 +254,15 @@ function base(field: FormField, candidate: CandidateProfile, job: JobContext, fi
         : unavailable(field, "Program start");
     case "gpa":
       return unavailable(field, "GPA");
-    case "available_from":
-      return dateFor(field, c.availableYear, c.availableMonth, c.availableFrom, "Start availability");
+    case "available_from": {
+      // A notice-period selector, a yes/no "available from …?", or a free-text "when can you start" (lib/apply/availability.ts);
+      // a date box takes the full-time date as written.
+      const formatted = /DD|MM|YYYY|AAAA|JJ/i.test(`${field.placeholder ?? ""} ${field.hint ?? ""}`);
+      const asks = realOptions(field.options).length > 0 || ((field.kind === "text" || field.kind === "textarea") && !formatted);
+      const a = asks ? availabilityAnswer(field, c, job, opts.now) : null;
+      if (a) return "manual" in a ? manual(a.manual) : resolved(a.value, "derived", a.reason);
+      return dateFor(field, c.availableYear, c.availableMonth, c.availableFrom, "Start availability", c.availableDay);
+    }
     case "internship_term": {
       const term = termName(c.availableMonth, c.availableYear, lang);
       return term ? resolved(term, "derived", `Term from your availability (${c.availableFrom}).`) : unavailable(field, "Internship term");

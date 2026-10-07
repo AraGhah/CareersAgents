@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- Fixture: an unknown portal's sign-in, worded its own way ("Log in", "New candidate? Create your profile").
+     ?guest=1 also offers "Apply as Guest" (no account at all); ?mfa=1 sends a signed-in candidate to an SMS code page. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Candidate login</title></head>
+  <body>
+    <h1>Candidate login</h1>
+    <div id="err" role="alert"></div>
+    <label for="u">Username</label>
+    <input id="u" name="username" type="text" />
+    <label for="p">Password</label>
+    <input id="p" name="pass" type="password" />
+    <button id="go" type="button">Log in</button>
+    <p id="guestbox" style="display:none"><button id="guest" type="button">Apply as Guest</button></p>
+    <p>New candidate? <a id="new" href="/account-slow-signup.html">Create your profile</a></p>
+    <script>
+      var q = new URLSearchParams(location.search);
+      document.getElementById("new").href = "/account-slow-signup.html" + location.search;
+      if (q.get("guest")) document.getElementById("guestbox").style.display = "block";
+      document.getElementById("guest").onclick = function () {
+        localStorage.setItem("guest", "1");
+        location.href = "/account-after.html";
+      };
+      document.getElementById("go").onclick = function () {
+        var acct = JSON.parse(localStorage.getItem("acct") || "null");
+        var ok = acct && acct.email === document.getElementById("u").value && acct.password === document.getElementById("p").value;
+        if (!ok) return (document.getElementById("err").textContent = "Invalid username or password.");
+        if (!acct.verified && q.get("unverified")) {
+          // As abb.wd3 shows it: the account exists, its email was never verified.
+          document.getElementById("err").innerHTML = 'Verify your account before you sign in or request a verification email. <a id="resend" href="#">Resend Account Verification</a>';
+          document.getElementById("resend").onclick = function (e) {
+            e.preventDefault();
+            localStorage.setItem("resent", "1");
+          };
+          return;
+        }
+        if (!acct.verified) return (location.href = "/account-code.html" + location.search);
+        location.href = q.get("mfa") ? "/account-mfa.html" : "/account-after.html";
+      };
+    </script>
+  </body>
+</html>

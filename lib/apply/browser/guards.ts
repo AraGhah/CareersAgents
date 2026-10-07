@@ -79,7 +79,7 @@ export async function visibleFormErrors(page: Page): Promise<string[]> {
 }
 
 const CLOSED =
-  /job (you requested )?(was )?not found|job not found|(this |the )?(job|position|posting|role|opportunity) (is |has been )?(no longer (available|accepting|open)|closed|filled|expired)|no longer accepting applications|page (you requested )?(could not be|was not) found|offre (n'est plus disponible|expir[ée]e|introuvable|pourvue|ferm[ée]e)|ce poste (n'est plus|a [ée]t[ée] pourvu)|n'accepte plus de candidatures/i;
+  /job (you requested )?(was )?not found|job not found|(this |the )?(job|position|posting|role|opportunity) (is |has been )?(no longer (available|accepting|open)|closed|filled|expired)|no longer accepting applications|page (you requested )?(could not be|was not) found|(the )?page you are looking for (doesn'?t|does not) exist|cette page n'existe pas|la page (que vous cherchez|demand[ée]e) n'existe pas|offre (n'est plus disponible|expir[ée]e|introuvable|pourvue|ferm[ée]e)|ce poste (n'est plus|a [ée]t[ée] pourvu)|n'accepte plus de candidatures/i;
 
 /** The portal says the posting is gone (closed, filled, expired, 404). */
 export async function detectClosedPosting(page: Page): Promise<string | null> {

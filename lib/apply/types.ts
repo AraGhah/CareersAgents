@@ -81,6 +81,8 @@ export type FieldIntent =
   | "other_file"
   // Always a person's decision; never filled by the desk.
   | "work_authorization"
+  /** "When does your visa / work permit / authorization expire?": never a date the desk makes up. */
+  | "authorization_expiry"
   | "sponsorship"
   | "legal_declaration"
   | "consent"

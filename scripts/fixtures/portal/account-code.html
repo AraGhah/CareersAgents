@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- Fixture: "we've sent a verification code to your email". The right code is 482913; anything else is refused. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Verify your email</title></head>
+  <body>
+    <h1>Verify your email</h1>
+    <p>We've sent a verification code to your email address. Enter it below to activate your profile.</p>
+    <div id="err" role="alert"></div>
+    <label for="c">Verification code</label>
+    <input id="c" name="verificationCode" autocomplete="one-time-code" maxlength="6" />
+    <button id="go" type="button">Verify</button>
+    <script>
+      document.getElementById("go").onclick = function () {
+        localStorage.setItem("codeTyped", document.getElementById("c").value);
+        if (document.getElementById("c").value !== "482913") return (document.getElementById("err").textContent = "Invalid or expired code.");
+        var acct = JSON.parse(localStorage.getItem("acct") || "null");
+        if (acct) {
+          acct.verified = true;
+          localStorage.setItem("acct", JSON.stringify(acct));
+        }
+        location.href = "/account-after.html";
+      };
+    </script>
+  </body>
+</html>

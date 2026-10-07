@@ -66,10 +66,17 @@ const answers: SeedAnswer[] = [
     answer_fr: "Juin 2027",
   },
   {
+    // Full-time start. Before it, only part time alongside school (work_while_studying), when the posting allows it.
     key: "available_from",
     category: "green",
-    answer_en: "January 2027",
-    answer_fr: "Janvier 2027",
+    answer_en: "January 1, 2027",
+    answer_fr: "1er janvier 2027",
+  },
+  {
+    key: "work_while_studying",
+    category: "green",
+    answer_en: "Yes, part time while I finish my studies, when the schedule allows.",
+    answer_fr: "Oui, à temps partiel pendant mes études, si l’horaire le permet.",
   },
   {
     key: "location_rule",

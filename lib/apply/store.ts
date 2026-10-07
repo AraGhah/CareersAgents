@@ -2,6 +2,7 @@
 // approvals that feed the writing-style profile. schema-v11.sql.
 
 import { pool } from "../db";
+import { terminalFlowState, type FlowEvent } from "./flow-state";
 import { redact } from "./account-config";
 import { recordWritingSample } from "./answers/style";
 import { rememberable } from "./memory";
@@ -91,6 +92,27 @@ export async function updateRun(id: string, patch: RunPatch): Promise<void> {
 
 export async function finishRun(id: string, state: RunState, patch: RunPatch = {}): Promise<void> {
   await updateRun(id, { ...patch, state, finished_at: new Date() });
+  // The detailed trail ends with what the coarse state means (unless the run already said it more precisely).
+  const terminal = terminalFlowState(state);
+  if (terminal) {
+    await recordFlow(id, { state: terminal, at: new Date().toISOString(), url: patch.form_url ?? null, detail: patch.blocked_reason ?? patch.error ?? null }, { onlyIfChanged: true });
+  }
+}
+
+/**
+ * Appends one state to the run's trail (schema-v18.sql) and makes it the run's current state. `onlyIfChanged`: nothing is
+ * written when the run is already in that state. Before schema-v18.sql there are no columns: the run is recorded as before.
+ */
+export async function recordFlow(id: string, event: FlowEvent, opts: { onlyIfChanged?: boolean } = {}): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE portal_runs SET flow_state = $2, flow_log = COALESCE(flow_log, '[]'::jsonb) || jsonb_build_array($3::jsonb)
+        WHERE id = $1${opts.onlyIfChanged ? " AND flow_state IS DISTINCT FROM $2" : ""}`,
+      [id, event.state, JSON.stringify(event)],
+    );
+  } catch (err) {
+    if ((err as { code?: string }).code !== "42703") throw err;
+  }
 }
 
 /**

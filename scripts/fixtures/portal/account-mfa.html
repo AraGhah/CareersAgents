@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Fixture: a second factor sent to a phone. Only a person can answer it; the test checks nothing was typed. -->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Two-step verification</title></head>
+  <body>
+    <h1>Two-step verification</h1>
+    <p>We sent a 6-digit code by SMS to your phone number ending in 97. Enter it to continue.</p>
+    <label for="c">Code</label>
+    <input id="c" name="code" autocomplete="one-time-code" oninput="localStorage.setItem('mfaTyped', this.value)" />
+    <button type="button">Continue</button>
+  </body>
+</html>

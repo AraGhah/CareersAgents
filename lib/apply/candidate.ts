@@ -40,6 +40,32 @@ export type CandidateProfile = {
   availableFrom: string | null;
   availableYear: number | null;
   availableMonth: number | null;
+  /** The day, when the answer bank gives one ("January 1, 2027"); null for a month alone. */
+  availableDay: number | null;
+  /**
+   * When you can work, as structure (from the answer bank's available_from and work_while_studying):
+   * full time from `fullTimeStart`; earlier only part time alongside school, and only when you said so.
+   */
+  availability: { fullTimeStart: string | null; canWorkWhileStudying: boolean; whileStudyingNote: string | null };
+  /**
+   * Work authorization as structure, derived from the status you wrote (work_authorization) and the sponsorship answer.
+   * A Canadian citizen needs no visa, no work permit and no sponsorship to work in Canada, and has no authorization that
+   * expires: those follow from citizenship, nothing is guessed. Any other or missing status leaves them null (a person
+   * answers).
+   */
+  authorization: {
+    citizenship: string | null;
+    status: "citizen" | "permanent_resident" | null;
+    canada: {
+      authorized: boolean | null;
+      requiresVisa: boolean | null;
+      requiresWorkPermit: boolean | null;
+      requiresSponsorshipNow: boolean | null;
+      requiresSponsorshipFuture: boolean | null;
+      /** Always null for a citizen: "not applicable", never a date. */
+      expires: null;
+    };
+  };
   locationRule: string | null;
   languagesText: string | null;
   languages: string[];
@@ -74,9 +100,42 @@ const MONTHS: Record<string, number> = {
 
 export function parseMonthYear(text: string | null): { month: number | null; year: number | null } {
   if (!text) return { month: null, year: null };
+  const iso = text.match(/\b(20\d{2})-(\d{2})(?:-\d{2})?\b/);
+  if (iso) return { month: Number(iso[2]), year: Number(iso[1]) };
   const year = Number(text.match(/\b(20\d{2})\b/)?.[1] ?? NaN);
   const monthWord = text.toLowerCase().match(/[a-zéû]+/g)?.find((w) => w in MONTHS);
   return { month: monthWord ? MONTHS[monthWord] : null, year: Number.isFinite(year) ? year : null };
+}
+
+/** "January 1, 2027", "1er janvier 2027", "2027-01-01" → the day; null when only a month is written. */
+export function parseDay(text: string | null): number | null {
+  if (!text) return null;
+  const iso = text.match(/\b20\d{2}-\d{2}-(\d{2})\b/);
+  const day = Number(iso?.[1] ?? text.match(/\b(\d{1,2})(?:er|st|nd|rd|th)?\b(?=[^\d]*\b20\d{2}\b)/i)?.[1] ?? NaN);
+  return Number.isFinite(day) && day >= 1 && day <= 31 ? day : null;
+}
+
+/** What the stored status (red answer "work_authorization") says, as structure. Unclear wording gives nulls. */
+export function authorizationFrom(status: string | null, sponsorship: string | null): CandidateProfile["authorization"] {
+  const s = (status ?? "").toLowerCase();
+  const canadian = /canad/.test(s);
+  const citizen = canadian && /citizen|citoyen/.test(s) && !/\b(not|non|pas)\b/.test(s);
+  const resident = canadian && /permanent resident|r[ée]sident permanent/.test(s);
+  const noSponsorship = sponsorship ? /^\s*(no|non)\b/i.test(sponsorship) : null;
+  const settled = citizen || resident;
+  return {
+    citizenship: citizen ? "Canadian" : null,
+    status: citizen ? "citizen" : resident ? "permanent_resident" : null,
+    canada: {
+      authorized: settled ? true : null,
+      requiresVisa: settled ? false : null,
+      requiresWorkPermit: settled ? false : null,
+      // A citizen never needs sponsorship in Canada; anyone else is read from the stored sponsorship answer only.
+      requiresSponsorshipNow: citizen ? false : noSponsorship === null ? null : !noSponsorship,
+      requiresSponsorshipFuture: citizen ? false : noSponsorship === null ? null : !noSponsorship,
+      expires: null,
+    },
+  };
 }
 
 const PROVINCES: Record<string, { en: string; fr: string }> = {
@@ -158,6 +217,9 @@ export function buildCandidateProfile(opts: {
   const grad = parseMonthYear(graduation);
   const availableFrom = green("available_from");
   const avail = parseMonthYear(availableFrom);
+  const availDay = parseDay(availableFrom);
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const whileStudying = green("work_while_studying");
 
   const languagesText = green("languages");
   const languages = [
@@ -198,6 +260,13 @@ export function buildCandidateProfile(opts: {
     availableFrom,
     availableYear: avail.year,
     availableMonth: avail.month,
+    availableDay: availDay,
+    availability: {
+      fullTimeStart: avail.year && avail.month && availDay ? `${avail.year}-${pad2(avail.month)}-${pad2(availDay)}` : null,
+      canWorkWhileStudying: !!whileStudying && /^\s*(yes|oui)\b/i.test(whileStudying),
+      whileStudyingNote: whileStudying,
+    },
+    authorization: authorizationFrom(personal.work_authorization ?? null, personal.sponsorship ?? null),
     locationRule: green("location_rule"),
     languagesText,
     languages,
