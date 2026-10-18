@@ -4,7 +4,7 @@
 // yellow = a model may reword it for a specific posting, I read the result
 // red    = never auto-filled, never guessed, I type it myself every time
 //
-// Facts below come from my public portfolio (aragahramanyan.dev) and from the
+// Facts below come from my public portfolio (araghah.com) and from the
 // dates I already set for this search. Rerunning is safe: a null in this file
 // does not wipe a value that is already in the database.
 
@@ -47,9 +47,9 @@ const answers: SeedAnswer[] = [
     key: "links",
     category: "green",
     answer_en:
-      "Portfolio: https://ara-hall-of-projects.vercel.app  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan",
+      "Portfolio: https://araghah.com  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan",
     answer_fr:
-      "Portfolio : https://ara-hall-of-projects.vercel.app  GitHub : https://github.com/AraGhah  LinkedIn : https://linkedin.com/in/ara-ghahramanyan",
+      "Portfolio : https://araghah.com  GitHub : https://github.com/AraGhah  LinkedIn : https://linkedin.com/in/ara-ghahramanyan",
   },
   {
     key: "school_program",

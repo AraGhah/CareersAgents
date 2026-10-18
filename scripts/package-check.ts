@@ -43,7 +43,7 @@ async function main() {
     projects: result.projects,
     availability: "January 2027",
     locationRule: "Montréal or Laval on-site or hybrid; fully remote elsewhere in Canada",
-    links: ["https://aragahramanyan.dev"],
+    links: ["https://araghah.com"],
     lang: result.lang,
   };
   // Letter still names the real company from the earlier build text; forge one that swaps names.

@@ -5,7 +5,7 @@
 // highlight_for drives which projects a posting surfaces later:
 // 'backend' | 'fullstack' | 'ai' | 'gamedev' | 'cloud'
 //
-// Summaries are shortened from the case studies on aragahramanyan.dev.
+// Summaries are shortened from the case studies on araghah.com.
 //
 // lib/project-facts.ts holds the first-person letter wording for each project,
 // matched by name. Keep the two in step.

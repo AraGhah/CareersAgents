@@ -221,7 +221,7 @@ async function buildConfig() {
       default_resume_path: resumePath,
       years_of_experience: "0",
       require_visa: /^no/i.test(bank.get("sponsorship_required") ?? "") ? "No" : "Yes",
-      website: linkFrom(links, /vercel\.app|portfolio/i) || linkFrom(links, /github\.com/i),
+      website: linkFrom(links, /araghah\.com|vercel\.app|portfolio/i) || linkFrom(links, /github\.com/i),
       linkedIn: linkFrom(links, /linkedin\.com/i),
       legally_authorized: authorized ? "Yes" : "No",
       us_citizenship: authorized ? "Canadian Citizen/Permanent Resident" : "Other",

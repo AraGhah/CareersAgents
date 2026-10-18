@@ -44,7 +44,7 @@ const base = {
   links: [
     "https://linkedin.com/in/ara-ghahramanyan",
     "https://github.com/AraGhah",
-    "https://ara-hall-of-projects.vercel.app",
+    "https://araghah.com",
   ],
   email: "ara.ghahramanyan07@gmail.com",
   phone: "438-993-6997",
@@ -181,7 +181,7 @@ async function checkScenario(s: Scenario, outDir: string | null) {
   assert(head[0] === input.fullName, `${where}: header starts with the name`);
   assert(head[1] === "Montréal, QC | 438-993-6997 | ara.ghahramanyan07@gmail.com", `${where}: contact line: ${head[1]}`);
   assert(head[2] === "linkedin.com/in/ara-ghahramanyan | github.com/AraGhah", `${where}: profiles line: ${head[2]}`);
-  assert(head[3] === "ara-hall-of-projects.vercel.app", `${where}: portfolio line: ${head[3]}`);
+  assert(head[3] === "araghah.com", `${where}: portfolio line: ${head[3]}`);
 
   // Six parts: header, then opening, match, proof, company fit, closing.
   const paragraphs = paragraphsAfterGreeting(letter, lang);
@@ -243,7 +243,7 @@ async function checkScenario(s: Scenario, outDir: string | null) {
     input.phone!,
     `LinkedIn${label} https://linkedin.com/in/ara-ghahramanyan`,
     `GitHub${label} https://github.com/AraGhah`,
-    `Portfolio${label} https://ara-hall-of-projects.vercel.app`,
+    `Portfolio${label} https://araghah.com`,
   ]) {
     assert(email.body.split("\n").includes(line), `${where}: email signature is missing the line "${line}"`);
   }
@@ -304,7 +304,7 @@ Ara Ghahramanyan
 438-993-6997
 LinkedIn: https://linkedin.com/in/ara-ghahramanyan
 GitHub: https://github.com/AraGhah
-Portfolio: https://ara-hall-of-projects.vercel.app`;
+Portfolio: https://araghah.com`;
 
 /** The posting the example was written for, with the answers and projects the generator would have. */
 function checkFactPhrasing() {

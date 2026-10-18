@@ -69,7 +69,7 @@ const ANSWERS: Answer[] = [
   answer("email", "green", "ara.ghahramanyan07@gmail.com"),
   answer("phone", "green", "438-993-6997"),
   answer("city", "green", "Montréal, QC"),
-  answer("links", "green", "Portfolio: https://ara-hall-of-projects.vercel.app  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan"),
+  answer("links", "green", "Portfolio: https://araghah.com  GitHub: https://github.com/AraGhah  LinkedIn: https://linkedin.com/in/ara-ghahramanyan"),
   answer("school_program", "green", "Third-year Computer Science Technology (DEC) at Collège de Bois-de-Boulogne, 2024 to now."),
   answer("graduation_date", "green", "June 2027"),
   answer("available_from", "green", "January 2027"),
